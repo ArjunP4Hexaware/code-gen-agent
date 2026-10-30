@@ -138,7 +138,7 @@ def run_job(job: Layer2Job, provider, *, config, base_dir: Path | None = None):
         candidates = list(job.replay)
         usage = replay_usage(candidates)
     else:
-        layer2 = reason_over_packs(job.packs, provider)
+        layer2 = reason_over_packs(job.packs, provider, reasoning=config.reasoning)
         # 2026-10-14: every failed Layer-2 attempt on the log (reason + RAW, D1-only)
         log_layer2_failures(provider, job.feed_slug, config,
                             base_dir if base_dir is not None else Path("."))

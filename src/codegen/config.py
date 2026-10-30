@@ -685,6 +685,10 @@ class ReasoningConfig(BaseModel):
     # max_tokens — the endpoint's extended thinking spends the same budget) is
     # retried with this many tokens, said in the log.
     truncation_max_tokens: int = Field(default=32000, gt=0)
+    # post159 (P1-6, L2-3): the fewest words a Layer-2 citation may quote (a
+    # whole rule / excerpt that is shorter still counts); at least one citation
+    # must quote the candidate's own rule (codegen.reasoning.grounding).
+    min_citation_words: int = Field(gt=0)
     # Layer-2 transport: "anthropic" (default, direct API) or
     # "databricks_fmapi" (the same Claude model served by Databricks
     # Foundation Model APIs — a transport, not a vendor change; Anthropic

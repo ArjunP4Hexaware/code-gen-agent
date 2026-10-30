@@ -552,6 +552,14 @@ reasoning:
   # that ends inside its JSON object was cut off at max_tokens (extended
   # thinking spends the same budget) — that call's retry asks with this many.
   truncation_max_tokens: 32000
+  # post159 (P1-6, L2-3): a Layer-2 citation is grounded only when it quotes,
+  # on word boundaries, at least this many words of contract text (or a whole
+  # rule / excerpt that is shorter) and is not just a column name; at least
+  # one citation must quote the candidate's OWN rule - a sibling rule, the SLA
+  # or the frequency count only as extras. 3 = the shortest phrase that still
+  # states a condition ("must not be", "reject the file"); one word or a
+  # stopword grounds nothing.
+  min_citation_words: 3
   # Layer-2 transport: anthropic (default) | databricks_fmapi (same Claude
   # model via the databricks.serving_endpoint — transport only; needs the
   # [databricks] extra and resolvable workspace auth; mock still wins on

@@ -64,8 +64,8 @@ def _packs():
                         audit_columns=[]) for r in rules]
 
 
-def test_a_filtered_batch_costs_only_the_rule_that_tripped_it():
-    candidates = reason_over_packs(_packs(), _Provider())
+def test_a_filtered_batch_costs_only_the_rule_that_tripped_it(config):
+    candidates = reason_over_packs(_packs(), _Provider(), reasoning=config.reasoning)
     assert [c.response is not None for c in candidates] == [True, True, False]
     assert all(c.grounded for c in candidates[:2])
     (note,) = candidates[2].failure_notes

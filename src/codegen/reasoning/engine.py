@@ -9,6 +9,8 @@ exception that aborts generation of the deterministic modules.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel, ConfigDict
 
 from codegen.contracts.resolved import ResolvedFeedSpec
@@ -17,6 +19,9 @@ from codegen.reasoning.grounding import grounding_failures
 from codegen.reasoning.providers import Provider
 from codegen.reasoning.schema import CandidateResponse, ContextPack
 from codegen.rules.compiler import RuleOutcome
+
+if TYPE_CHECKING:
+    from codegen.config import ReasoningConfig
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -130,9 +135,11 @@ def run_reasoning(
     spec: ResolvedFeedSpec,
     outcomes: list[RuleOutcome],
     provider: Provider,
+    *,
+    reasoning: ReasoningConfig,
 ) -> list[RuleCandidate]:
     """Produce one candidate per unmapped outcome, in contract order."""
-    return reason_over_packs(unmapped_packs(spec, outcomes), provider)
+    return reason_over_packs(unmapped_packs(spec, outcomes), provider, reasoning=reasoning)
 
 
 def unmapped_packs(spec: ResolvedFeedSpec, outcomes: list[RuleOutcome]) -> list[ContextPack]:
@@ -141,17 +148,19 @@ def unmapped_packs(spec: ResolvedFeedSpec, outcomes: list[RuleOutcome]) -> list[
     return [build_context_pack(spec, o) for o in outcomes if o.classification == "unmapped"]
 
 
-def reason_over_packs(packs: list[ContextPack], provider: Provider) -> list[RuleCandidate]:
+def reason_over_packs(packs: list[ContextPack], provider: Provider, *,
+                      reasoning: ReasoningConfig) -> list[RuleCandidate]:
     """One candidate per pack (one feed's rules), in order.
 
     post76: a provider with ``complete_batch`` gets the feed's rules in ONE
     request (D1 post73 pair_11: one request per rule per feed); each answer is
-    grounding-checked against its own rule's pack. A provider without it is
-    asked rule by rule."""
+    grounding-checked against its own rule's pack (post159: under
+    ``reasoning.min_citation_words``). A provider without it is asked rule by
+    rule."""
     if not packs:
         return []
     if hasattr(provider, "complete_batch"):
-        return _batch(packs, provider)
+        return _batch(packs, provider, reasoning)
     candidates: list[RuleCandidate] = []
     for pack in packs:
         try:
@@ -159,11 +168,12 @@ def reason_over_packs(packs: list[ContextPack], provider: Provider) -> list[Rule
         except Exception as exc:  # noqa: BLE001 — recorded, never silently dropped
             candidates.append(_failed(pack, provider, _failure_note(provider, exc)))
             continue
-        candidates.append(_answered(pack, provider, response))
+        candidates.append(_answered(pack, provider, response, reasoning))
     return candidates
 
 
-def _batch(packs: list[ContextPack], provider: Provider) -> list[RuleCandidate]:
+def _batch(packs: list[ContextPack], provider: Provider,
+           reasoning: ReasoningConfig) -> list[RuleCandidate]:
     """One request for the feed's rules; rule n = ``packs[n-1]``."""
     try:
         answers = provider.complete_batch(packs)       # type: ignore[attr-defined]
@@ -172,7 +182,7 @@ def _batch(packs: list[ContextPack], provider: Provider) -> list[RuleCandidate]:
             # post158 (live injection eval): one rule whose text trips the
             # endpoint's safety filter blanked every rule of the feed - ask
             # rule by rule so only that rule fails, and it says why.
-            return [_one(pack, provider) for pack in packs]
+            return [_one(pack, provider, reasoning) for pack in packs]
         return [_failed(pack, provider, _failure_note(provider, exc)) for pack in packs]
     candidates: list[RuleCandidate] = []
     for number, pack in enumerate(packs, 1):
@@ -183,7 +193,7 @@ def _batch(packs: list[ContextPack], provider: Provider) -> list[RuleCandidate]:
                 f"provider '{provider.name}' failed: the feed's batched response gave no "
                 f"candidate for rule {number} of {len(packs)}"))
             continue
-        candidates.append(_answered(pack, provider, response))
+        candidates.append(_answered(pack, provider, response, reasoning))
     return candidates
 
 
@@ -200,17 +210,19 @@ def _failure_note(provider: Provider, exc: BaseException) -> str:
     return f"provider '{provider.name}' failed: {exc}"
 
 
-def _one(pack: ContextPack, provider: Provider) -> RuleCandidate:
+def _one(pack: ContextPack, provider: Provider, reasoning: ReasoningConfig) -> RuleCandidate:
     """One rule asked on its own (the batch fallback)."""
     try:
         response = provider.complete(pack)
     except Exception as exc:  # noqa: BLE001 — recorded, never silently dropped
         return _failed(pack, provider, _failure_note(provider, exc))
-    return _answered(pack, provider, response)
+    return _answered(pack, provider, response, reasoning)
 
 
-def _answered(pack: ContextPack, provider: Provider, response) -> RuleCandidate:
-    failures = grounding_failures(pack, response)
+def _answered(pack: ContextPack, provider: Provider, response,
+              reasoning: ReasoningConfig) -> RuleCandidate:
+    failures = grounding_failures(pack, response,
+                                  min_citation_words=reasoning.min_citation_words)
     return RuleCandidate(feed_id=pack.feed_id, rule_text=pack.rule_text,
                          provider=provider.name, response=response,
                          grounded=not failures, failure_notes=failures)

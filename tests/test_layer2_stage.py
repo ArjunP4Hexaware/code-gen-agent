@@ -259,7 +259,7 @@ def test_one_request_carries_every_rule(config, monkeypatch, _live):
     from codegen.reasoning.engine import reason_over_packs
 
     provider, sent = _fmapi(config, monkeypatch, [f"```json\n{_batch(1, 2, 3)}\n```"])
-    candidates = reason_over_packs(_packs(3), provider)
+    candidates = reason_over_packs(_packs(3), provider, reasoning=config.reasoning)
     assert len(sent) == 1 and provider.calls == 1
     assert '"rules": [' in sent[0]["prompt"] and '"rule": 3' in sent[0]["prompt"]
     assert "ONE entry per rule" in sent[0]["system"]
@@ -272,7 +272,7 @@ def test_a_rule_left_out_is_asked_again_then_recorded_failed(config, monkeypatch
     from codegen.reasoning.usage import layer2_usage
 
     provider, sent = _fmapi(config, monkeypatch, [_batch(1, 3), _batch(1, 3)])
-    candidates = reason_over_packs(_packs(3), provider)
+    candidates = reason_over_packs(_packs(3), provider, reasoning=config.reasoning)
     assert len(sent) == 2 and "no candidate for rule(s) 2" in sent[1]["prompt"]
     assert [c.response is None for c in candidates] == [False, True, False]
     assert "gave no candidate for rule 2 of 3" in candidates[1].failure_notes[0]
@@ -288,10 +288,13 @@ def test_a_citation_from_another_rule_s_text_is_still_contract_text(config, monk
 
     answer = json.dumps({"candidates": [{**VALID, "rule": 1, "citations": ["not in the pack"]}]})
     provider, _sent = _fmapi(config, monkeypatch, [answer])
-    (candidate,) = reason_over_packs(_packs(1), provider)
+    (candidate,) = reason_over_packs(_packs(1), provider, reasoning=config.reasoning)
     assert candidate.response is not None and not candidate.grounded
-    assert candidate.failure_notes == ["citation is not verbatim contract text: "
-                                       "'not in the pack'"]
+    # post159: notes name a citation by position, never by the model's text
+    assert candidate.failure_notes == [
+        "citation 1 of 1 is not verbatim contract text",
+        "no citation quotes the candidate's own rule text (at least 3 words, or the "
+        "whole rule)"]
 
 
 # ---------------------------------------------------------------- the App

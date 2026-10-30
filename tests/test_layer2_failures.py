@@ -104,7 +104,7 @@ def test_every_failure_is_logged_with_its_reason_and_raw_text(config, monkeypatc
     # rule by rule (a provider without complete_batch); the batched request is
     # tests/test_layer2_stage.py's
     per_rule = type("PerRule", (), {"name": provider.name, "complete": provider.complete})()
-    candidates = run_reasoning(spec, outcomes, per_rule)
+    candidates = run_reasoning(spec, outcomes, per_rule, reasoning=config.reasoning)
     assert [c.response is None for c in candidates] == [True, False, True]
     assert [(f.request, f.attempt, f.recovered) for f in provider.failures] == [
         (1, 1, False), (1, 2, False), (2, 1, True), (3, 1, False)]

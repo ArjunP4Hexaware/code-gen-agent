@@ -2569,7 +2569,11 @@ def _main(argv: list[str] | None = None) -> int:
                   exc=exc)
             return 1
         if args.xlsx:
-            build_workbook(payload).save(args.xlsx)
+            from codegen.xlsx_safe import neutralize_formulas
+
+            book = build_workbook(payload)
+            neutralize_formulas(book)  # P0-5: document text is never a formula
+            book.save(args.xlsx)
             coverage = payload["coverage"]
             print(f"{'WRITTEN':<15} {args.xlsx} — {coverage['derived']}/{coverage['total']} "
                   "cells derived from documents")

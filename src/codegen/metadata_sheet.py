@@ -1017,6 +1017,10 @@ def stable_workbook_bytes(workbook: Workbook) -> bytes:
     import re
     import zipfile
 
+    from codegen.xlsx_safe import neutralize_formulas
+
+    # P0-5: document text is data - a cell starting '=' is never a formula
+    neutralize_formulas(workbook)
     buffer = io.BytesIO()
     workbook.save(buffer)
     source = zipfile.ZipFile(io.BytesIO(buffer.getvalue()))

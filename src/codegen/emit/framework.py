@@ -53,6 +53,7 @@ from codegen.gate.derivations import (
     path_whitespace_flags,
 )
 from codegen.gate.preflight import GateCheck
+from codegen.gate.xlsx_formulas import check_xlsx_no_formulas
 from codegen.metadata_sheet import (
     BADGE_LABELS,
     DERIVED_BADGES,
@@ -1209,6 +1210,8 @@ def emit_framework(
     checks.append(check_iig_workbooks_single_value(
         [rows_path] + ([clean_path] if profile.emit_iig_review else []),
         config.gate.derivations))
+    # P0-5: no emitted workbook holds a formula cell (document text is data)
+    checks.append(check_xlsx_no_formulas([p for p in files if p.suffix == ".xlsx"]))
     # 2026-10-16: ADDITION.md describes what is presented — the DDL, the IIG
     # and its review copy — and the review flow (IIG -> BSA review -> CI/CD
     # applies the DDL); the other framework files are written, not described.
@@ -1283,6 +1286,10 @@ def _held_iig_artefacts(spec, config, files, framework_dir, banner, ddl_names, f
         "the agent never creates target tables. |"
     )
     held_back = [held]
+    # P0-5: the held feed's workbooks (the DDL test record) hold no formula either
+    workbooks = [p for p in files if p.suffix == ".xlsx"]
+    if workbooks:
+        checks = [*checks, check_xlsx_no_formulas(workbooks)]
     addition_path = framework_dir / "ADDITION.md"
     addition_path.write_text(
         _ADDITION_TEMPLATE.format(

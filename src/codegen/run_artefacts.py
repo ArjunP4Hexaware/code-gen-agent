@@ -356,6 +356,13 @@ def write_combined(out_root: Path, sttm: str, kept: list[KeptFeed],
                                                                       "--standard table"))
         (folder / names["ddl"]).write_text(text, encoding="utf-8", newline="")
         written["ddl"] = names["ddl"]
+    workbooks = [folder / name for name in written.values() if name.endswith(".xlsx")]
+    if workbooks:
+        # P0-5: the combined workbooks hold no formula cell (document text is data)
+        from codegen.gate.xlsx_formulas import check_xlsx_no_formulas
+
+        if not check_xlsx_no_formulas(workbooks).passed:
+            failed_checks.append("xlsx_no_formulas")
     log = _log_text(sttm, kept, excluded, names, written, merge, ddl_skipped, conflicts,
                     failed_checks, provenance, config)
     (folder / names["log"]).write_text(log, encoding="utf-8", newline="\n")

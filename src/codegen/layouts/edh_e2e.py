@@ -1324,6 +1324,9 @@ def questions_workbook(contract: GoldContract) -> tuple[bytes, int]:
             )
             rows += 1
         sheet.freeze_panes = "A2"
+    from codegen.xlsx_safe import neutralize_formulas
+
+    neutralize_formulas(book)  # P0-5: a quoted document cell is never a formula
     buf = io.BytesIO()
     book.save(buf)
     return buf.getvalue(), rows

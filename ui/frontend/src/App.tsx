@@ -69,8 +69,8 @@ export function App() {
           none) and the provider badge, visible on every page */}
       <header className="topbar">
         {logo ? (
-          <NavLink to="/" className="topbar-logo" title="Generate a pipeline">
-            <img src="/api/branding/logo" alt="Logo" />
+          <NavLink to="/" className="topbar-logo" tabIndex={-1} aria-hidden="true">
+            <img src="/api/branding/logo" alt="" />
           </NavLink>
         ) : null}
         <NavLink to="/" className="topbar-brand" title="Generate a pipeline">
@@ -185,6 +185,7 @@ export function App() {
               element={
                 <Dashboard
                   data={data}
+                  loadFailed={data === null && error !== null}
                   generating={generating}
                   onGenerateAll={generateAll}
                   onFeedsChanged={refresh}

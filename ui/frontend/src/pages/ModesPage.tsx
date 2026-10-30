@@ -621,6 +621,22 @@ export function ModesPage({
     ? envOptions.source === "custom" ? "custom" : envOptions.selected ?? envOptions.default : null;
   const envMissing = envOptions?.missing_required?.length ?? 0;
 
+  // post157: until the first status arrives the page knows nothing - say so,
+  // never "0 of 2 required chosen" / step 1 for documents that ARE chosen
+  if (status === null && !error) {
+    return (
+      <div className="landing">
+        <div className="landing-head">
+          <h1 className="landing-title">Generate a pipeline from your STTM and FRD</h1>
+        </div>
+        <section className="card loading-card" aria-busy="true" aria-label="loading">
+          <span className="spinner" />
+          <span>Loading the documents and settings…</span>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="landing">
       <div className="landing-head">

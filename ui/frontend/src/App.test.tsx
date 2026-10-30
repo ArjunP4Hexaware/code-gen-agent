@@ -85,6 +85,11 @@ describe("the header logo", () => {
     await open("/");
     const img = host.querySelector<HTMLImageElement>(".topbar-logo img")!;
     expect(img.getAttribute("src")).toBe("/api/branding/logo");
+    // post157: decoration - the wordmark beside it is the one link (one tab stop)
+    const link = host.querySelector(".topbar-logo")!;
+    expect(link.getAttribute("tabindex")).toBe("-1");
+    expect(link.getAttribute("aria-hidden")).toBe("true");
+    expect(img.getAttribute("alt")).toBe("");
     expect(host.querySelector(".topbar")!.firstElementChild!.classList.contains("topbar-logo")).toBe(true);
   });
 });

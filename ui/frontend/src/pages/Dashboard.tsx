@@ -103,8 +103,11 @@ export function Dashboard({
   generating,
   onGenerateAll,
   onFeedsChanged,
+  loadFailed = false,
 }: {
   data: FeedsResponse | null;
+  /* post157: the App's /api/feeds call failed (its error card says why) */
+  loadFailed?: boolean;
   generating: boolean;
   onGenerateAll: () => void;
   onFeedsChanged: () => void | Promise<void>;
@@ -174,6 +177,25 @@ export function Dashboard({
       </span>
     </li>
   );
+
+  if (data === null) {
+    return (
+      <div className="landing">
+        <div className="landing-head">
+          <h1 className="landing-title">Results</h1>
+          <p className="landing-lead">
+            {loadFailed ? "The results could not be loaded." : "Loading the results…"}
+          </p>
+        </div>
+        {loadFailed ? null : (
+          <section className="card loading-card" aria-busy="true" aria-label="loading">
+            <span className="spinner" />
+            <span>Loading the results…</span>
+          </section>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="landing">

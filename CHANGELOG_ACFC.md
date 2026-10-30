@@ -4,6 +4,25 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post157 — 2026-10-30 (UI audit fixes: loading states, phone width, targets, headings)
+
+From a Playwright audit of the local App (mock, synthetic pair 4). Frontend only:
+- **Loading states:** Generate shows a busy card until the first status answer (it no
+  longer flashes "0 of 2 required chosen" and step 1 for documents that are chosen);
+  Results shows "Loading the results…" while waiting and "The results could not be
+  loaded." when `/api/feeds` fails, never "No results yet" before the App knows
+  (Results layout shift 0.38 → 0.11).
+- **Phone width (390 px):** the feed page no longer scrolls sideways (88–91 px → 0): the
+  page head and check rows wrap, the tab strip scrolls inside itself, the generated-code
+  file tree stacks above the code, key/value lists go to one column.
+- **Targets of at least 24 px** (WCAG 2.2 2.5.8): link buttons, every `<summary>`, the
+  file-tree buttons, 18 px checkboxes / radios (generated code: 18 small targets → 1).
+- **Header logo** is decoration: no tab stop, `alt=""`, `aria-hidden` (the wordmark is the
+  one link home).
+- **Report tab:** the report's own headings move one level down (`demoteHeadings`), so
+  the page keeps one `h1`.
+- Tests: `ui/frontend/src/pages/UiAudit157.test.tsx`, `App.test.tsx` (the logo).
+
 ## 0.5.8.post156 — 2026-10-29 (one STTM sheet, several tables: a feed per table)
 
 Soham (2026-10-29), the pair_09 shape: the FRD's one block names N target tables and the

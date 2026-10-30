@@ -1613,3 +1613,23 @@ details.details-fold > .details-body { margin-top: 12px; }
 .flag-issues > .issue { margin-top: 8px; font-size: 13.5px; color: var(--ink-2); overflow-wrap: anywhere; }
 .flag-issues > .issue.flag-hitl { background: var(--surface); }
 .check-row .pill { flex-shrink: 0; }
+
+/* post157 (UI audit): the loading card; targets of at least 24 px (WCAG 2.2
+   2.5.8); the feed page within a phone's width */
+.loading-card { display: flex; align-items: center; gap: 14px; color: var(--ink-2); }
+.link-btn { min-height: 24px; padding: 2px 4px; }
+details > summary { min-height: 24px; align-content: center; }
+.file-tree button { min-height: 24px; }
+input[type="checkbox"], input[type="radio"] { width: 18px; height: 18px; margin: 3px; }
+.page-head { flex-wrap: wrap; }
+.tabs { overflow-x: auto; scrollbar-width: thin; }
+.tab { flex-shrink: 0; }
+.check-row { flex-wrap: wrap; }
+.check-row .details { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .code-layout { flex-direction: column; }
+  .file-tree { width: 100%; max-height: 240px; border-right: none;
+    border-bottom: 1px solid var(--hairline); }
+  .kv { grid-template-columns: 1fr; }
+  .kv dd { margin-bottom: 6px; }
+}

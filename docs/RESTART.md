@@ -4,6 +4,51 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
+## State (2026-10-31 — post159)
+
+- **Branch** `feature/multi-table`: pushed at post159 (620b5ee). App `codegen-agent`
+  deployed from it, `/api/health` = post159, smoke green (Generate + Results: 200, no
+  console errors), CSP / nosniff / no-referrer / X-Frame-Options live. post158
+  (2b1e0c8) was deployed first. Both suites green on each; 12-pair mock check
+  (framework + notebook) = outcomes and artefacts unchanged, only the known noise.
+- **Prompt-injection / hostile-document hardening (2026-10-30/31):** red-team
+  workflow (5 surfaces, mock, synthetic; plan `/tmp/t/pi/HARDENING_PLAN.md`, lost on a
+  container reset - the CHANGELOG entries post158/post159 carry what was done) + a
+  live injection eval on synthetic pair 4 (30 FMAPI calls; the model obeyed no
+  planted instruction; harnesses `/tmp/t/pi/live/`). Done: every P0 and P1 item,
+  P2-2, P2-9, P2-10, the content-filter fallback, the layout claim routing.
+  **Open (P2):** P2-1 untrusted-data clause in the layout / Layer-2 system prompts
+  (needs a live re-run of the eval to measure - billed, ask); P2-3 control / bidi
+  characters blanked + flagged; P2-4 hidden rows / sheets flagged; P2-5 raw model
+  log opt-in; P2-6 leak-gate NFKC / separators; P2-7 validate_tsql literals; P2-8
+  feed-name length cap; P2-11 validate_advice hygiene; the advice request is not
+  size-capped yet. **Decisions for Soham:** `layout.cache_model_placements`
+  (true = today's caching, re-checked on every hit); should a disputed model
+  placement block a bare CLI generate; ruff missing in notebook mode stays a flag
+  (CLAUDE.md rule) now that `python_compiles` exists.
+- **Arjun's STTM-agent output** (Workspace `sttm_agent_staging/SDOH_column_derivation`,
+  4 bands incl. BSL, a `Transformations/Data Quality` column per band, a "derived as"
+  standard column): three changes prototyped and adversarially tested on branches
+  `wip/mod-a` (standard-band transformation text + `derived_column` flags), `wip/mod-b`
+  (the "IF <col> is null or blank, THEN REJECT" wording), `wip/mod-c` (a BSL band known
+  and excluded), combined `wip/mod-abc` (both suites green, 12-pair unchanged); worktrees
+  `/tmp/t/wt_a|b|c|abc`. NOT built: each needs Soham's call (mod A: a derived row with no
+  source field - DDL column or flag only, plus the pre-existing silent drop / CAQH crash
+  / audit mis-filing of such rows; mod B: whether the rule feeds the dedup key, and
+  whether the framework's NullCheck rejects blanks; mod C: source + BSL-only sheet =
+  FAIL instead of NEEDS_ANSWERS, one-time layout-cache miss at deploy). Suggested order:
+  C, then A with the derived-row fixes, then B.
+- **Data Lakehouse Data Layers Standards** (read as v1.3): mapped in
+  `docs/EDO_STANDARDS_ALIGNMENT.md` (pushed). Proposed, not built: flags
+  `load_strategy_deviation:<layer>` and a schema-naming check from an overlay table;
+  stage all-string vs `typed_stage` and the STD default cleansing go to the
+  architecture team.
+- **Shared spreadsheet:** the update script is in the Workspace,
+  `/Workspace/Users/<me>/sheet_scripts/codegen_sheet_update_30oct.ts` (the App's
+  terminal copies only the visible part of a long paste - put scripts there).
+- **OAuth for deploys** expired once this session: the `BROWSER=echo` login recipe
+  (After a container reset -> OAuth) worked; the URL also went to a Workspace file.
+
 ## State (2026-10-30 — post157)
 
 - **Branch** `feature/multi-table`: pushed, working tree clean. App `codegen-agent`
@@ -51,6 +96,15 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
     DDL OK twice, test cases 0 FAIL (11 / 33 / 11 / 44 / 33 PASS; NO DATA = empty
     tables); pair_03 unchanged. 12-pair check post152 vs post153: 12/12 same outcome,
     187 files both sides, 17 differ — all `_DDL_TestCases.txt`, only by the `+ 1`.
+  - **2026-10-30: tables KEPT for Venu.** Pairs 01, 02, 04, 11, 12 regenerated (mock
+    harness, code 79c9756 = post157), DDL run twice + every test case, tables left in
+    place: 24 managed tables in `d1_dlk.soham_test` (`<schema>__<table>`, empty - no file
+    loaded). DDL 48/48 OK on both runs; tests 120 PASS + 36 PASS needing a loaded file,
+    26 NO DATA, 0 FAIL. pair_11 is GATE_FAIL on one of its five feeds (one column name
+    no identifier - `ddl_identifiers`; same on post153, inputs unchanged since 10-12/10-19);
+    its combined DDL covers the four clean feeds. Runner `/tmp/t/ddlt_keep.py` (=
+    ddlt_run.py without the drop). Not shown after all: all 24 dropped the same day
+    (Soham), `d1_dlk.soham_test` empty again.
   - Not tested yet: loading a real file through the framework (the load cases are
     written steps); pair_03's DDL.
   - **Audit-log test case (item 4 of the post154 list): blocked on a name.** The

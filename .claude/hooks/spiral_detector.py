@@ -76,10 +76,13 @@ SIGNAL_B_EDITS_WHILE_FAILING = 4  # b: same file edited N+ times while failing
 # each leaving a test failing in a file that had no failing test before and that the
 # attempt didn't touch. pytest IDs only (they carry the file). See retros/2026-10-31-hook.md.
 SIGNAL_D_CASCADE_STEPS = 2
-SIGNAL_D_MODE = "shadow"  # "live" | "shadow" (logged in fires.jsonl, not shown) | "off"
+SIGNAL_D_MODE = "live"  # "live" | "shadow" (logged in fires.jsonl, not shown) | "off"
+# Live by default (user decision 2026-11-01), so a machine that fails to apply its setting
+# fails loud (an alarm it meant to quiet), never silent (an alarm that is off).
 # Per machine, without forking the code: SPIRAL_BREAKER_D_MODE=live|shadow|off in the
-# environment (e.g. a project's untracked .claude/settings.local.json "env") overrides the
-# default above. Anything else falls back to the default.
+# environment (e.g. the "env" block of ~/.claude/settings.json) overrides the default.
+# Anything else falls back to the default. Each run records the mode it actually used
+# in the repo's state file ("d_mode"): check that, not a shell's echo.
 D_MODE_ENV = "SPIRAL_BREAKER_D_MODE"
 _D_MODES = ("live", "shadow", "off")
 RECENT_EDITS_KEPT = 500  # (edit number, file fingerprint) pairs kept for signal d
@@ -1037,6 +1040,7 @@ def process(
             seen.append(ident)
             del seen[:-SEEN_EVENTS_KEPT]
         _write_trace(home, repo, rec, now)
+        state["d_mode"] = d_mode()  # what THIS process saw: proof the setting arrived
         fires = step(state, rec)
         _save(state_file, state)
         for signal, _, fields in fires:

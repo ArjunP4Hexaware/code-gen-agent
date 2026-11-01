@@ -127,16 +127,18 @@ def test_d_off_never_fires(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_d_pre_registered_settings() -> None:
     assert sd.SIGNAL_D_CASCADE_STEPS == 2
-    assert sd.SIGNAL_D_MODE == "shadow"
+    # live by default (user decision 2026-11-01): a machine that fails to apply its
+    # setting fails LOUD (an alarm it meant to quiet), never silent (an alarm that is off)
+    assert sd.SIGNAL_D_MODE == "live"
     assert sd.D_MODE_ENV == "SPIRAL_BREAKER_D_MODE"
 
 
 @pytest.mark.parametrize(("env", "mode"), [
-    (None, "shadow"),            # unset: the module default
-    ("live", "live"),            # a machine where (d) is live
-    (" LIVE ", "live"),          # tolerant of case and spaces
+    (None, "live"),              # unset: the module default
+    ("shadow", "shadow"),        # a machine that opts out (logged, not shown)
+    (" SHADOW ", "shadow"),      # tolerant of case and spaces
     ("off", "off"),
-    ("loud", "shadow"),          # unknown: the safe default, never an error
+    ("quiet", "live"),           # unknown: the default, never an error
 ])
 def test_the_environment_sets_d_mode_per_machine(
     env: str | None, mode: str, monkeypatch: pytest.MonkeyPatch
@@ -203,15 +205,29 @@ def _drive(tmp_path: Path) -> tuple[list[dict | None], list[dict]]:
     return outs, fires
 
 
-def test_shadow_mode_logs_the_firing_but_tells_claude_nothing(tmp_path: Path) -> None:
-    outs, fires = _drive(tmp_path)  # default mode: shadow
+def test_by_default_the_cascade_is_reported(tmp_path: Path) -> None:
+    outs, fires = _drive(tmp_path)  # no setting anywhere: live
+    assert outs[:4] == [None] * 4 and outs[4] is not None
+    assert "signal (d)" in outs[4]["hookSpecificOutput"]["additionalContext"]
+    assert [(f["signal"], f.get("shadow")) for f in fires] == [("d", None)]
+
+
+def test_shadow_from_the_environment_logs_but_tells_claude_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(sd.D_MODE_ENV, "shadow")
+    outs, fires = _drive(tmp_path)
     assert outs == [None] * 5
     assert [(f["signal"], f.get("shadow")) for f in fires] == [("d", True)]
 
 
-def test_live_mode_reports_the_cascade(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sd, "SIGNAL_D_MODE", "live")
-    outs, fires = _drive(tmp_path)
-    assert outs[:4] == [None] * 4 and outs[4] is not None
-    assert "signal (d)" in outs[4]["hookSpecificOutput"]["additionalContext"]
-    assert [(f["signal"], f.get("shadow")) for f in fires] == [("d", None)]
+@pytest.mark.parametrize(("env", "recorded"), [(None, "live"), ("shadow", "shadow")])
+def test_the_state_records_the_mode_the_hook_actually_ran_with(
+    env: str | None, recorded: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The check for "did my setting reach the hook?": the hook's own view, not Bash's."""
+    if env is not None:
+        monkeypatch.setenv(sd.D_MODE_ENV, env)
+    _drive(tmp_path)
+    state = json.loads((tmp_path / "home" / sd.STATE_DIR / "repo.json").read_text("utf-8"))
+    assert state["d_mode"] == recorded

@@ -4,7 +4,19 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-02 — post162, committed LOCALLY, not pushed)
+## State (2026-11-02 — post162 DEPLOYED)
+
+- **Pushed + deployed 2026-11-02:** efc1e79..61f2c74 (post160 + post161 + post162). The
+  push did NOT redeploy; `databricks apps deploy codegen-agent --json '{"mode":"SNAPSHOT",
+  "git_source":{"branch":"feature/multi-table"}}'` (DEFAULT profile works for deploy)
+  did - deployment 01f1d70c3d531c5a9aedb65556c4f6ce, commit 61f2c74. `/api/health` =
+  post162 (build sha "unknown" on a snapshot deploy), roots readable, no startup error;
+  live Playwright smoke (`/tmp/t/dark/live_smoke.cjs`, CODEGEN_BEARER env only): Generate
+  + Results 200, dark default, toggle works, 0 console errors. OAuth for the App's API:
+  profile `codegen-oaut` in /tmp/cgs/oauth.cfg (the DEFAULT profile is a PAT, refused).
+  Rollback: `git revert 61f2c74 6022f92 4049588`, push, then deploy (never force-push).
+
+## State (2026-11-02 — post162)
 
 - **post162 = dark mode, the default** (+ header toggle; CHANGELOG_ACFC.md). Light is
   pixel-identical below the header. Local tags post160 / post161 / post162; none pushed
@@ -450,9 +462,8 @@ filled with the feed's own values (target table, real location):
 
 ## Driving the App and the container
 
-- **Deploy:** the App builds from GitHub, not a staged tree, and (Soham, 2026-11-02)
-  deploys straight from `feature/multi-table` - treat every push as a deploy. Push, then
-  if needed
+- **Deploy:** the App builds from GitHub (`feature/multi-table`), not a staged tree; a
+  push alone does not redeploy (verified 2026-11-02). Push, then
   `DATABRICKS_CONFIG_FILE=/tmp/cgs/oauth.cfg databricks apps deploy codegen-agent -p
   codegen-oaut --json '{"mode":"SNAPSHOT","git_source":{"branch":"feature/multi-table"}}'`
   (prints the resolved commit). Soham also deploys this way.

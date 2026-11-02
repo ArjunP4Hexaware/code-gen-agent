@@ -89,9 +89,10 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   `scripts/git-hooks/pre-push`; `scripts/dev_bootstrap.sh` installs it next to this
   container's global hooks (CI runs it too).
 - **Pushing:** the App deploys from GitHub, so an unpushed commit never reaches it —
-  after a deploy, `/api/health` must name the pushed version. **A push to
-  `feature/multi-table` IS a deploy** (Soham, 2026-11-02: the App deploys straight from
-  that branch) — ask first, never right before a demo; local commits are always safe. A push that adds or
+  after a deploy, `/api/health` must name the pushed version. The App deploys FROM
+  `feature/multi-table`, but a push alone does NOT redeploy it (verified 2026-11-02: the
+  App stayed on the old commit until `databricks apps deploy` ran) — never push or
+  deploy right before a demo without asking; local commits are always safe. A push that adds or
   changes `.github/workflows/` needs the `workflow` scope on the `gh` login (`gh auth
   refresh -s workflow`, interactive — Soham runs it); never route around a refused push.
 - **Deploying:** Soham is the App's only user, so Claude deploys after every green push

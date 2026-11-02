@@ -309,6 +309,7 @@ REASONS: dict[str, str] = {
     "sttm.missing": "STTM required element missing",
     "sttm.duplicate": "STTM duplicate entry",
     "sttm.conflict": "STTM entries conflict",
+    "hedis.layout": "HEDIS workbook in no documented family (H4)",
     "vdd.unreadable": "VDD workbook could not be read",
     "vdd.layout": "VDD layout not recognised",
     "vdd.value": "VDD cell value invalid",

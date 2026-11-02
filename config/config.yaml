@@ -1686,3 +1686,39 @@ inputs:
     # CODEGEN_PAIRING_OVERRIDES wins. A pairing_overrides.yaml next to the
     # documents is found without it.
     overrides_file: null
+
+# post161 (2026-11-02): the HEDIS Stage -> Consumption STTM reader, family H4 of
+# docs/acfc/HEDIS_CONSUMPTION_STTM_SHAPE.md (a CONTENTS sheet + one mapping sheet per
+# consumption table) -> a gold contract (dialect hedis_h4; `codegen read-hedis`).
+# Header labels as the shape doc spells them (matched lower-cased, whitespace
+# collapsed). Unset target catalog / schema = one QUESTION per table (overlay values).
+hedis_consumption:
+  contents_sheet_names: ["contents"]
+  contents_headers:
+    file_pattern: ["file name"]
+    target_table: ["consumption table name"]
+    load_criteria: ["load criteria (stage_to_consumption)", "load criteria"]
+  mapping_headers:
+    source_table: ["stage table name"]
+    source_column: ["stage column name"]
+    logic: ["stage logic"]
+    target_table: ["consumption table name"]
+    target_column: ["consumption column name"]
+    data_type: ["data type (max length)", "data type"]
+  min_mapping_roles: 4
+  header_search_rows: 6
+  blank_rows_end: 3
+  load_criteria_map: {"truncate and load": "full"}
+  logic_direct: ["direct map", "direct move", "move as is"]
+  logic_audit: ["etl generated"]
+  logic_hardcoded: ["hardcoded", "hard coded"]
+  spark_types: ["string", "timestamp", "date", "int", "bigint", "smallint", "tinyint",
+                "boolean", "double", "float", "decimal"]
+  sql_type_map: {"varchar": "string", "nvarchar": "string", "char": "string",
+                 "nchar": "string", "text": "string", "datetime": "timestamp",
+                 "datetime2": "timestamp", "smalldatetime": "timestamp", "date": "date",
+                 "integer": "int", "int": "int", "bigint": "bigint", "smallint": "smallint",
+                 "tinyint": "tinyint", "bit": "boolean", "decimal": "decimal",
+                 "numeric": "decimal", "float": "double", "real": "float", "money": "decimal(19,4)"}
+  target_catalog: null
+  target_schema: null

@@ -4,6 +4,34 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post161 — 2026-11-02 (HEDIS Stage -> Consumption reader, family H4)
+
+The first gold-side reader for the HEDIS consumption STTMs
+(`docs/acfc/HEDIS_CONSUMPTION_STTM_SHAPE.md` §2 H4: a CONTENTS sheet + one mapping sheet
+per consumption table) -> a gold contract (`contracts/gold.py`, new dialect `hedis_h4`;
+no other schema change, EDH E2E output unchanged).
+- `codegen read-hedis --workbook X --out contract.json [--answers answers.yaml]`;
+  lines and exit codes as `read-edh-e2e` (QUESTION = exit 3, INPUT_NEEDED, NOTE).
+- Filled when the sheet states it (target table, columns, source table / column, a
+  direct-map or one-literal hardcoded expression, a Spark type, the CONTENTS load
+  criteria); PROPOSED with a basis for a SQL Server type's Spark equivalent (the
+  platform is unconfirmed, shape doc §6 Q2); a QUESTION otherwise (catalog, schema,
+  key, an unqualified source's catalog.schema, prose / lookup logic, an unknown type).
+  Audit rows ("ETL generated") are `edit_class: audit`, never asked.
+- Config `hedis_consumption:` (structural header labels as the shape doc spells
+  them; the type map; target catalog / schema null = asked). Reason code
+  `hedis.layout` (no H4 sheet).
+- **On the real XREF workbook** (read in place, counts only): 13 tables / 251 columns
+  (= the shape doc), 217 expressions filled (195 direct, 22 hardcoded), 14 audit rows,
+  41 types filled + 174 proposed; questions 115 - per table catalog / schema / key /
+  source catalog.schema, 20 blank logic cells, 36 empty type cells, and the load mode
+  of the 7 sheets the CONTENTS sheet does not list (it has 8 rows for 13 sheets).
+
+**Tests:** `tests/test_hedis_consumption_reader.py` on a synthetic H4 workbook built in
+memory (`tests/acfc_shapes/hedis_h4.py`, the shape doc's drift). Both suites green
+(`.venv` 2389, `.venv-d1` 2067 passed); ruff clean; 12-pair check post160 vs this tree:
+12/12 same outcome, 0 real differences.
+
 ## 0.5.8.post160 — 2026-11-02 (the STTM is authoritative for a feed's table set)
 
 Soham's decision (2026-11-02), the narrow version of the multi-table question:

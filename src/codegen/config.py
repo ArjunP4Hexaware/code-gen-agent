@@ -2421,6 +2421,42 @@ class EdhE2eConfig(BaseModel):
     function_map: dict[str, str] = Field(default_factory=dict)
 
 
+class HedisConsumptionConfig(BaseModel):
+    """The HEDIS Stage -> Consumption STTM reader (codegen.layouts.hedis_consumption,
+    post161): family H4 of docs/acfc/HEDIS_CONSUMPTION_STTM_SHAPE.md - a CONTENTS sheet
+    plus one mapping sheet per consumption table. Header labels as the shape doc spells
+    them (structural vocabulary, matched lower-cased with whitespace collapsed). Values
+    no document states (target catalog / schema) stay None = a QUESTION per table;
+    client values belong in an overlay."""
+
+    model_config = _MODEL_CONFIG
+
+    contents_sheet_names: list[str] = Field(default_factory=list)
+    # CONTENTS columns: role -> header labels
+    contents_headers: dict[str, list[str]] = Field(default_factory=dict)
+    # mapping-sheet columns: role -> header labels (source_table, source_column, logic,
+    # target_table, target_column, data_type)
+    mapping_headers: dict[str, list[str]] = Field(default_factory=dict)
+    # a sheet is a mapping sheet when one of its first rows names this many roles
+    min_mapping_roles: int = 4
+    header_search_rows: int = 6
+    # the mapping rows end after this many consecutive blank rows
+    blank_rows_end: int = 3
+    # CONTENTS load criteria as written -> GoldFeed.load_mode
+    load_criteria_map: dict[str, str] = Field(default_factory=dict)
+    # logic-cell classes (lower-cased substrings)
+    logic_direct: list[str] = Field(default_factory=list)
+    logic_audit: list[str] = Field(default_factory=list)
+    logic_hardcoded: list[str] = Field(default_factory=list)
+    # the target types written as Spark already (filled as stated) ...
+    spark_types: list[str] = Field(default_factory=list)
+    # ... and SQL Server type names -> the Spark type PROPOSED for them (the target
+    # platform is an open question, shape doc §6 Q2: never applied unasked)
+    sql_type_map: dict[str, str] = Field(default_factory=dict)
+    target_catalog: str | None = None
+    target_schema: str | None = None
+
+
 class CombinedRowDedup(BaseModel):
     """post99: which rows of one sheet are run-level (``CombinedConfig.dedup_rows``)."""
 
@@ -2516,6 +2552,8 @@ class Config(BaseModel):
     run_environment: RunEnvironment | None = None
     # Optional (2026-10-20): the EDH E2E gold-mapping reader's profile.
     edh_e2e: EdhE2eConfig = EdhE2eConfig()
+    # Optional (post161): the HEDIS Stage -> Consumption STTM reader (family H4).
+    hedis_consumption: HedisConsumptionConfig = HedisConsumptionConfig()
 
     @model_validator(mode="after")
     def _one_default_environment(self) -> Config:

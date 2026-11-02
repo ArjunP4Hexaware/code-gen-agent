@@ -4,7 +4,18 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-02 — post160, committed LOCALLY, not pushed)
+## State (2026-11-02 — post161, committed LOCALLY, not pushed)
+
+- **post161 = the HEDIS H4 reader** (`codegen read-hedis`, gold contract dialect
+  `hedis_h4`; CHANGELOG_ACFC.md). Additive: 12-pair check post160 vs post161 12/12 same,
+  0 real differences; both suites green. Local tag `post161`. Not pushed (a push is a
+  deploy). Next gold steps: H1 / H2 / H5 readers (H3's Addendum is SQL to translate),
+  then one deployed consumption load per family as the golden (asked of the HEDIS
+  owners) before any emitter.
+- Sheet `codegen_agent` updated 2 Nov by Office Script (row 20 + two new rows); the dump
+  script reads the sheet as JSON (read-only).
+
+## State (2026-11-02 — post160)
 
 - **post160 = the STTM is authoritative for a feed's table set** (CHANGELOG_ACFC.md).
   pair_05 FAIL -> PASS_WITH_OPEN_INPUTS; the other 11 pairs unchanged (12-pair check,

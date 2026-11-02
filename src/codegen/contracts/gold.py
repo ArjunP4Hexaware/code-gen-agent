@@ -213,6 +213,9 @@ class GoldContract(BaseModel):
     model_config = _MODEL_CONFIG
 
     contract_name: str
-    dialect: Literal["edh_e2e"] = "edh_e2e"
+    # post161: "hedis_h4" = the HEDIS Stage -> Consumption STTM (codegen.layouts
+    # .hedis_consumption). There a feed's manifest_index / blocks are the mapping
+    # sheet's 0-based workbook position and json_file is "<workbook>#sheets[<i>]".
+    dialect: Literal["edh_e2e", "hedis_h4"] = "edh_e2e"
     extractor_version: str | None
     feeds: list[GoldFeed] = Field(min_length=1)

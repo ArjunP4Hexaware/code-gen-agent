@@ -132,6 +132,14 @@ Notes:
 
 ## 5. Fit with what CodeGen has
 
+> **post161 (2026-11-02): family H4 is read** - `codegen.layouts.hedis_consumption`,
+> `codegen read-hedis` -> a gold contract (dialect `hedis_h4`). On W8: 13 tables / 251
+> columns; 217 expressions filled, 14 audit rows, 174 SQL Server types proposed as
+> Spark; the open questions are catalog / schema / key per table, blank logic and type
+> cells, and the load mode of the 7 sheets W8's CONTENTS does not list (8 rows, 13
+> sheets). H1, H2, H3, H5 are not read yet. No emitter: one deployed consumption load
+> per family is still the golden to score against (§6 Q1).
+
 - Not the ingestion path (FRD + Raw→Stage STTM → DDL + IIG): no landing file, no bands per
   layer, no IIG rows.
 - `codegen.contracts.gold.GoldContract` (post77) holds most of a row: source table,

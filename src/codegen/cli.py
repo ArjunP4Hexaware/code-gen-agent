@@ -1673,6 +1673,46 @@ def _read_edh_e2e(args: argparse.Namespace, config: Config) -> int:
     return EXIT_NEEDS_ANSWERS if questions else EXIT_OK
 
 
+def _read_hedis(args: argparse.Namespace, config: Config) -> int:
+    """``codegen read-hedis`` (post161): a HEDIS Stage -> Consumption STTM workbook
+    (family H4, docs/acfc/HEDIS_CONSUMPTION_STTM_SHAPE.md) -> a gold contract JSON
+    (dialect hedis_h4). Lines as ``read-edh-e2e``: QUESTION (exit 3) / INPUT_NEEDED /
+    NOTE; ``--answers`` (answers.yaml ``gaps:``) closes questions by key."""
+    from codegen.layouts.edh_e2e import answers_from_yaml
+    from codegen.layouts.hedis_consumption import HedisReadError, read_workbook
+
+    workbook = Path(args.workbook)
+    if not workbook.is_file():
+        _fail("read-hedis", f"workbook not found: {workbook}", "workbook.not_found",
+              path=workbook)
+        return EXIT_FAILED
+    answers = answers_from_yaml(Path(args.answers)) if args.answers else {}
+    try:
+        contract = read_workbook(workbook, config.hedis_consumption, answers=answers)
+    except HedisReadError as exc:
+        _fail("read-hedis", f"read-hedis — {exc}", "hedis.layout", path=workbook)
+        return EXIT_FAILED
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(contract.model_dump_json(indent=2, by_alias=True) + "\n", encoding="utf-8",
+                   newline="\n")
+    questions = proposals = 0
+    for feed in contract.feeds:
+        for flag in feed.flags:
+            print(answer_line("NOTE", f"feeds[{feed.index}]", flag))
+        for p in feed.proposals:
+            proposals += 1
+            print(answer_line("INPUT_NEEDED", p.key, f"proposed {p.value} — {p.basis}"))
+        for q in feed.questions:
+            questions += 1
+            cell = f" — cell: {q.quoted!r}" if q.quoted else ""
+            print(answer_line("QUESTION", q.key, q.reason + cell))
+    answered = sum(len(f.answered) for f in contract.feeds)
+    print(f"read-hedis: {len(contract.feeds)} table(s), {questions} QUESTION, "
+          f"{proposals} INPUT_NEEDED, {answered} answered -> {out}")
+    return EXIT_NEEDS_ANSWERS if questions else EXIT_OK
+
+
 def _extract_vdd(args: argparse.Namespace, config: Config) -> int:
     from codegen.extract.vdd import VddExtractionError, contract_to_json, extract_vdd_contract
     from codegen.layout.discover import NoLayoutError
@@ -2328,6 +2368,16 @@ def _parser() -> argparse.ArgumentParser:
                                "workbook — it quotes document cells: a /Volumes/... path, "
                                "never inside the repository")
 
+    read_hedis = subparsers.add_parser(
+        "read-hedis",
+        help="read a HEDIS Stage -> Consumption STTM workbook (family H4: CONTENTS + one "
+             "sheet per table) into a gold contract",
+    )
+    read_hedis.add_argument("--config", default="config/config.yaml")
+    read_hedis.add_argument("--workbook", required=True, help="the STTM workbook (.xlsx)")
+    read_hedis.add_argument("--out", required=True, help="path for the emitted contract JSON")
+    read_hedis.add_argument("--answers", help="answers.yaml (gaps: {<key>: {value: ...}})")
+
     extract_vdd = subparsers.add_parser(
         "extract-vdd",
         help="extract a Vendor Data Dictionary contract from a VDD workbook (patterns V1/V2/V3)",
@@ -2521,6 +2571,8 @@ def _main(argv: list[str] | None = None) -> int:
         return _extract_vdd(args, config)
     if args.command == "read-edh-e2e":
         return _read_edh_e2e(args, config)
+    if args.command == "read-hedis":
+        return _read_hedis(args, config)
     if args.command == "layout":
         return _layout(args, config)
     if args.command == "pair":

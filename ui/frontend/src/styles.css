@@ -1733,3 +1733,23 @@ input[type="checkbox"], input[type="radio"] { width: 18px; height: 18px; margin:
   cursor: pointer;
 }
 .theme-toggle:hover { background: var(--accent-tint); border-color: var(--accent); }
+
+/* post163: the Results page's feed cards fold away (closed by default); the summary
+   row keeps the count and the verdict line visible. */
+details.feeds-fold > summary {
+  list-style: none;
+  cursor: pointer;
+  min-height: 32px;
+  align-items: center;
+}
+details.feeds-fold > summary::-webkit-details-marker { display: none; }
+details.feeds-fold > summary h2::before {
+  content: "\25B8";
+  display: inline-block;
+  width: 1.1em;
+  color: var(--accent);
+  transition: transform 0.15s ease-out;
+}
+details.feeds-fold[open] > summary h2::before { transform: rotate(90deg); }
+details.feeds-fold > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--radius-sm); }
+details.feeds-fold:not([open]) > summary { margin-bottom: 0; }

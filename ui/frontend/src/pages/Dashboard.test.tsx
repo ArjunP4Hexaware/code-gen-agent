@@ -120,9 +120,9 @@ describe("Dashboard sections and the IDs to assign (post101)", () => {
                  onFeedsChanged={() => undefined} />
     </MemoryRouter>));
 
-  // post143 (the guided look): the counts first, then the files, then the feeds -
-  // nothing folded but the team's details
-  it("shows the counts, then the files, then the feed cards", () => {
+  // post143 (the guided look): the counts first, then the files, then the feeds.
+  // post163 (Soham): the feed cards fold away, closed; the files stay open
+  it("shows the counts, then the files, then the folded feed cards", () => {
     show({});
     const order = ["run summary", "framework artefacts", "feeds"]
       .map((name) => host.querySelector(`[aria-label="${name}"]`)!);
@@ -131,8 +131,13 @@ describe("Dashboard sections and the IDs to assign (post101)", () => {
       expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING)
         .toBeTruthy();
     }
-    expect(host.querySelector("details[aria-label]")).toBeNull();
-    expect(host.querySelector('[aria-label="feeds"] h2')!.textContent).toContain("Feeds (2)");
+    const fold = host.querySelector('details[aria-label="feeds"]') as HTMLDetailsElement;
+    expect(fold).not.toBeNull();
+    expect(fold.open).toBe(false);                               // closed on arrival
+    expect(fold.querySelector("summary h2")!.textContent).toContain("Feeds (2)");
+    expect(fold.querySelector("summary")!.textContent).toContain("with flags"); // verdicts shown closed
+    expect(fold.querySelectorAll(".card-grid > *").length).toBe(2);
+    expect(host.querySelector('details[aria-label="framework artefacts"]')).toBeNull(); // files open
     expect(host.querySelector('[aria-label="run summary"]')!.textContent).toContain(
       "passed with flags2");
     expect(host.textContent).toContain("Framework artefacts");

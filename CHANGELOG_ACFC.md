@@ -4,6 +4,16 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post163 — 2026-11-02 (Results: the feed cards fold away)
+
+Soham: on Results the framework artefacts are what a person came for. The "Feeds (N)"
+card is now a fold, CLOSED on arrival (so after "View results" too); its header row
+keeps the count and the verdict line ("4 with flags · 1 failed") visible while closed,
+and a click opens the cards. The artefacts card stays open, first. Frontend only.
+**Tests:** `Dashboard.test.tsx` (fold closed, verdicts in the summary, cards inside,
+files not folded); vitest 268, tsc clean; Playwright on a local mock App, both themes,
+1440 + 390 px: closed on arrival (76 px header bar), opens on click, one h1, no errors.
+
 ## 0.5.8.post162 — 2026-11-02 (dark mode, the default; a light / dark toggle)
 
 Raj's preference via Soham: the App opens DARK, still ACFC - surfaces are deep shades of

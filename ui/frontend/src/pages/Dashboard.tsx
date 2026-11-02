@@ -369,8 +369,10 @@ export function Dashboard({
       ) : null}
 
       {feeds.length ? (
-        <section className="card" aria-label="feeds">
-          <div className="card-head">
+        // post163 (Soham, 2026-11-02): folded - the framework artefacts above are what
+        // a person opens Results for; the summary line still shows every verdict
+        <details className="card feeds-fold" aria-label="feeds">
+          <summary className="card-head">
             <h2>Feeds ({feeds.length})</h2>
             <span className={`card-count${passWithFlags || failed ? " warn" : ""}`}>
               {[
@@ -382,14 +384,14 @@ export function Dashboard({
                 .map(([v, label]) => `${byVerdict(v)} ${label}`)
                 .join(" · ")}
             </span>
-          </div>
+          </summary>
           <p className="card-sub">Open a feed to see its gate checks, flags, rules and generated code.</p>
           <div className="card-grid">
             {feeds.map((f) => (
               <FeedCard key={f.feed_slug} feed={f} />
             ))}
           </div>
-        </section>
+        </details>
       ) : null}
 
       <details className="details-fold">

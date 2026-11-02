@@ -6,7 +6,12 @@ coordinates tier prints the summary as COUNTS per kind, never the names.
 Still exit 1 (FAIL) by decision (2026-10-15): which mismatch kinds become
 NEEDS_ANSWERS waits for the D1 counts of pairs 03 / 04 under post55. Note the
 FRD contract carries no column list — the resolver's set differences are
-tables and segments (``run_errors.MISMATCH_LABELS``), not columns."""
+tables and segments (``run_errors.MISMATCH_LABELS``), not columns.
+
+post160: this shape (FRD-only stage tables as the feed's one disagreement) is now
+set aside by default (``contracts.sttm_authoritative_tables``;
+tests/test_sttm_authoritative_tables.py). The knob off keeps the counts-only FAIL
+pinned here."""
 
 from __future__ import annotations
 
@@ -39,7 +44,8 @@ def test_a_table_set_difference_prints_counts_only(tmp_path):
     data["feeds"][0]["stage_target"]["tables"] += EXTRA
     frd.write_text(json.dumps(data), encoding="utf-8")
     overlay = tmp_path / "overlay.yaml"
-    overlay.write_text(f"output:\n  dir: {(tmp_path / 'out').as_posix()}\n"
+    overlay.write_text("contracts:\n  sttm_authoritative_tables: false\n"
+                       f"output:\n  dir: {(tmp_path / 'out').as_posix()}\n"
                        f"  reports_dir: {(tmp_path / 'reports').as_posix()}\n", encoding="utf-8")
     env["CODEGEN_CONFIG_OVERLAYS"] = str(overlay)
     done = subprocess.run(

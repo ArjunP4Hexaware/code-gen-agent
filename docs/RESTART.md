@@ -4,6 +4,34 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
+## State (2026-11-02 — post160, committed LOCALLY, not pushed)
+
+- **post160 = the STTM is authoritative for a feed's table set** (CHANGELOG_ACFC.md).
+  pair_05 FAIL -> PASS_WITH_OPEN_INPUTS; the other 11 pairs unchanged (12-pair check,
+  0 real differences). Both suites green. Committed locally only - **a push to
+  `feature/multi-table` IS a deploy** (the App deploys straight from that branch), so it
+  was held for Soham's demo. After the push: `/api/health` must say post160, then the
+  Playwright smoke.
+- **Rollback points (local tags, not pushed):** `rollback/post159-deployed` = efc1e79
+  (what the App ran on 2026-11-02); `post160` = the post160 commit. Undo after a push:
+  `git revert <post160 sha>` + push (never force-push - others push here).
+- **Pairs now** (mock): PASS_WITH_OPEN_INPUTS 01 02 04 05 12; GATE_FAIL 03, 11 (STTM
+  spaces, BSA); NEEDS_ANSWERS 07 (one key `sheets[2]/standard/column`, candidate column
+  15), 08 (layout `sheets[0]/source/field_name` in mock), 10 (BSA); FAIL 06 (feed-level
+  mismatch + table source -> RDMS), 09 (parked: the per-table split crashes on answers
+  keyed for the unsplit feed).
+- **HEDIS folder** (`/Workspace/Users/<me>/HEDIS`, 53 docs, read 2026-11-02, structure
+  only): 26 of 27 FRDs are a different template ("ETL Functional Requirement
+  Definition" - extract / consumption / gold, e.g. "MDM to Gold Layer"), refused by the
+  ingestion FRD reader (correct); the 2 Raw->Stage STTMs lay out with one open role
+  (stage schema). Gold-layer learning: steps in the session notes - profile the gold
+  FRDs, extend `contracts/gold.py` for the HEDIS consumption STTMs, get one deployed
+  gold load per family as ground truth before any emitter.
+- 12-pair check rebuilt: `/tmp/t/pc/pair_check.sh <old-sha>` + `compare.py` (path-aware
+  classifier: same / meta / path / banner / real; deletes the client copies itself).
+- **Container note:** `.venv` / `.venv-d1` rebuilt on 3.12 via `scripts/dev_bootstrap.sh`;
+  Playwright Chromium in `/tmp/pw` + libs in `/tmp/pwlibs` (smoke `/tmp/pwtest/smoke.cjs`).
+
 ## State (2026-10-31 — post159)
 
 - **Branch** `feature/multi-table`: pushed at post159 (620b5ee). App `codegen-agent`
@@ -398,7 +426,9 @@ filled with the feed's own values (target table, real location):
 
 ## Driving the App and the container
 
-- **Deploy:** the App builds from GitHub, not a staged tree. Push, then
+- **Deploy:** the App builds from GitHub, not a staged tree, and (Soham, 2026-11-02)
+  deploys straight from `feature/multi-table` - treat every push as a deploy. Push, then
+  if needed
   `DATABRICKS_CONFIG_FILE=/tmp/cgs/oauth.cfg databricks apps deploy codegen-agent -p
   codegen-oaut --json '{"mode":"SNAPSHOT","git_source":{"branch":"feature/multi-table"}}'`
   (prints the resolved commit). Soham also deploys this way.

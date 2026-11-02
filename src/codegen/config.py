@@ -59,6 +59,12 @@ class ContractsConfig(BaseModel):
     # generate-all refuses to run on an empty list instead of silently
     # succeeding -- see cli.py.
     pairs: list[ContractPair]
+    # post160 (Soham, 2026-11-02): FRD stage tables no STTM field maps are SET
+    # ASIDE (the STTM is authoritative for the table set) instead of failing the
+    # feed - only when that is the feed's one disagreement, and never silently:
+    # a provenance flag + a NOTE + one non-blocking INPUT_NEEDED line. None/false
+    # = the pre-post160 contract mismatch (FAIL).
+    sttm_authoritative_tables: bool | None = None
 
 
 class OutputConfig(BaseModel):
@@ -2362,7 +2368,8 @@ class IigReviewConfig(BaseModel):
     # reach the review copy's summary sheet ([ "", "", review_flag_label,
     # review_flag_owner, 0, "", <flag> ]) and the combined LOG.md, by prefix.
     review_flag_prefixes: list[str] = Field(default_factory=lambda: [
-        "layout_model_placed:", "frd_crosscheck:", "layout_crosscheck:"])
+        "layout_model_placed:", "frd_crosscheck:", "layout_crosscheck:",
+        "frd_tables_set_aside:"])
     review_flag_label: str = "check before approving (layout / cross-document)"
     review_flag_owner: str = "engineer + BSA"
     empty_by_rule_reasons: dict[str, str] = Field(default_factory=lambda: {

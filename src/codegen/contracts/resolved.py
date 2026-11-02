@@ -182,6 +182,11 @@ class ResolvedFeedSpec(BaseModel):
     # post70: the FRD's key statement (FrdFeed.key_statement) — one of the
     # explicit key signals codegen.primary_key reads; None = the FRD states none.
     frd_key_statement: str | None = None
+    # post160: FRD stage tables no STTM field maps, set aside because the STTM
+    # is authoritative for the table set (config contracts.sttm_authoritative_tables).
+    # Never silent: a provenance flag here, and generate_run says one NOTE + one
+    # non-blocking INPUT_NEEDED line. Empty = nothing set aside.
+    frd_tables_set_aside: list[str] = Field(default_factory=list)
 
     @property
     def is_segmented(self) -> bool:

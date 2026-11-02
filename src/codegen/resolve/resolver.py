@@ -1210,12 +1210,14 @@ def _resolve_one(
     # (the same normalized comparison, the other way round — already reported)
     unaccounted = [t for t in frd_feed.stage_target.tables
                    if not _table_in(t, sorted(accounted), "FRD", "STTM", [])]
+    stage_frd_only: MismatchItem | None = None
     if unaccounted:
-        errors.append(mismatch_item(
+        stage_frd_only = mismatch_item(
             "table.frd_only",
             f"FRD stage tables not mapped by any STTM field or recycle rule: {unaccounted}",
             names=unaccounted
-        ))
+        )
+        errors.append(stage_frd_only)
 
     # --- standard target ---------------------------------------------------
     standard_table: ResolvedTable | None = None
@@ -1260,6 +1262,10 @@ def _resolve_one(
             "has no standard mapping", names=frd_feed.standard_target.tables
         ))
 
+    tables_from_sttm = any("stage_target.tables" in f and "source_used:STTM" in f
+                           for f in [*_frd_extraction_flags(frd, original_frd_feed), *gap_flags])
+    set_aside = _set_aside_frd_tables(errors, stage_frd_only, config, provenance_flags,
+                                      tables_from_sttm=tables_from_sttm)
     if errors:
         # the ORIGINAL feed object: the gap chain above may have replaced frd_feed
         position = next((i for i, f in enumerate(frd.feeds, 1) if f is original_frd_feed),
@@ -1346,9 +1352,43 @@ def _resolve_one(
         lob_unkeyed=lob_unkeyed,
         lob_question_key=lob_key if lob_unkeyed else None,
         table_descriptions=dict(sttm_feed.table_descriptions),
+        frd_tables_set_aside=set_aside,
     )
     check_table_names(spec, feed_index)
     return spec
+
+
+def _set_aside_frd_tables(errors: list, stage_frd_only: MismatchItem | None, config: Config,
+                          provenance_flags: list[str], *,
+                          tables_from_sttm: bool = False) -> list[str]:
+    """post160: the STTM is authoritative for the feed's table set. FRD stage
+    tables no STTM field / recycle rule maps (``stage_frd_only``) are SET ASIDE
+    instead of failing the feed - removed from ``errors`` and recorded as a
+    provenance flag - only when every OTHER error is an unstated value (those stay
+    the questions they are). Any disagreement besides it (an STTM table the FRD
+    does not name, a conflict, a segment, an FRD standard layer the STTM lacks)
+    keeps the whole feed a contract mismatch, the set-aside tables included.
+    Off unless ``contracts.sttm_authoritative_tables``. Returns the set-aside
+    names (the caller's NOTE + INPUT_NEEDED line say it; never silent).
+
+    ``tables_from_sttm``: the FRD named no stage table and the gap fill took them
+    FROM the STTM's stage band (a ``frd_unstated:...stage_target.tables
+    source_used:STTM`` flag; the pair_09 shape). Then the STTM does build those
+    tables - the extractor read fewer than its band names - so nothing is set
+    aside: the mismatch stays a FAIL, never "build 1 of 36"."""
+    if (stage_frd_only is None or tables_from_sttm
+            or not config.contracts.sttm_authoritative_tables):
+        return []
+    others = [e for e in errors if e is not stage_frd_only]
+    if any(getattr(e, "kind", None) != UNSTATED for e in others):
+        return []
+    errors[:] = others          # by identity: a MismatchItem is a str (== by text)
+    names = list(stage_frd_only.names)
+    provenance_flags.append(
+        f"frd_tables_set_aside:stage: {len(names)} FRD stage table(s) no STTM field or "
+        f"recycle rule maps - the STTM is authoritative for the table set; not built: "
+        f"{names}")
+    return names
 
 
 LOB_ANSWER_FIELD = "lob_by_file"

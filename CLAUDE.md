@@ -89,7 +89,9 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   `scripts/git-hooks/pre-push`; `scripts/dev_bootstrap.sh` installs it next to this
   container's global hooks (CI runs it too).
 - **Pushing:** the App deploys from GitHub, so an unpushed commit never reaches it —
-  after a deploy, `/api/health` must name the pushed version. A push that adds or
+  after a deploy, `/api/health` must name the pushed version. **A push to
+  `feature/multi-table` IS a deploy** (Soham, 2026-11-02: the App deploys straight from
+  that branch) — ask first, never right before a demo; local commits are always safe. A push that adds or
   changes `.github/workflows/` needs the `workflow` scope on the `gh` login (`gh auth
   refresh -s workflow`, interactive — Soham runs it); never route around a refused push.
 - **Deploying:** Soham is the App's only user, so Claude deploys after every green push
@@ -276,6 +278,11 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   pairing from the documents (standard table from its rows, file pattern by file
   identity) or blank + flagged - never token overlap. When the FRD names no table
   (pair_09) it is not split (parked with the RDMS sheet; RESTART.md).
+  **The STTM is authoritative for a feed's table set** (post160, Soham 2026-11-02): FRD
+  stage tables no STTM field maps are set aside, never silently (flag
+  `frd_tables_set_aside:stage` + NOTE + one non-blocking INPUT_NEEDED) - only when that
+  is the feed's one disagreement and the FRD's tables were not copied from the STTM
+  band; everything else stays a contract mismatch (`contracts.sttm_authoritative_tables`).
   Segmented (H/D/T) files: segments are tables in both layers, identification derived
   from the STTM (`extract/segmented.py`, `docs/SEGMENTED_MODE_DESIGN.md`). A stated
   delimiter (any document) is read by `resolver.delimiter_char` (quoted character, else

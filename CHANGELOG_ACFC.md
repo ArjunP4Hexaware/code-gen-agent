@@ -4,6 +4,38 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post160 — 2026-11-02 (the STTM is authoritative for a feed's table set)
+
+Soham's decision (2026-11-02), the narrow version of the multi-table question:
+- **FRD stage tables no STTM field / recycle rule maps are SET ASIDE** instead of
+  failing the feed (`contracts.sttm_authoritative_tables: true`; false = the
+  pre-post160 contract mismatch). Never silent: the feed's provenance flag
+  `frd_tables_set_aside:stage` names them (feed report; the combined LOG.md "Check
+  before approving" and the IIG review copy via `iig_review.review_flag_prefixes`),
+  and the run says ONE NOTE with the count and ONE non-blocking INPUT_NEEDED open
+  line `feeds[<i>].tables_set_aside` - the run reads PASS_WITH_OPEN_INPUTS, never PASS.
+- **Guards** (each still the old FAIL): any other disagreement in the feed (an STTM
+  table the FRD does not name, a conflict, a segment mismatch, an FRD standard layer
+  the STTM lacks; unstated values stay the questions they are); FRD tables the gap
+  fill took FROM the STTM's stage band (the pair_09 shape - the STTM does build
+  them, never "build 1 of 36"); feed-level mismatches (pair_06) are untouched.
+- Prod ground truth (`docs/acfc/iig_goldens/01_pair_group_index.csv`): pair_05
+  deployed the STTM's one table only.
+- **Not in this release:** the per-table split for an FRD that names no table
+  (pair_09) - tried, it turned pair_09 FAIL -> CRASHED (the 2026-10-29
+  TemplateGapError on `feeds[1..].audit_columns`: answers keyed for the unsplit
+  feed), rolled back. The full one-feed-many-tables model was not built.
+
+**Tests:** `tests/test_sttm_authoritative_tables.py` (CLI chains on the synthetic
+family-E and pair-4 shapes + the guard at unit level; each fails with only the fix
+reverted); `test_table_set_mismatch.py` pins the knob-off FAIL. Both suites green
+(`.venv` 2381 passed, `.venv-d1` 2059 passed); ruff clean; pair-1 golden and the
+notebook snapshot byte-identical.
+
+**12-pair check** (mock harness, framework mode, efc1e79 vs this tree, both warmed):
+pair_05 FAIL -> PASS_WITH_OPEN_INPUTS (full artefact set); the other 11 pairs the
+same outcome with 0 real file differences (only the harness's scratch paths differ).
+
 ## 0.5.8.post159 — 2026-10-30 (hardening, second round: layout, reports, Layer 2, App)
 
 The P1 items of the red-team plan plus two P2s; each with a test that fails with

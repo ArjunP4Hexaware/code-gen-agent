@@ -175,6 +175,8 @@ class GenerateRun:
             held = is_table_source(spec, config) and self._framework_output()
             if held:
                 self._table_source_note(spec, index)
+            if spec.frd_tables_set_aside:
+                self._tables_set_aside_note(spec, index)
             owed = [] if held else owed_mod.owed_inputs(
                 spec, config, index=index, output_mode=self.output_mode,
                 iig_template=self.iig_template,
@@ -336,6 +338,25 @@ class GenerateRun:
         key = (f"feeds[{index}].iig_held" if isinstance(index, int)
                else f"{spec.feed_id}.iig_held")
         self.say(answer_line("NOTE", key, TABLE_SOURCE_HOLD.format(file_format=spec.file_format)))
+        self.open_items.append(run_stages.open_item("INPUT_NEEDED", key, feed=spec.feed_id))
+
+    def _tables_set_aside_note(self, spec, index=None) -> None:
+        """post160: FRD stage tables the STTM does not build were set aside (the
+        STTM is authoritative for the table set; codegen.resolve.resolver
+        ._set_aside_frd_tables). Said once per feed - a NOTE with the COUNT only
+        (the names are in the feed's provenance flag) and one non-blocking open
+        line, so the run reads PASS_WITH_OPEN_INPUTS, never PASS."""
+        from codegen.cli import answer_line
+
+        key = (f"feeds[{index}].tables_set_aside" if isinstance(index, int)
+               else f"{spec.feed_id}.tables_set_aside")
+        n = len(spec.frd_tables_set_aside)
+        self.say(answer_line(
+            "NOTE", key,
+            f"{n} FRD stage table{'s' if n != 1 else ''} no STTM field maps - set aside, "
+            "not built (the STTM is authoritative for the table set; flag "
+            "frd_tables_set_aside:stage names them). Confirm with the BSA that the FRD "
+            "does not need them."))
         self.open_items.append(run_stages.open_item("INPUT_NEEDED", key, feed=spec.feed_id))
 
     def _notebook_environment(self, spec, index=None) -> None:

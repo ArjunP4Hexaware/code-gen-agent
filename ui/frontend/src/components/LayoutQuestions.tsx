@@ -321,7 +321,7 @@ export function QuestionItem({
       {q.header.length ? (
         <div className="hint" style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
           {q.header.map((h) => (
-            <code key={h} style={{ padding: "1px 4px", border: "1px solid var(--line, #ccc)" }}>
+            <code key={h} style={{ padding: "1px 4px", border: "1px solid var(--line)" }}>
               {h}
             </code>
           ))}

@@ -479,7 +479,13 @@ offline — **do not call Graph or Databricks from inside the extractors or the 
   a soft shadow, plain words, technical detail folded), defined ONCE in
   `ui/frontend/src/styles.css` `:root`. No hard-coded colour anywhere else (tints are
   `color-mix` of a token); status colours are reserved for verdicts / checks; every
-  text pair WCAG AA. No ACFC logo or name in the repo: the header's top-left logo is
+  text pair WCAG AA. **Two themes, DARK the default** (post162, Raj via Soham,
+  2026-11-02): `:root` = light, `:root[data-theme="dark"]` = dark (ACFC navy surfaces,
+  ACFC light-blue accent, ACFC status colours lifted), set before first paint by
+  `public/theme-init.js` (a same-origin blocking script - never inline: the CSP), switched
+  by the header toggle (`src/theme.ts`, key `codegen.theme.v1`). A new colour token needs
+  a value in BOTH blocks; a filled token needs its `--on-*` text token;
+  `src/themeContrast.test.ts` checks every pair in both themes. No ACFC logo or name in the repo: the header's top-left logo is
   read at runtime from the state root, `branding/logo.<png|svg|jpg|webp>` (`GET
   /api/branding`, post144); without one the header is the wordmark alone.
   The spec: the UX skill Part 1 "Design pillars" and §4.1. Every page (post157): a

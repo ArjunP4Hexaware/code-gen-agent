@@ -4,6 +4,33 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post162 — 2026-11-02 (dark mode, the default; a light / dark toggle)
+
+Raj's preference via Soham: the App opens DARK, still ACFC - surfaces are deep shades of
+ACFC navy (never black), the accent is ACFC light blue (#69b3e7), the status colours are
+ACFC's (yellow, orange, green, red) lifted for contrast; depth by lighter surfaces +
+hairlines, not shadows. A sun / moon toggle in the header (every page) switches and
+remembers it per browser (`codegen.theme.v1`; other tabs follow).
+- `public/theme-init.js` sets `<html data-theme>` before first paint - a same-origin
+  blocking script, so the post159 CSP (`script-src 'self'`) stands unchanged.
+- Token roles: `--on-accent` / `--on-accent-light` / `--on-critical` / `--on-warning`
+  (text on a filled token), `--shell-bg` / `--shell-ink`, `--logo-backing` (the runtime
+  logo gets a light backing on navy), `--class-*` (the rule-class dots). The 14
+  hard-coded colours (8 CSS, 6 TSX) are tokens now.
+- Dark only: a text box with no `type` attribute (the environment panel's) showed the
+  browser's grey - now themed.
+- **Light is pixel-identical** below the header (same screenshot hash on Generate,
+  Results and a feed page; the header gains the toggle).
+
+**Tests:** `src/themeContrast.test.ts` - every text / fill pair in BOTH themes at WCAG AA
+(80 checks; fails on a dimmed token, proven); `components/ThemeToggle.test.tsx` (dark
+default, saved choice, junk ignored, blocked storage, other tabs). vitest 268 passed,
+tsc clean. Playwright on a local mock App (synthetic CV pair): 3 pages x 2 themes x 2
+widths - theme set by DOMContentLoaded, one h1, no console errors, toggle persists
+across a reload. **Found, pre-existing, not fixed here:** sideways scroll at 390 px on
+long names (Generate's table, Results' feed cards, a feed page's h1) - identical on the
+pre-dark build.
+
 ## 0.5.8.post161 — 2026-11-02 (HEDIS Stage -> Consumption reader, family H4)
 
 The first gold-side reader for the HEDIS consumption STTMs

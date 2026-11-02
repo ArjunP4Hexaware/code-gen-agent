@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 import { api, type FeedsResponse } from "./api";
+import { ThemeToggle } from "./components/ThemeToggle";
 import { CollapsibleSidebar, useSidebarOpen } from "./components/CollapsibleSidebar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ErrorCard } from "./components/ErrorCard";
@@ -78,6 +79,7 @@ export function App() {
           <span className="org">From an approved STTM and FRD to Databricks artefacts</span>
         </NavLink>
         <div className="topbar-status">
+          <ThemeToggle />
           {data ? (
             badge ? (
               <span className={`mode-badge ${badge.className}`} title={badge.title}>

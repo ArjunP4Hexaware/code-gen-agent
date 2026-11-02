@@ -4,7 +4,20 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-02 — post161, committed LOCALLY, not pushed)
+## State (2026-11-02 — post162, committed LOCALLY, not pushed)
+
+- **post162 = dark mode, the default** (+ header toggle; CHANGELOG_ACFC.md). Light is
+  pixel-identical below the header. Local tags post160 / post161 / post162; none pushed
+  (a push is a deploy). Open, pre-existing: sideways scroll at 390 px on long names
+  (Generate's table, Results' feed cards, a feed page's h1).
+- Open UI ask (Soham, 2026-11-02, to discuss): the feeds collapsed in a dropdown,
+  auto-collapsed on "View results", the framework artefacts immediately visible - which
+  feed list (sidebar vs Results cards) was not settled.
+- UI checks rebuilt in /tmp/t/dark: tour.cjs (pages x themes x widths), overflow.cjs,
+  lightcmp.cjs (light pixel hash), drive.py (one mock run on a synthetic fixture via
+  the API); local App on /tmp/t/ui scratch storage.
+
+## State (2026-11-02 — post161)
 
 - **post161 = the HEDIS H4 reader** (`codegen read-hedis`, gold contract dialect
   `hedis_h4`; CHANGELOG_ACFC.md). Additive: 12-pair check post160 vs post161 12/12 same,

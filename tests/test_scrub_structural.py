@@ -61,10 +61,10 @@ def test_the_scrubbed_round3_score_json_is_clean():
     assert scrub_check.structural_hits(path.read_text(encoding="utf-8")) == []
 
 
-def test_claude_md_carries_no_address_or_user_path():
+def test_agents_md_carries_no_address_or_user_path():
     # 2026-10-13: the deploy notes carried a user id in a workspace path (d7aa44c);
     # scrubbed to <deploy-contact>, the history purge is in docs/acfc/LEAK_LEDGER.md.
-    assert scrub_check.structural_hits((ROOT / "CLAUDE.md").read_text(encoding="utf-8")) == []
+    assert scrub_check.structural_hits((ROOT / "AGENTS.md").read_text(encoding="utf-8")) == []
 
 
 # 2026-10-13: the document-title phrases (held as hashes) and downloaded-copy names.

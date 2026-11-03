@@ -1229,7 +1229,7 @@ demo path) / `ref` (human reference, not consumed at runtime).
 | `pyproject.toml` | Package + extras (`dev`, `live`, `ui`, `databricks`), ruff rules, version 0.3.5 | must | bundle |
 | `.env.example` | Names of every env secret/override (no values) | ref | bundle |
 | `run_demo.sh` | Single-port local launcher | ref | bundle |
-| `README.md`, `CLAUDE.md`, `ui/README.md` | Quick start, working conventions, UI run modes | ref | bundle |
+| `README.md`, `AGENTS.md`, `ui/README.md` | Quick start, working conventions, UI run modes | ref | bundle |
 
 ### A.3 Source (the whole package — listed by directory)
 

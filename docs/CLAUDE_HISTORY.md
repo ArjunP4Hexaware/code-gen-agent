@@ -1,5 +1,7 @@
 # CLAUDE.md history (moved 2026-10-14)
 
+(Since 2026-11-03 the rules file is `AGENTS.md`; "CLAUDE.md" below means that file.)
+
 Sections moved verbatim out of CLAUDE.md to keep it under the 150k-character limit. Read the relevant one before touching the code it describes.
 
 ## Parent branch `fix/remove-mock-provider-ui-text` (state as of 2026-09-23)
@@ -3297,3 +3299,58 @@ What one session did, in order (per-version detail: `CHANGELOG_ACFC.md`):
   out tokens; measured pair_11 Layer-2 run 3.15 DBU; a cached pair 0.
 - Also: the progress-sheet Office Scripts (dump + update, 2 Nov), the prompt-injection
   explainer, the request to Anju for one deployed consumption load.
+
+## §[H18] Session 2026-11-03: the Rama sheet, a measured first layout run, Cancel run, main = the staging App, post164
+
+What one session did, in order (per-version detail: `CHANGELOG_ACFC.md`; state:
+`docs/RESTART.md`):
+- **Rama question sheet** (`docs/acfc/RAMA_QUESTIONS_2026-11-03.md`, 0af89db): 15
+  questions in three topics (child pipelines, ID assignment, one pipeline of N objects
+  vs one per table), each opened by what the prod rows show
+  (`docs/acfc/iig_goldens/01_pair_group_index.csv`): PIPELINE_ID = GROUP_ID + 200 on 297
+  of 299 rows, the stage -> standard group = GROUP_ID + 1, overlapping ID ranges, OBJECT_ID
+  used two ways, pair_09 in both shapes. Finding: pair_11's 12 vs 10 schedule rows are 5
+  feeds vs 4, not a children-per-feed difference. A shareable page was built; publishing
+  it was refused (the session authenticated with a token, not a claude.ai login).
+- **The 6-8 DBU question (Venu):** traced to post148 - a deliberately high round-up of a
+  2026-10-27 offline estimate (1.5-4.5 DBU from two pairs' request sizes; output never
+  measured). Soham's draft called the 3.15 DBU Layer-2 run "an average"; corrected (one
+  run, a different stage, now off). Rates re-checked on the pricing page (Opus 5.5:
+  57.143 / 285.714 in / out, cache read 2.857, cache write 71.429 / 114.286; +10%
+  regional) - the agent uses no prompt caching, so the cache prices do not apply.
+- **Measured one new pair's first layout read** (pair_10, live, dev App): 4.84 DBU (4
+  calls, 30,088 / 10,932 tokens, 84 s), via a re-resolve past the cached STTM layout; the
+  run stopped NEEDS_ANSWERS and was left unanswered. Lesson: the `refresh` re-resolve
+  OVERWRITES the persistent layout cache (state role) and tombstones a document it cannot
+  fully place - back the cache up before measuring many pairs; arm the one-shot refresh
+  before the run (`/api/demo/layout-refresh`) for a clean first read, rather than
+  refreshing a paused run (double-counts the first resolve).
+- **post164** (deployed, a88cd79): Soham found Clear past runs left a stopped run's
+  blocking questions and there was no way out of a run asking questions. Cause:
+  `clear_runs` reset the page only for done / failed / idle AND only when the last run's
+  own folder was deleted. Fix + Cancel run (`/api/demo/cancel`, beside the questions and
+  in the dialog); a cancel now ends idle instead of FAILED (tests that pinned "a cancel
+  fails loudly" were changed on Soham's ask). The 9-case regression test fails on post163.
+- **Measuring the other 11 pairs** was started and stopped: the first attempt never
+  reached the App (the token subprocess got a stripped env - pass `os.environ`), and on
+  the retry the App was busy with Soham's own pair_11 run - the script refused to touch
+  it. The script is `scripts/measure_layout_cost.py`; the recipe is in RESTART.md.
+- **main made identical to feature/multi-table** for a stable test App: one merge commit
+  (7e70ef0, tree = post164) pushed as a fast-forward, no force-push. Soham created
+  `codegen-agent-staging` from main (plus a duplicate `code-gen-agent-staging` from a
+  double submit, being deleted); its deploy first timed out downloading the repo, a
+  retry worked. The staging principal could see none of the folders until shared.
+  Explained: an App always uses its own service principal (no on-behalf-of auth), so
+  users need no folder access and Can Use on the App = access to every document it
+  holds; the two Apps share storage via `app.yaml` (open).
+- **Cross-workspace:** a login to workspace 2465312035833126 (to read `app-spend-monitor`)
+  succeeded but every call was refused by its trusted-workload check - this container
+  cannot reach other workspaces; not routed around.
+- **CLAUDE.md renamed to AGENTS.md** (Soham works with Codex next); the living
+  references (RESTART, this file's header, the skills, the scrub test) point to it.
+  Mentions in `src/` / `config/` comments and in older docs were left as they are (a
+  `src/` edit needs a version bump).
+
+**Lessons:** check the App is idle before a scripted live run (Soham uses it too); a
+background script's subprocess needs the parent's environment; read what a refresh
+writes before running it across many pairs.

@@ -2,9 +2,73 @@
 
 Where the work is now. Update this file at the end of a session; when a block stops
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
-CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
+`AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-03 — post163 DEPLOYED; start here)
+## State (2026-11-03 evening — post164 DEPLOYED, main = staging App; start here)
+
+- **Live, dev App `codegen-agent`:** post164 (a88cd79; deployment
+  01f1d7b294821f52ae8831217d2b349d). Health = post164, live smoke green (Generate +
+  Results 200, 0 console errors). post164 = **Cancel run** beside a run's questions
+  (`POST /api/demo/cancel`; a cancel ends idle, not FAILED) + **Clear past runs** drops
+  a stopped run's blocking questions (it skipped needs_answers before). CHANGELOG_ACFC.md.
+  Both suites green on the commit (`.venv` 2406, `.venv-d1` 2068), vitest 270.
+- **Staging App `codegen-agent-staging`** (for the data engineers; AGENTS.md: never
+  deploy / run / re-grant without Soham's word): deployed from `main` = 7e70ef0, a
+  merge commit whose tree is IDENTICAL to post164 (main's 2 old commits kept; none of
+  the client documents main had removed is on feature). Deployment
+  01f1d7bc09ae173bbd71a37f544c0018 SUCCEEDED (the first attempt timed out downloading
+  the repo; a retry worked). Principal `app-5aprci codegen-agent-staging`, application
+  id 31fdee91-d999-4b8f-9071-f7c3dfd2819b. **Its health read every folder `empty` =
+  not shared yet:** Soham is granting Can Manage on `codegen` + Can Read on
+  `frd_sttm_pairs`; re-check `/api/health` (every root `readable`) and Choose documents
+  after. A duplicate App `code-gen-agent-staging` (hyphenated) was created by a double
+  submit - Soham is deleting it (keep `codegen-agent-staging`).
+- **Open, the two Apps share storage:** both read the same `app.yaml`, so they share the
+  outputs / state / inputs roles (runs, `selection.json`, the layout cache, the live-run
+  record; Clear past runs on one deletes the other's runs). Proposed, not built: the App
+  picks its state + outputs by `DATABRICKS_APP_NAME` (inputs + pairs stay shared), the
+  staging principal gets Can Manage on its own new folders. Ask Soham before building.
+- **pair_10 first-layout measurement (live, dev App, 2026-11-03):** the STTM layout was
+  cached, so the run was re-resolved past the cache (`refresh`) to read STTM + FRD with
+  the model: **4 calls, 30,088 in / 10,932 out tokens, 84 s = 4.84 DBU** (1.72 in + 3.12
+  out; 5.33 with the regional uplift; about $0.34 at $0.07/DBU). Slight overcount: it
+  includes the FRD call of the first (cached-STTM) resolve. Output = about 65% of the
+  cost. The run stopped NEEDS_ANSWERS (15 open lines, the known BSA gaps; no answers
+  given). The App's record still shows the 6-8 estimate (`measured_runs: 0`): it records
+  only a FINISHED run, and that one was paused. The reply to Venu (6-8 = deliberately
+  high; 4.84 measured; 3.15 was a different, now-off Layer-2 run) was drafted for Soham.
+- **Next:**
+  1. **Measure the other 11 pairs** (asked by Soham; NOT run - the App was busy with his
+     own pair_11 run). Recipe: build the pairs map (`databricks workspace list` of each
+     `frd_sttm_pairs/pair_<n>` -> JSON {pair_n: {sttm, frd, vdd}}; /tmp only, it holds
+     document names); BACK UP the layout cache first (`databricks workspace export-dir
+     <state>/layout_profiles <dir>`: a refresh overwrites every pair's cached layout and
+     tombstones a document it cannot fully place, which would re-ask Soham's earlier
+     answers), then `MEASURE_PAIRS_MAP=... python scripts/measure_layout_cost.py pair_1
+     ... pair_12` (arms the one-shot refresh BEFORE each run = a clean first read, no
+     double count; proceeds past questions with no answers; Cancel run after each; ~5
+     DBU per pair, ~60 DBU total), then import the backup back (`databricks workspace
+     import-dir --overwrite`). Report calls / tokens / DBU per pair, counts only. The
+     2026-11-03 backup (26 files) was in /tmp and is gone - nothing was overwritten
+     except pair_10's (by the refresh above).
+  2. **Record Rama's answers** to `docs/acfc/RAMA_QUESTIONS_2026-11-03.md` (15 questions:
+     child pipelines, ID assignment, N-object vs per-table pipelines; settles pair_11's
+     child count, the ID rule and pairs 08 / 09). The shareable HTML page was built in
+     `out/share/` (gitignored, lost on reset) - publishing it needed a claude.ai login.
+     Prod facts found for it: PIPELINE_ID = GROUP_ID + 200 on 297 of 299 prod rows
+     (pair_07 the exception), the stage -> standard group = GROUP_ID + 1 (pair_02),
+     pair_11's 12 vs 10 schedule rows = 5 feeds vs 4 (not children per feed), pair_09
+     carries BOTH shapes (one group of 36 objects and 36 one-object groups).
+  3. Carried over from the block below: live runs pair_05 / 07 / 08 / 10, the end user's
+     fixes (pair_07, pair_03 / pair_11 STTM spaces), Anju's golden load.
+- **Other workspaces:** this container cannot call another workspace (trusted-workload
+  check, AGENTS.md). Soham asked what `app-spend-monitor` (workspace 2465312035833126)
+  reads: not answerable from here - its App page (Resources / Environment / source) or
+  the CLI from his own machine. Likely the billing system tables, unconfirmed. A CLI
+  profile `spend-ws` was saved in /tmp/cgs/oauth.cfg (gone on reset).
+- **The rules file is now `AGENTS.md`** (renamed from CLAUDE.md for Codex, 2026-11-03).
+
+## State (2026-11-03 — post163 deployed)
 
 - **Live:** post163 (ae5aec7) - post160 STTM-authoritative tables, post161 HEDIS H4
   reader, post162 dark mode, post163 the Results feeds fold. Health + live smoke green.

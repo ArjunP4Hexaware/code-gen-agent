@@ -646,7 +646,7 @@ Code needs for the actual build is inlined in §1–§8 above.
 
 - [`README.md`](../../../README.md) — quick start, two-layer architecture,
   `extract-sttm` usage, repo layout table
-- [`CLAUDE.md`](../../../CLAUDE.md) — working conventions: config doctrine,
+- [`AGENTS.md`](../../../AGENTS.md) — working conventions: config doctrine,
   branching (staging→main), fixture rules, known gaps, extractor invariants
 - [`docs/DEMO_RUNBOOK.md`](../../../docs/DEMO_RUNBOOK.md) — client demo
   choreography, contingency, safety rails, and the 2026-08-07 rehearsal

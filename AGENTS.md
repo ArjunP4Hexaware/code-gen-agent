@@ -1,13 +1,20 @@
 # CodeGen / Data Engineer Agent — working notes
 
-**This file holds rules and orientation only — keep it that way.** Session state goes
-elsewhere:
+**This file holds rules and orientation only — keep it that way.** It is the rules file
+for every coding agent on this repo (Claude Code, Codex, ...): it was `CLAUDE.md` until
+2026-11-03, renamed so Codex reads it; older notes that say "CLAUDE.md" mean this file.
+Session state goes elsewhere:
 - **Where the work is now** (state, next up, open items, container recipes):
   `docs/RESTART.md` — read it first, update it at the end of a session.
 - **What each version did:** `CHANGELOG_ACFC.md`.
 - **Older notes, verbatim:** `docs/CLAUDE_HISTORY.md` (§[H2]–§[H12]; §[H9] = everything
   this file carried before the 2026-10-23 clean-up, §[H10] = retired RESTART.md blocks).
   The pre-clean-up file itself: `git show fa79a28:CLAUDE.md`.
+
+**Who you work with:** Soham (GitHub `SohamBHexaware`) leads the project, decides,
+deploys and is the dev App's only user. Talk to him directly ("you"), keep answers short
+and plain, and give ELI5 versions of things he relays to PMs. Text he will send on to
+others (Venu, Nikshit, the BSA ...) is written in his voice.
 
 A new rule earns a line here only if it stays true across sessions; a dated "after postNN"
 note goes in RESTART.md and then into the history, never here.
@@ -73,10 +80,15 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
 
 ## Working rules
 
-- **Branches:** `feature/multi-table` = all current work. `feature/iig-first` = the old
-  demo branch `codegen-watch` pulled — never merge into it without Soham's word.
-  `backup/ddl-only` = DDL-only fallback. `staging` / `main` are untouched since the
-  feature branches were cut; nothing merges anywhere without Soham's word.
+- **Branches:** `feature/multi-table` = all current work. `main` = the STABLE branch the
+  data engineers' test App `codegen-agent-staging` deploys from (since 2026-11-03, when
+  its tree was made identical to post164): it moves ONLY on Soham's word, and then as one
+  merge commit on top of `main` whose tree is feature's (`git commit-tree
+  <feature>^{tree} -p origin/main -p <feature>`, pushed as a fast-forward) - never a
+  force-push, never a casual merge. `feature/iig-first` = the old demo branch
+  `codegen-watch` pulled — never merge into it without Soham's word. `backup/ddl-only` =
+  DDL-only fallback. `staging` is untouched since the feature branches were cut; nothing
+  merges anywhere without Soham's word.
 - **Others push to this branch from ACFC:** `git fetch` and rebase before work, never
   force-push.
 - **Stage files explicitly, never `git add -A`.** Gitignored local-only files (never
@@ -89,6 +101,11 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   from a prompt. Docs-only pushes need no bump. The pre-push guard is
   `scripts/git-hooks/pre-push`; `scripts/dev_bootstrap.sh` installs it next to this
   container's global hooks (CI runs it too).
+- **Other workspaces are out of reach from this container:** it runs as an App in workspace
+  `4812116803419068`, and another workspace refuses its calls even with a valid login
+  ("Cert validation failed ... trusted workload checks did not pass", seen 2026-11-03) -
+  a security policy: never route around it; ask Soham to look in that workspace's UI or
+  run the CLI from his own machine.
 - **Pushing:** the App deploys from GitHub, so an unpushed commit never reaches it —
   after a deploy, `/api/health` must name the pushed version. The App deploys FROM
   `feature/multi-table`, but a push alone does NOT redeploy it (verified 2026-11-02: the
@@ -96,12 +113,19 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   deploy right before a demo without asking; local commits are always safe. A push that adds or
   changes `.github/workflows/` needs the `workflow` scope on the `gh` login (`gh auth
   refresh -s workflow`, interactive — Soham runs it); never route around a refused push.
-- **Deploying:** Soham is the App's only user, so Claude deploys after every green push
-  (recipe in RESTART.md), then checks `/api/health` names the pushed version and runs the
-  Playwright smoke (Dashboard + Generate: 200, no console errors). For ~30 s after a
+- **Deploying:** two Apps. `codegen-agent` (from `feature/multi-table`) is the dev App:
+  Soham is its only user, so the agent deploys it after every green push (recipe in
+  RESTART.md), then checks `/api/health` names the pushed version and runs the
+  Playwright smoke (Generate + Results: 200, no console errors). `codegen-agent-staging`
+  (from `main`) is what the data engineers test: never deploy it, run on it or change
+  its grants without Soham's word. For ~30 s after a
   deploy `/api/health` may answer non-JSON and the Dashboard time out — retry before
-  believing it. A RUN on the deployed App is live (client documents go to the model) —
-  allowed (2026-11-02); a new pair's first layout run costs about 6-8 DBU. The App's API
+  believing it. A Git deploy can time out downloading the repo (`get-repo-archive ...
+  timed out`): a Databricks-side hiccup, retry the deploy once. A RUN on the dev App is
+  live (client documents go to the model) — allowed without a per-run ask (2026-11-02;
+  report pair, outcome and counts only); the App quotes a new pair's first layout run as
+  6-8 DBU (a deliberately high estimate; measured once at 4.84 DBU, RESTART.md). Check
+  the App is idle before starting a run: Soham uses it too, one run at a time. The App's API
   wants an OAuth token (profile `codegen-oaut`, RESTART.md); the DEFAULT PAT can deploy
   but not call the API. A STOPPED App refuses a deploy ("not in RUNNING
   state"): starting it bills compute — ask Soham first.
@@ -469,6 +493,17 @@ offline — **do not call Graph or Databricks from inside the extractors or the 
   RESTART.md); every deploy restarts the container and wipes its local run state. The
   manifest `app.yaml` sets `CODEGEN_PROVIDER=live`, the storage roles and
   `CODEGEN_STATE_DIR`; re-lock to the mock with `CODEGEN_FORCE_MOCK_PROVIDER=1`.
+- **Whose identity the App uses:** always its OWN service principal (`WorkspaceClient()`
+  inside the Apps runtime); there is no on-behalf-of user auth. So the person using the
+  App needs no access to the folders, and anyone with Can Use on an App can choose and run
+  every document its folders hold - grant Can Use accordingly. Each App has its own
+  principal (`databricks apps get <app>` -> `service_principal_name`); grants never carry
+  over. A principal needs **Can Manage** on the `codegen` folder (inputs / state /
+  outputs / the state dir inherit it; Can Edit fails on file creation) and **Can Read**
+  on `frd_sttm_pairs`. A folder the principal cannot see reads `empty` in `/api/health`,
+  not an error. Both Apps read the same `app.yaml`, so today they SHARE storage roles
+  (runs, selection, layout cache; Clear past runs on one deletes the other's runs) -
+  open item in RESTART.md.
 - The App opens on the guided run page, "Generate a pipeline" (`/`; the old `/modes`
   redirects there; Results is `/results`): a step strip (Choose
   documents → Check the settings → Answer questions → Get the results), a Documents
@@ -503,6 +538,11 @@ offline — **do not call Graph or Databricks from inside the extractors or the 
   never show it as the provider (it read MOCK after every deploy of a live App).
 - Choose documents: a pick applies at once (download, classify, pair); Cancel restores
   the selection the dialog opened on (`/api/demo/choosing*`), Done keeps it.
+- **Cancel run is a choice, not a failure** (post164, Soham): `POST /api/demo/cancel`
+  stops a run paused on its questions (layout / pairing / before-generate dialog) or drops
+  the questions a stopped run left (needs_answers, a done run with blocking lines); the
+  page goes back to idle with no error card (`RunCancelled`), nothing recorded, the run's
+  folder kept. "Clear past runs" resets the run card in EVERY finished state too.
 - **Model cost** (`reasoning.dbu_rates`, source: databricks.com/product/pricing/
   proprietary-foundation-model-serving): Claude Opus 5.5 = 57.143 input / 285.714 output
   DBU per 1M tokens (+10% with regional processing); $ = the contract's $/DBU x rate

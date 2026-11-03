@@ -106,6 +106,15 @@ export function ModesPage({
       setError(e);
     }
   };
+  // Cancel run: beside a run's questions (the layout dialog, or the blocking
+  // questions a stopped run left) — the page goes back to idle.
+  const cancelRun = async () => {
+    try {
+      setStatus(await api.cancelRun());
+    } catch (e) {
+      setError(e);
+    }
+  };
   const confirmClearRuns = async () => {
     setClearing(true);
     try {
@@ -1111,6 +1120,15 @@ export function ModesPage({
               }}
             />
           ) : null}
+          {!running && (status.state === "needs_answers" || blocking
+                        || (status.needs_answers ?? []).length > 0) ? (
+            <div className="decision-row" style={{ marginTop: 10 }}>
+              <button className="btn" onClick={cancelRun}
+                      title="Drop this run's questions; the documents stay chosen and the run's files stay under past runs">
+                Cancel run
+              </button>
+            </div>
+          ) : null}
           </div>
           {status.state === "needs_layout" && (status.layout_questions ?? []).length ? (
             <div className="flag-hitl" style={{ padding: "12px 14px", marginTop: 8 }}>
@@ -1172,7 +1190,8 @@ export function ModesPage({
                         title="Continue with the remaining roles read as empty (gate-flagged)">
                   Proceed with unresolved
                 </button>
-                <button className="btn" onClick={() => api.layoutAnswers({ answers: {}, cancel: true }).then(setStatus).catch(setError)}>
+                <button className="btn" onClick={cancelRun}
+                        title="Stop this run; the documents stay chosen">
                   Cancel run
                 </button>
                 {status.pause_kind !== "before_generate" ? (

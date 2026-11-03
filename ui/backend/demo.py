@@ -93,6 +93,11 @@ class LiveRunInProgress(RuntimeError):
     """A live run is already in flight (surface as HTTP 409)."""
 
 
+class RunCancelled(RuntimeError):
+    """The person pressed Cancel run while the run waited for answers: the run
+    stops and the page goes back to idle - a choice, not a failure."""
+
+
 # Output selection as independent PARTS (what the UI toggles): exactly
 # Notebook and Framework artefacts (codegen.output_modes). A retired value
 # (both / rfc / all) from a saved state maps to both parts with a one-time
@@ -1071,7 +1076,7 @@ class DemoRunner:
         reply = self._layout_answers or {}
         self.layout_questions = []
         if reply.get("cancel"):
-            raise RuntimeError("pairing cancelled by the user")
+            raise RunCancelled("pairing cancelled by the user")
         gaps = (reply.get("answers") or {}).get("gaps") or {}
         for decision in pending:
             picked = (gaps.get(f"pair.{decision.kind}") or {}).get("value")
@@ -2152,7 +2157,7 @@ class DemoRunner:
             reply = self._layout_answers or {}
             self.layout_questions = []
             if reply.get("cancel"):
-                raise RuntimeError("layout resolution cancelled by the user")
+                raise RunCancelled("layout resolution cancelled by the user")
             if reply.get("refresh"):
                 # Start over past the caches: the answers given so far were
                 # answers to the OLD profile's questions.
@@ -2258,7 +2263,7 @@ class DemoRunner:
         reply = self._layout_answers or {}
         self.layout_questions = []
         if reply.get("cancel"):
-            raise RuntimeError("run cancelled by the user")
+            raise RunCancelled("run cancelled by the user")
         from codegen.layout.resolve import parse_answers
 
         parsed = parse_answers(reply.get("answers") or {})
@@ -2340,13 +2345,58 @@ class DemoRunner:
                 self._clearing = False
         unloaded = self._store.forget_runs(deleted)
         with self._lock:
-            if self.last_run_label in deleted and self.state in ("done", "failed", "idle"):
+            if self.last_run_label in deleted:
                 self.last_run_label = None
+            # Every finished state, needs_answers included: the last run's
+            # questions, error and steps go with its folder. A run that started
+            # after the deletion (running / paused) is left alone.
+            if self.state not in ("running", "needs_layout"):
+                self._reset_run_view()
                 self.state = "idle"
-                self.stages = []
-                self.error = None
-                self.model_usage = []
         return {"deleted": deleted, "unloaded_current": unloaded}
+
+    def _reset_run_view(self) -> None:
+        """Forget what the last run left on the page (its steps, error,
+        questions, layout dialog, usage) - the call holds ``self._lock``. The
+        run's folder, the selection and the confirmed input choices stay."""
+        self.stages = []
+        self.error = None
+        self.error_detail = None
+        self.error_hint = None
+        self.needs_answers = []
+        self.inputs_needed = []
+        self.outcome = None
+        self.blocking_lines = []
+        self.set_aside = []
+        self.layout_questions = []
+        self.layout_report = None
+        self.layout_advice = None
+        self.layout_fills = []
+        self.model_usage = []
+        self.pause_kind = "layout"
+        self._run_items = []
+        self._open_owed = []
+        self._run_inputs = None
+
+    def cancel_run(self, *, wait_seconds: float = 5.0) -> None:
+        """Cancel run (the button beside a run's questions). A run paused on
+        its dialog stops (the same as the dialog's cancel) and the page goes
+        back to idle; a run that ended on questions (needs_answers, a done run
+        with blocking lines, a failure that kept its open questions) has them
+        dropped. Refused (409) while a run is working and asks nothing."""
+        with self._lock:
+            state = self.state
+            if state == "running":
+                raise LiveRunInProgress("the run is working, not asking questions - it can "
+                                        "be cancelled when it asks")
+            if state != "needs_layout":
+                self._reset_run_view()
+                self.state = "idle"
+                return
+        self.answer_layout({}, cancel=True)
+        deadline = time.monotonic() + wait_seconds
+        while self.state in ("needs_layout", "running") and time.monotonic() < deadline:
+            time.sleep(0.05)
 
     def _await_pairing(self) -> None:
         """M15.2: Generate enables as soon as the STTM is classified; a run that
@@ -2672,6 +2722,12 @@ class DemoRunner:
             self._record_live_run(started, profile)
             self.needs_answers = _dedup_items([*self._run_items, *self._open_owed])
             self.state = "needs_answers"
+        except RunCancelled:
+            # Cancel run while it asked its questions: back to idle, nothing
+            # recorded, no failure card and no questions left on the page.
+            with self._lock:
+                self._reset_run_view()
+                self.state = "idle"
         except Exception as exc:  # noqa: BLE001 — must release the guard and surface, not crash
             if self.outcome == "GATE_FAIL":
                 # every feed's files quarantined: a run that stopped, kept in

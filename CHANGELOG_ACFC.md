@@ -4,6 +4,27 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post164 — 2026-11-03 (Cancel run beside the questions; Clear past runs drops them)
+
+Soham: "Clear past runs" left a stopped run's blocking questions on the Generate page,
+and once a run stopped on its questions there was no way out but answering them.
+- **Clear past runs** now resets the run card in every finished state. It used to reset
+  only done / failed / idle AND only when the last run's own folder was among those
+  deleted, so a run held back entirely (needs_answers) kept its questions. The
+  selection and the confirmed input choices stay.
+- **Cancel run** (`POST /api/demo/cancel`, `DemoRunner.cancel_run`): beside the
+  blocking questions a stopped run left (needs_answers, a done run with blocking
+  lines, a failure that kept its open questions) it drops them; in the layout /
+  pairing dialog the existing Cancel run now uses the same call. The page goes back to
+  idle. 409 while a run works and asks nothing. The run's folder stays (Clear past
+  runs deletes it).
+- **A cancel is no longer a failure:** a run cancelled from its dialog used to end as
+  FAILED with an error card ("cancelled by the user"); it now ends idle with nothing
+  left on the page (`RunCancelled`) and is not recorded in the live-run history.
+- Tests: `tests/test_clear_runs.py` (the bug, 9 cases, fail on post163; the route),
+  `tests/test_app_needs_answers.py`, `tests/test_demo_ui.py` (cancel ends idle),
+  `ModesPage.test.tsx` (the button posts and the questions go).
+
 ## 0.5.8.post163 — 2026-11-02 (Results: the feed cards fold away)
 
 Soham: on Results the framework artefacts are what a person came for. The "Feeds (N)"

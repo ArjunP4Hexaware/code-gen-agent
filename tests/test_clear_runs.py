@@ -116,6 +116,65 @@ def test_the_loaded_run_stops_being_served_when_its_folder_goes(api):
     assert client.get("/api/feeds").json()["label"] is None
 
 
+_QUESTION = {"key": "feeds[0].delimiter", "label": "QUESTION", "section": "frd",
+             "answer_as": "text", "feed_name": "f", "sheet": None, "reason": "blank",
+             "question": "Which delimiter?"}
+
+
+def _stopped_on_questions(runner, state: str, label: str | None) -> None:
+    """The page after a run that stopped at blocking questions."""
+    runner.state, runner.last_run_label = state, label
+    runner.needs_answers = [dict(_QUESTION)]
+    runner.blocking_lines = [{"key": _QUESTION["key"], "scope": "feed", "feed": "f"}]
+    runner.outcome = "NEEDS_ANSWERS"
+    runner.stages = [{"stage": "needs answers", "detail": "1 question"}]
+
+
+@pytest.mark.parametrize("state", ["needs_answers", "done", "failed"])
+@pytest.mark.parametrize("label", [None, RUNS[0], "demo_20990101_000000"])
+def test_clearing_drops_the_blocking_questions_of_the_last_run(api, state, label):
+    """Clear past runs used to leave a stopped run's questions on the page: the
+    reset ran only for done / failed / idle AND only when the run's own folder
+    was among those deleted (a run held back entirely is needs_answers)."""
+    client, _store, runner, _outputs = api
+    _stopped_on_questions(runner, state, label)
+    status = client.post("/api/demo/runs/clear", json={"confirm": True})
+    assert status.status_code == 200
+    after = client.get("/api/demo/status").json()
+    assert after["state"] == "idle"
+    assert after["needs_answers"] == [] and after["blocking"] == []
+    assert after["outcome"] is None and after["stages"] == [] and after["error"] is None
+
+
+# ------------------------------------------------------------------ Cancel run
+
+
+@pytest.mark.parametrize("state", ["needs_answers", "done", "failed"])
+def test_cancel_run_drops_the_questions_a_stopped_run_left(api, state, local_outputs):
+    client, _store, runner, outputs = api
+    _stopped_on_questions(runner, state, RUNS[0])
+    reply = client.post("/api/demo/cancel")
+    assert reply.status_code == 200
+    body = reply.json()
+    assert body["state"] == "idle" and body["needs_answers"] == [] and body["blocking"] == []
+    assert body["outcome"] is None and body["stages"] == []
+    # Cancel deletes nothing: the run's folder stays until Clear past runs.
+    assert all((outputs / name).is_dir() for name in RUNS)
+
+
+def test_cancel_run_is_refused_while_the_run_works_and_asks_nothing(api):
+    client, _store, runner, _outputs = api
+    runner.state = "running"
+    reply = client.post("/api/demo/cancel")
+    assert reply.status_code == 409 and "not asking questions" in reply.json()["detail"]
+    assert runner.state == "running"
+
+
+def test_cancel_run_on_an_idle_page_is_a_no_op(api):
+    client, _store, runner, _outputs = api
+    assert client.post("/api/demo/cancel").json()["state"] == "idle"
+
+
 # ------------------------------------------------------------------ the backends
 
 

@@ -1104,6 +1104,9 @@ export const api = {
       body: JSON.stringify({ confirm: true }),
     }),
   demoStatus: () => statusRequest("/api/demo/status"),
+  // Cancel run: stop a run waiting on its questions, or drop the questions a
+  // stopped run left on the page — the page goes back to idle.
+  cancelRun: () => statusRequest("/api/demo/cancel", { method: "POST" }),
   layoutAnswers: (body: {
     answers: Record<string, unknown>; proceed?: boolean; cancel?: boolean; refresh?: boolean;
   }) =>

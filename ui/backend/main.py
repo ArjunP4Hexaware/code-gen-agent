@@ -737,6 +737,19 @@ class InputChoicesRequest(BaseModel):
     choices: dict = {}
 
 
+@app.post("/api/demo/cancel")
+def cancel_run() -> dict:
+    """Cancel run: stop a run waiting on its questions, or drop the questions
+    a stopped run left on the page; the page goes back to idle (the run's
+    folder stays until Clear past runs). 409 while a run works and asks
+    nothing."""
+    try:
+        _require_runner().cancel_run()
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return demo_status()
+
+
 @app.post("/api/demo/input-choices")
 def confirm_input_choices(req: InputChoicesRequest) -> dict:
     """post59: the BSA's Confirm on the inputs panel — ``{"choices": {"<inputs

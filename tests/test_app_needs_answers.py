@@ -184,18 +184,44 @@ def test_a_run_paused_on_its_dialog_refuses_a_second_start(roles):
     with pytest.raises(LiveRunInProgress):
         runner.rerun_with_answers({})
     runner.answer_layout({}, cancel=True)
-    assert _wait(runner, "failed") == "failed"
-    # A cancelled run is a readable failure: type, message, innermost frame, health.
-    detail = runner.status()["error_detail"]
-    assert detail["type"] == "RuntimeError" and "cancelled" in detail["message"]
-    assert detail["where"].startswith("ui/backend/demo.py:") and " in _resolve_layout" in \
-        detail["where"]
-    assert detail["health_line"].startswith("version ")
+    assert _wait(runner, "idle", "failed") == "idle"
+    # Cancel run is a choice, not a failure: no error card, no questions left.
+    status = runner.status()
+    assert status["error"] is None and status["error_detail"] is None
+    assert status["layout_questions"] == [] and status["needs_answers"] == []
+
+
+def test_cancel_run_stops_a_run_paused_on_its_questions(roles):
+    """Cancel run while the dialog asks: the run stops and, once the call
+    returns, the page is idle with no failure and no questions."""
+    runner, _store = _runner(roles)
+    runner.start_live()
+    assert _wait(runner, "needs_layout", "failed", "done") == "needs_layout"
+    runner.cancel_run()
+    status = runner.status()
+    assert status["state"] == "idle", status["stages"][-3:]
+    assert status["error"] is None and status["layout_questions"] == []
+    assert status["needs_answers"] == [] and status["stages"] == []
+    assert runner.selected_workbook is not None           # the documents stay chosen
+    runner.start_live()                                    # the guard is released
+    assert _wait(runner, "needs_layout", "failed", "done") == "needs_layout"
+    runner.cancel_run()
+
+
+def test_cancel_run_drops_a_held_back_runs_questions(roles):
+    runner, _store = _runner(roles)
+    held = _hold_every_feed_back(runner)
+    assert held["state"] == "needs_answers" and held["needs_answers"]
+    runner.cancel_run()
+    status = runner.status()
+    assert status["state"] == "idle" and status["needs_answers"] == []
+    assert status["blocking"] == [] and status["outcome"] is None
+    assert status["needs_answers_inputs"] is None
 
 
 def _cancel_at_pairing(runner: DemoRunner) -> None:
-    """The run-start pairing question, cancelled by the person: the run fails
-    BEFORE its layout is resolved (where a re-run's answers are applied)."""
+    """The run-start pairing step fails: the run fails BEFORE its layout is
+    resolved (where a re-run's answers are applied)."""
     def cancelled() -> None:
         raise RuntimeError("pairing cancelled by the user")
 
@@ -224,7 +250,7 @@ def test_a_rerun_that_fails_before_layout_never_seeds_the_next_run(roles):
     assert not any(s["stage"] == "answers carried" for s in runner.stages)
     assert [q["key"] for q in runner.status()["layout_questions"]] == BAND_KEYS
     runner.answer_layout({}, cancel=True)
-    assert _wait(runner, "failed") == "failed"
+    assert _wait(runner, "idle", "failed") == "idle"
 
 
 def test_a_rerun_whose_documents_change_at_run_start_drops_its_answers(roles):
@@ -248,7 +274,7 @@ def test_a_rerun_whose_documents_change_at_run_start_drops_its_answers(roles):
     assert "answers not carried" in stages and "answers carried" not in stages
     assert [q["key"] for q in runner.status()["layout_questions"]] == BAND_KEYS
     runner.answer_layout({}, cancel=True)
-    assert _wait(runner, "failed") == "failed"
+    assert _wait(runner, "idle", "failed") == "idle"
 
 
 def test_some_feeds_held_back_end_done_and_a_failure_keeps_the_open_questions(roles):

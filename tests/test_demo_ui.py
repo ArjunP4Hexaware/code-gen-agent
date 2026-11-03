@@ -139,7 +139,7 @@ def test_live_failure_surfaces_and_releases_guard():
 
 def test_needs_layout_pauses_the_run_until_answered(monkeypatch):
     """M2.5 §6: unresolved roles pause the run in ``needs_layout`` with the
-    question list on the status; answers resume it; ``cancel`` fails it."""
+    question list on the status; answers resume it; ``cancel`` ends it idle."""
     from codegen.layout import resolve as resolve_module
     from codegen.layout.profile import LayoutProfile
     from codegen.layout.resolve import DocumentResolution, LayoutQuestion, PairResolution
@@ -185,7 +185,7 @@ def test_needs_layout_pauses_the_run_until_answered(monkeypatch):
     # Not waiting -> answering is refused.
     with pytest.raises(LiveRunInProgress):
         runner.answer_layout({})
-    # A cancel fails the run loudly.
+    # A cancel stops the run and the page goes back to idle: no failure, no questions.
     runner._work = work
     runner.start_live()
     for _ in range(100):
@@ -194,10 +194,12 @@ def test_needs_layout_pauses_the_run_until_answered(monkeypatch):
         time.sleep(0.02)
     runner.answer_layout({}, cancel=True)
     for _ in range(100):
-        if runner.state == "failed":
+        if runner.state == "idle":
             break
         time.sleep(0.02)
-    assert runner.state == "failed" and "cancelled" in (runner.error or "")
+    status = runner.status()
+    assert runner.state == "idle" and runner.error is None and status["error_detail"] is None
+    assert status["layout_questions"] == [] and status["stages"] == []
 
 
 def test_re_resolve_layout_is_a_one_shot_refresh_before_a_run_and_from_the_dialog(monkeypatch):

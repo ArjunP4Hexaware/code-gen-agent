@@ -239,3 +239,43 @@ describe("the pause before generating (post80)", () => {
     expect((button("Continue") as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+/* Cancel run beside the blocking questions a stopped run left: one click posts
+   /api/demo/cancel and the page shows the idle status it answers with. */
+describe("Cancel run beside a stopped run's questions", () => {
+  const QUESTION = { key: "feeds[0].delimiter", label: "QUESTION", section: "frd",
+                     answer_as: "text", feed_name: "f", sheet: null, reason: "blank",
+                     question: "Which delimiter?" };
+  const HELD = { ...STATUS, state: "needs_answers", outcome: "NEEDS_ANSWERS",
+                 needs_answers: [QUESTION], blocking: [{ key: QUESTION.key, scope: "feed", feed: "f" }] };
+
+  it("drops the questions and the page goes back to idle", async () => {
+    let current: unknown = HELD;
+    const posts: string[] = [];
+    ROUTES["GET /api/demo/status"] = () => json(200, current);
+    ROUTES["POST /api/demo/cancel"] = () => {
+      posts.push("/api/demo/cancel");
+      current = { ...STATUS, state: "idle" };
+      return json(200, current);
+    };
+    try {
+      await renderPage();
+      expect(host.textContent).toContain("Answer the blocking questions");
+      await act(async () => { button("Cancel run").click(); });
+      await settle();
+      expect(posts).toEqual(["/api/demo/cancel"]);
+      expect(host.textContent).not.toContain("Answer the blocking questions");
+      expect([...host.querySelectorAll("button")].some(
+        (b) => b.textContent?.trim() === "Cancel run")).toBe(false);
+    } finally {
+      ROUTES["GET /api/demo/status"] = () => json(200, STATUS);
+      delete ROUTES["POST /api/demo/cancel"];
+    }
+  });
+
+  it("is not offered on a finished run with nothing to answer", async () => {
+    await renderPage();
+    expect([...host.querySelectorAll("button")].some(
+      (b) => b.textContent?.trim() === "Cancel run")).toBe(false);
+  });
+});

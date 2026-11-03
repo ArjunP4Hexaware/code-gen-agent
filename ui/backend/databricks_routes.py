@@ -46,12 +46,21 @@ def _config():
         raise HTTPException(503, str(exc)) from exc
 
 
+def _fetch_dir() -> Path:
+    """FETCH_DIR under the default inputs role, else the role's working copy."""
+    from ui.backend import stores
+
+    if _store is None:
+        return FETCH_DIR
+    return stores.inbox_dir(_store.config, "databricks", FETCH_DIR)
+
+
 def _local_index() -> dict[str, tuple[str, int]]:
     """canonical name -> (local file name, size) across every input dir the
     STTM chooser's local scan covers, so the volumes list can be deduped
     SERVER-SIDE against what is already on disk."""
     directories = [
-        FETCH_DIR,
+        _fetch_dir(),
         REPO_ROOT / "inputs" / "sharepoint",
         (REPO_ROOT / _store.config.demo.workbook).parent if _store else None,
     ]
@@ -81,7 +90,17 @@ def _annotate(entry: dict, local: dict[str, tuple[str, int]]) -> dict:
 
 @router.get("/documents")
 def documents() -> dict:
-    cfg = _config()
+    """The volumes' documents. The seam OFF (blank catalog / schema / volumes,
+    as shipped for ACFC) is not an error (M15b.5): 200 with ``configured:
+    false``, empty lists and the reason — the UI hides the panel. The store
+    not being bound is still a 503 (the pipeline itself is unavailable)."""
+    if _store is None:
+        raise HTTPException(503, "pipeline unavailable")
+    try:
+        cfg = config_for(_store.config.databricks)
+    except DatabricksConfigError as exc:
+        return {"configured": False, "reason": str(exc), "catalog": "", "schema": "",
+                "documents": {"sttm": [], "frd": []}}
     try:
         listing = list_documents(cfg)
     except DatabricksTransportError as exc:
@@ -100,6 +119,7 @@ def documents() -> dict:
     for entry in frd:
         entry["paired"] = entry["name"] in paired_frds
     return {
+        "configured": True,
         "catalog": cfg.catalog,
         "schema": cfg.schema,
         "documents": {"sttm": sttm, "frd": frd},
@@ -117,118 +137,11 @@ def fetch(req: FetchRequest) -> dict:
     if req.volume not in (cfg.frd_volume, cfg.sttm_volume):
         raise HTTPException(400, f"unknown volume {req.volume!r}")
     try:
-        local = fetch_document(cfg, req.volume, req.name, FETCH_DIR)
+        local = fetch_document(cfg, req.volume, req.name, _fetch_dir())
     except DatabricksTransportError as exc:
         raise HTTPException(502, str(exc)) from exc
+    if _store is not None and _fetch_dir() != FETCH_DIR:
+        from ui.backend import stores
+
+        stores.push_input(_store.config, "databricks", local.name)
     return {"fetched": local.name, "dest": "inputs/databricks"}
-
-
-# --- human-gated artifact publish (the outbound half, added 2026-08-28) --- #
-#
-# The UC twin of the SharePoint publish gate: the reviewer picks the target
-# catalog.schema.volume in the UI, confirms, and ONE feed's artifacts land
-# under <volume>/<feed_slug>/. Same doctrine as sharepoint_publish: confirm
-# required, one feed per call, never a side effect of generating. Code-level
-# policy (codegen.databricks.WRITABLE_PREFIX) refuses any target outside the
-# sanctioned prefix, whatever the picker says.
-
-
-@router.get("/publish-target")
-def publish_target() -> dict:
-    """Defaults + availability for the publish panel.
-
-    Always answers (the panel renders the picker even when publishing cannot
-    work yet) — `available` + `reason` say whether a publish would succeed.
-    """
-    from codegen.databricks import WRITABLE_PREFIX
-
-    if _store is None:
-        return {"available": False, "reason": "pipeline unavailable",
-                "writable_prefix": WRITABLE_PREFIX}
-    try:
-        cfg = config_for(_store.config.databricks)
-    except DatabricksConfigError as exc:
-        return {"available": False, "reason": str(exc),
-                "writable_prefix": WRITABLE_PREFIX}
-    return {
-        "available": True,
-        "reason": "",
-        "catalog": cfg.catalog,
-        "schema": cfg.schema,
-        "volume": cfg.output_volume or "",
-        "writable_prefix": WRITABLE_PREFIX,
-    }
-
-
-class PublishRequest(BaseModel):
-    confirm: bool = False
-    feed_slug: str
-    catalog: str = ""
-    schema_name: str = ""
-    volume: str = ""
-    force: bool = False
-
-
-def _volume_publishable(store, feed_slug: str) -> list[Path]:
-    """Everything a volume publish uploads: the report (required), the
-    assembled notebook when notebook mode produced one, and the framework
-    artefacts when framework mode did. Addressed through the CURRENT mode's
-    roots, same as the SharePoint gate."""
-    feed_dir = (store.out_root / feed_slug).resolve()
-    candidates = [
-        (store.reports_root / f"{feed_slug}.md").resolve(),
-        feed_dir / f"{feed_slug}.ipynb",
-    ]
-    framework_dir = feed_dir / "framework"
-    if framework_dir.is_dir():
-        candidates.extend(sorted(p for p in framework_dir.iterdir() if p.is_file()))
-    return [p for p in candidates if p.is_file()]
-
-
-@router.post("/publish")
-def publish(req: PublishRequest) -> dict:
-    from codegen.databricks import ensure_volume, publish_artifacts
-
-    if req.confirm is not True:
-        raise HTTPException(
-            400,
-            'publishing writes to a Unity Catalog volume and requires an '
-            'explicit {"confirm": true}',
-        )
-    if _store is None:
-        raise HTTPException(503, "pipeline unavailable")
-    if req.feed_slug not in _store.runs:
-        raise HTTPException(404, f"no generated feed named {req.feed_slug!r}")
-    cfg = _config()
-    artifacts = _volume_publishable(_store, req.feed_slug)
-    if not artifacts:
-        raise HTTPException(
-            404,
-            f"nothing to publish for {req.feed_slug!r} — generate the feed first",
-        )
-    try:
-        target = ensure_volume(
-            cfg,
-            volume=req.volume or cfg.output_volume,
-            knob="output_volume",
-            catalog=req.catalog,
-            schema=req.schema_name,
-        )
-        published = publish_artifacts(
-            cfg, req.feed_slug, artifacts,
-            catalog=req.catalog, schema=req.schema_name, volume=req.volume,
-            force=req.force,
-        )
-    except DatabricksConfigError as exc:
-        # Includes the WRITABLE_PREFIX refusal: the picker asked for a
-        # target policy forbids — that is the caller's request to fix (400),
-        # not a missing configuration (503).
-        raise HTTPException(400, str(exc)) from exc
-    except DatabricksTransportError as exc:
-        raise HTTPException(502, str(exc)) from exc
-    return {
-        "published": True,
-        "volume": target["full_name"],
-        "volume_created": target["created"],
-        "artifacts": published,
-    }

@@ -14,11 +14,11 @@ import re
 from pyspark.sql import SparkSession
 
 FEED_ID = {{ feed.id | tojson }}
-FEED_NAME = {{ feed.name | tojson }}
-SOURCE_SYSTEM = {{ feed.source_system | tojson }}
+{{ feed.name | pyconst("FEED_NAME") }}
+{{ feed.source_system | pyconst("SOURCE_SYSTEM") }}
 LOBS = {{ pylist(lobs) }}
 
-FILE_FORMAT = {{ file_format | tojson }}
+{{ file_format | pyconst("FILE_FORMAT") }}
 DELIMITER = {{ delimiter | tojson }}
 FILE_NAME_PATTERNS = {{ pylist(file_name_patterns) }}
 _FILE_NAME_REGEXES = [
@@ -27,8 +27,40 @@ _FILE_NAME_REGEXES = [
 {% endfor %}
 ]
 
+{% if notebook_env.environment %}
+# From the run's environment profile {{ notebook_env.environment | tojson }}
+# (codegen.emit.notebook_env): catalogs, account and paths are the profile's,
+# the paths the IIG workbook's own (ADLS_DELTA path shapes).
+DEFAULT_CATALOG = {{ (default_catalog or "") | tojson }}
+STAGE_SCHEMA = {{ stage_schema | tojson }}
+{% if standard %}
+STANDARD_CATALOG = {{ (standard.catalog or "") | tojson }}
+STANDARD_SCHEMA = {{ standard.schema | tojson }}
+{% endif %}
+STORAGE_ACCOUNT = {{ (notebook_env.get("storage_account") or "") | tojson }}
+# Container-relative paths and their containers (the IIG ADLS_DELTA row's);
+# adls_uri() makes the abfss:// address on STORAGE_ACCOUNT.
+LANDING_CONTAINER = {{ (notebook_env.get("landing_container") or "") | tojson }}
+LANDING_PATH = {{ (notebook_env.get("landing_path") or "") | tojson }}
+ARCHIVE_CONTAINER = {{ (notebook_env.get("archive_container") or "") | tojson }}
+ARCHIVE_PATH = {{ (notebook_env.get("archive_path") or "") | tojson }}
+REJECT_CONTAINER = {{ (notebook_env.get("reject_container") or "") | tojson }}
+REJECT_PATH = {{ (notebook_env.get("reject_path") or "") | tojson }}
+_ADLS_HOST = "dfs.core.windows.net"
+
+
+def adls_uri(container: str, path: str) -> str:
+    """The abfss:// address of ``path`` in ``container`` on STORAGE_ACCOUNT (a
+    path that already is a URI is returned as is)."""
+    if "://" in path:
+        return path
+    return f"abfss://{container}@{STORAGE_ACCOUNT}.{_ADLS_HOST}/{path.lstrip('/')}"
+
+
+{% else %}
 DEFAULT_CATALOG: str | None = {{ default_catalog | py }}
 STAGE_SCHEMA = {{ stage_schema | tojson }}
+{% endif %}
 
 IS_SEGMENTED = {{ "True" if is_segmented else "False" }}
 RECORD_TYPE_COLUMN: str | None = {{ record_type_column | py }}

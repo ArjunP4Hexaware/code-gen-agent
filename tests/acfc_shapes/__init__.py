@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import frd, pair1, sttm, vdd
+from . import cold_pairs, frd, pair1, pair4_nb, sttm, vdd
 from .common import xlsx_bytes
 
 REPO = Path(__file__).resolve().parents[2]
@@ -23,6 +23,7 @@ FAMILY: dict[str, tuple[str, str]] = {
     "sttm/pair_1_family_a.xlsx": ("STTM family A — inline meta + banded mapping", "pair 1"),
     "sttm/pair_8_family_a.xlsx": ("STTM family A — inline meta + banded mapping", "pair 8"),
     "sttm/pair_2_family_b.xlsx": ("STTM family B — FILE_DETAILS + MAPPING- sheets", "pair 2"),
+    "sttm/pair_11_family_b.xlsx": ("STTM family B — FILE_DETAILS + MAPPING- sheets (one-block / many-files FRD)", "pair 11"),
     "sttm/pair_3_family_c.xlsx": ("STTM family C — Layout + STTM dual sheets", "pair 3"),
     "sttm/pair_4_family_d.xlsx": ("STTM family D — single mapping sheet", "pair 4"),
     "sttm/pair_6_family_d.xlsx": ("STTM family D — single mapping sheet", "pair 6"),
@@ -33,11 +34,19 @@ FAMILY: dict[str, tuple[str, str]] = {
     "frd/f1_pair_1.docx": ("FRD family F1 — six metadata sections (pair-1 label variants)", "pair 1"),
     "frd/f1_pair_2_variant.docx": ("FRD family F1 — six metadata sections (pair-2 label variants)", "pair 2"),
     "frd/f2_pair_8.docx": ("FRD family F2 — Solution Requirement tables", "pairs 8, 9, 10"),
+    "frd/f1_pair_11_multi_file.docx": ("FRD family F1 — one metadata block for several files (nested tables, per-file blocks, pointer text; no catalog)", "pair 11"),
+    "frd/f1_pair_11_multi_file_catalog.docx": ("FRD family F1 — one metadata block for several files (catalog stated)", "pair 11"),
     "vdd/pair_1_v1_segments.xlsx": ("VDD pattern V1 — full position, Segment column", "pair 1"),
     "vdd/pair_2_v2_per_file.xlsx": ("VDD pattern V2 — length only, one sheet per file", "pair 2"),
     "vdd/pair_9_v3_per_table.xlsx": ("VDD pattern V3 — DB table, one sheet per table", "pair 9"),
     "pair_1/golden/ACCUM_DDL.txt": ("pair-1 golden DDL, alias map applied", "pair 1"),
     "pair_1/golden/RFC_ACCUMULATORS_IIG.xlsx": ("pair-1 golden IIG, alias map applied", "pair 1"),
+    pair4_nb.STTM_PATH: ("multi-table STTM — Segment + TableName per row, LOB-per-file header block, ForReference STG→STD sheet", "pair 4 (multi-table, synthetic vendor)"),
+    pair4_nb.FRD_PATH: ("FRD contract (JSON) with the pair-4 multi-table facts", "pair 4 (multi-table, synthetic vendor)"),
+    **{cold_pairs.sttm_path(p): (f"cold STTM — {cold_pairs.SHAPE[p]}", f"{p} (cold drill, synthetic)")
+       for p in cold_pairs.PAIRS},
+    **{cold_pairs.frd_path(p): (f"cold FRD — {cold_pairs.SHAPE[p]}", f"{p} (cold drill, synthetic)")
+       for p in cold_pairs.PAIRS},
 }
 
 
@@ -49,6 +58,14 @@ def build_all() -> dict[str, bytes]:
     for rel, builder in vdd.BUILDERS.items():
         out[rel] = xlsx_bytes(builder())
     for rel, builder in frd.BUILDERS.items():
+        out[rel] = builder()
+    for rel, builder in pair4_nb.XLSX_BUILDERS.items():
+        out[rel] = xlsx_bytes(builder())
+    for rel, builder in pair4_nb.BYTES_BUILDERS.items():
+        out[rel] = builder()
+    for rel, builder in cold_pairs.XLSX_BUILDERS.items():
+        out[rel] = xlsx_bytes(builder())
+    for rel, builder in cold_pairs.BYTES_BUILDERS.items():
         out[rel] = builder()
     ddl = (GOLDEN_SOURCE / "ACCUM_DDL.txt").read_bytes().decode("utf-8")
     out["pair_1/golden/ACCUM_DDL.txt"] = pair1.alias_golden_ddl(ddl).encode("utf-8")

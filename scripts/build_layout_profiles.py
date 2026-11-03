@@ -91,7 +91,7 @@ def adversarial(base: LayoutProfile, mutation: str) -> dict:
         stage["col_end"], standard["col_end"] = standard["col_end"], stage["col_end"]
         stage["label"] = standard["label"] = None
     elif mutation == "data_column":
-        stage["roles"]["table"] = 30                          # beyond every header
+        stage["roles"]["table"] = 40                          # beyond every header
     elif mutation == "phantom_sheet":
         payload["sheets"].append({**json.loads(json.dumps(sheet)), "name": "PHANTOM_SHEET"})
     elif mutation == "free_text":

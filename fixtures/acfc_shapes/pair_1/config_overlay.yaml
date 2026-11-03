@@ -8,6 +8,17 @@
 metadata:
   templates:
     iig_v2:
+      # The pair-1 (PRX) family's conventions (2026-10-08), as its golden IIG fills
+      # them: LOB blank, an unknown STGDELTA primary key 'NA', and the family's own
+      # STGDELTA OBJECT_NAME — transcribed (no input derives it; open question).
+      family_conventions:
+        lob: blank
+        stgdelta_unknown_primary_key: "NA"
+        stgdelta_object_name: literal
+        stgdelta_object_name_literal: Accumulator_accumclient
+        schema_drift_flag: "N"      # the aliased golden IIG, every ADLS row
+        recycle_unstated: "N"       # the golden writes N / NA / NA for a feed without recycle
+        citation: "pair-1 family convention (pair-1 overlay, transcribed from the aliased golden IIG)"
       template_rows:
         DATA_FACTORY_PIPELINE_SCHEDULE:
           - {PIPELINE_NAME: PARENT_PIPELINE, PIPELINE_DESCRIPTION: PARENT_PIPELINE}
@@ -21,3 +32,30 @@ metadata:
         EMAIL_TEMPLATE_CONFIG:
           - {STATUS: Success}
           - {STATUS: Failed}
+# Multi-table step 2: the pair-1 STTM bands state the (aliased) catalogs
+# pr_dlk_vnd_p / pr_std_vnd_p; this fixture's environment maps them to
+# themselves (identity) — the map is applied, the golden stays byte-identical.
+conventions:
+  catalog_map: {pr_dlk_vnd_p: pr_dlk_vnd_p, pr_std_vnd_p: pr_std_vnd_p}
+  # post104: the client golden's DDL predates Nikshit's review - no column /
+  # table COMMENTs, no TBLPROPERTIES; switched off so ACCUM_DDL.txt stays the
+  # golden byte for byte (the enriched shape: tests/test_ddl_comments.py).
+  profiles:
+    acfc_prx:
+      column_comments: false
+      primary_key_note: null
+      load_strategy_comment: null
+      table_description_comment: false
+      standard_tblproperties: null
+      # post105: nor is it run-safe - CREATE OR REPLACE, no ';', no CLUSTER BY /
+      # stage TBLPROPERTIES / tags (the run-safe shape: tests/test_ddl_runsafe.py)
+      create_statement: "CREATE OR REPLACE TABLE"
+      statement_terminator: ""
+      cluster_by: null
+      stage_tblproperties: null
+      domain_tags: false
+# 2026-10-26: the golden is not runnable as one script - its two CREATEs carry no
+# ';' and parse as one unrecognised statement - so the DDL parse gate is off here
+# (tests/test_ddl_parse_gate.py records the golden failing it).
+gate:
+  ddl_parse_dialect: null

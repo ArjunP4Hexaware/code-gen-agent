@@ -13,8 +13,10 @@ import re
 from typing import Any
 
 from codegen.config import Config, EngineeringStandardsConfig
+from codegen.contracts.frd import stated_source
 from codegen.contracts.resolved import ResolvedFeedSpec, SegmentSpec
 from codegen.faq import WRITER_BEHAVIOR, LoadPatternFaq, summarize
+from codegen.run_errors import Coord, located
 
 # Contract file-name patterns use date placeholders; longest tokens first so
 # CCYYMMDD is consumed before CCYY / MM. "*" is a free wildcard.
@@ -44,11 +46,16 @@ _SQL_TYPES = {
     "int": "INT",
     "integer": "INT",
     "bigint": "BIGINT",
+    "tinyint": "TINYINT",
+    "smallint": "SMALLINT",
     "timestamp": "TIMESTAMP",
     "date": "DATE",
     "double": "DOUBLE",
     "float": "FLOAT",
     "boolean": "BOOLEAN",
+    # post92 (pair_03): DECIMAL with no precision, written as stated (Databricks:
+    # DECIMAL(10,0)); gate.decimal_precision flags each such column
+    "decimal": "DECIMAL",
 }
 _DECIMAL_RE = re.compile(r"^decimal\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)$", re.IGNORECASE)
 
@@ -168,14 +175,20 @@ def example_file_name(name_pattern: str, variant: int = 0) -> str:
 
 
 def sql_type(contract_datatype: str) -> str:
-    """Contract datatype string -> Delta SQL type, loud on unknowns."""
-    normalized = contract_datatype.strip()
+    """Contract datatype string -> Delta SQL type, loud on unknowns. A
+    parenthesised format (post74) is not part of the type: its keyword maps."""
+    from codegen.extract.type_format import split_type
+
+    parts = split_type(contract_datatype)
+    normalized = parts.keyword if parts.kind == "format" else contract_datatype.strip()
     decimal = _DECIMAL_RE.match(normalized)
     if decimal:
         return f"DECIMAL({decimal.group(1)},{decimal.group(2)})"
     mapped = _SQL_TYPES.get(normalized.lower())
     if mapped is None:
-        raise TemplateGapError(f"no SQL type mapping for contract datatype {contract_datatype!r}")
+        # quotes the STTM datatype cell; the caller's coordinates stand
+        raise located(TemplateGapError(
+            f"no SQL type mapping for contract datatype {contract_datatype!r}"), None, "sttm.type")
     return mapped
 
 
@@ -200,14 +213,25 @@ def _sanitize_name_part(value: str | None) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "_", value).strip("_").upper()
 
 
+# A name component longer than this after sanitizing is prose, not a token
+# (M7 derivation gate: names come from short tokens or stay blank). Mirrors
+# gate.derivations.max_name_token_length's default; the gate re-checks the
+# assembled name against the configured caps.
+_MAX_NAME_TOKEN = 32
+
+
 def _abbreviate(value: str | None, abbreviations: dict[str, str]) -> str:
     """EDO abbreviation-table lookup (case-insensitive on the sanitized key);
-    an unmapped value falls back to its sanitized uppercase form."""
-    if value is None:
+    an unmapped value falls back to its sanitized uppercase form — unless it
+    is prose (a line break, or longer than the token cap), which leaves the
+    component blank rather than slugging a description into a name."""
+    if value is None or "\n" in value or "\r" in value:
         return ""
     normalized = _sanitize_name_part(value)
     by_normalized = {_sanitize_name_part(k): v for k, v in abbreviations.items()}
-    return by_normalized.get(normalized, normalized)
+    if normalized in by_normalized:
+        return by_normalized[normalized]
+    return normalized if len(normalized) <= _MAX_NAME_TOKEN else ""
 
 
 def _name_components(
@@ -234,7 +258,7 @@ def _name_components(
         "feed": _sanitize_name_part(slug),
         "product": _sanitize_name_part(standards.product_code),
         "subproduct": _sanitize_name_part(standards.sub_product_code),
-        "source": _abbreviate(source, standards.source_abbreviations),
+        "source": _abbreviate(stated_source(source), standards.source_abbreviations),
         "domain": _abbreviate(domain, standards.domain_abbreviations),
         "subdomain": _abbreviate(sub_domain, standards.domain_abbreviations),
         "lob": lob,
@@ -286,6 +310,32 @@ def resolve_notebook_name(
     return _collapse_name(standards.notebook_name_pattern.format(**components))
 
 
+def is_fixed_width(spec: ResolvedFeedSpec, config: Config) -> bool:
+    """No delimiter, or a fixed-width token in the file format (the reader the
+    generated pipeline uses)."""
+    return spec.delimiter == "" or any(
+        token.lower() in (spec.file_format or "").lower()
+        for token in config.extractor.vdd.fixed_width_tokens)
+
+
+def pipeline_source_names(fields, *, headerless: bool) -> list[str]:
+    """post93: the names the generated pipeline gives a segment's source fields -
+    the STTM source names, or, in a file without a header row (fixed width, or a
+    segmented file) whose source names repeat (pair_03: 10 x Qualifier), ``col<i>``
+    by position: the IIG's own positional SRC_COLUMNS fallback
+    (metadata_template._named_sources). A file WITH a header row keeps the names
+    its header carries."""
+    names = [f.source_column for f in fields]
+    if headerless and len(set(names)) < len(names):
+        return [f"col{i}" for i in range(1, len(names) + 1)]
+    return names
+
+
+def _segment_number(spec: ResolvedFeedSpec, segment: SegmentSpec) -> int | None:
+    """1-based position of ``segment`` in the feed (an error's coordinate)."""
+    return next((i for i, s in enumerate(spec.segments, 1) if s is segment), None)
+
+
 def _segment_context(
     segment: SegmentSpec, spec: ResolvedFeedSpec, config: Config,
     faq: LoadPatternFaq | None = None, fixed_width: bool = False,
@@ -303,20 +353,32 @@ def _segment_context(
         else:
             record_type_value = config.segments.record_type_values.get(segment.segment)
         if record_type_value is None:
-            raise TemplateGapError(
+            raise located(TemplateGapError(
                 f"no record_type value configured for segment '{segment.segment}'"
-            )
+            ), Coord("contract", segment=_segment_number(spec, segment)), "template.gap")
+    names = pipeline_source_names(segment.fields, headerless=fixed_width or spec.is_segmented)
     positions: list[tuple[str, int, int]] = []
     if fixed_width:
-        for f in segment.fields:
+        for name, f in zip(names, segment.fields, strict=True):
             start = _as_int(f.source_start)
-            length = _as_int(f.source_length)
+            # M9.2: the RESOLVED byte width (codegen.resolve.widths) — an integer
+            # STTM length, else the STTM span, the VDD span or the person's
+            # answer. A precision ("10,2") is never a width.
+            length = f.byte_width
             if start is None or length is None:
-                raise TemplateGapError(
+                from codegen.resolve.widths import width_key
+
+                raise located(TemplateGapError(
                     f"fixed-width feed: field {f.source_column!r} in segment "
-                    f"'{segment.segment}' has no start/length in the STTM source band "
-                    f"(start={f.source_start!r}, length={f.source_length!r})")
-            positions.append((f.source_column, start, length))
+                    f"'{segment.segment}' has no start / byte width "
+                    f"(start={f.source_start!r}, length={f.source_length!r}, "
+                    f"end={f.source_end!r}): the STTM length is not an integer, the STTM "
+                    "states no end, and the VDD has no start / end for this field — answer "
+                    f"`{width_key(0, f.source_column)}` (gaps) or pass the VDD"),
+                    Coord("contract", segment=_segment_number(spec, segment),
+                          field=segment.fields.index(f) + 1),
+                    "answers.missing")
+            positions.append((name, start, length))
     not_null_stage = [
         f.stage_column for f in segment.fields if f.stage_column in set(spec.not_null_columns)
     ]
@@ -332,10 +394,10 @@ def _segment_context(
             if segment.audit_columns is not None
             else [(a.column, sql_type(a.datatype)) for a in spec.audit_columns]
         ),
-        "source_columns": [f.source_column for f in segment.fields],
+        "source_columns": names,
         "stage_columns": [f.stage_column for f in segment.fields],
         "not_null_stage_columns": not_null_stage,
-        "column_samples": _column_samples(segment, spec),
+        "column_samples": _column_samples(segment, spec, names),
         **({"positions": positions,
             "record_length": max(s + n - 1 for _c, s, n in positions)} if positions else {}),
     }
@@ -372,11 +434,11 @@ def _merge_shared_tables(segments: list[dict[str, Any]]) -> list[dict[str, Any]]
     return out
 
 
-def _column_samples(segment: SegmentSpec,
-                    spec: ResolvedFeedSpec) -> list[tuple[str, str]]:
+def _column_samples(segment: SegmentSpec, spec: ResolvedFeedSpec,
+                    names: list[str]) -> list[tuple[str, str]]:
     samples = [
-        (f.source_column, f.sample_value if f.sample_value is not None else "x")
-        for f in segment.fields
+        (name, f.sample_value if f.sample_value is not None else "x")
+        for name, f in zip(names, segment.fields, strict=True)
     ]
     # Derived record identification: the trailer's first field carries the
     # STTM-stated static marker, so generated test fixtures classify the way
@@ -397,14 +459,13 @@ def build_context(
     duplicate_rule_text: str | None,
     notification_rule_texts: list[str],
     faq: LoadPatternFaq | None = None,
+    iig_template: str | None = None,
 ) -> dict[str, Any]:
     """Everything the templates interpolate, and nothing they compute."""
     # No file read here — callers load the FAQ (codegen.faq.faq_for_spec) so
     # rendering stays a pure function of its arguments. None → all defaults.
     faq = faq if faq is not None else LoadPatternFaq()
-    fixed_width = spec.delimiter == "" or any(
-        token.lower() in (spec.file_format or "").lower()
-        for token in config.extractor.vdd.fixed_width_tokens)
+    fixed_width = is_fixed_width(spec, config)
     segments = [_segment_context(s, spec, config, faq, fixed_width) for s in spec.segments]
     detail = next(s for s in segments if s["is_detail"])
     # DDL tables: segments sharing one stage table render as one table.
@@ -421,9 +482,17 @@ def build_context(
             if trailer_count_stage_column is not None:
                 trailer_count_source_column = config.segments.trailer_count_column
 
-    detail_fields_by_stage = {f.stage_column: f.source_column for f in spec.detail_segment.fields}
+    # The resolver keeps the natural key inside the Detail segment (by
+    # (segment, field name), flagging any key it drops); a key column a
+    # hand-built spec names outside it has no Detail source to sample.
+    # post93: the pipeline's own source names (col<i> when a headerless file repeats them)
+    detail_fields_by_stage = dict(zip(detail["stage_columns"], detail["source_columns"],
+                                      strict=True))
+    # post70: the v1 pipeline keys its MERGE / rejects / tests on the not-null
+    # list as it always did (docs/acfc/OPEN_QUESTIONS.md) — now named as such.
     detail_natural_key_source_columns = [
-        detail_fields_by_stage[stage_column] for stage_column in spec.natural_key_columns
+        detail_fields_by_stage[stage_column] for stage_column in spec.not_null_columns
+        if stage_column in detail_fields_by_stage
     ]
 
     def _standard_type(datatype: str) -> str:
@@ -431,6 +500,12 @@ def build_context(
         # (audit columns keep their own types; they are appended separately).
         return "STRING" if spec.load_as_is else sql_type(datatype)
 
+    # post68: the run's environment profile (catalogs, account, paths) for the
+    # notebook's feed_spec; empty when no environment is defined
+    from codegen.emit.notebook_env import notebook_environment
+    from codegen.notification_contacts import redact_contacts
+
+    nb_env = notebook_environment(spec, config, iig_template)
     standard = None
     standard_tables: list[dict] = []
     if spec.standard_table is not None:
@@ -488,6 +563,9 @@ def build_context(
                 })
         else:
             standard_tables = [standard]
+        if nb_env.values.get("standard_catalog"):
+            for table in {id(t): t for t in [standard, *standard_tables]}.values():
+                table["catalog"] = table["catalog"] or nb_env.values["standard_catalog"]
 
     recycle = None
     if spec.recycle is not None:
@@ -496,18 +574,19 @@ def build_context(
             recycle_key
         )
         if key_stage is None:
-            raise TemplateGapError(
+            raise located(TemplateGapError(
                 f"recycle applies_to '{recycle_key}' has no stage column in the Detail segment"
-            )
+            ), Coord("contract", segment=_segment_number(spec, spec.detail_segment)),
+                "template.gap")
         filter_column = None
         filter_value = None
         if spec.recycle.reference_filter is not None:
             match = _EQUALITY_FILTER_RE.match(spec.recycle.reference_filter)
             if match is None:
-                raise TemplateGapError(
+                raise located(TemplateGapError(
                     "reference filter is not a simple equality, no template covers "
                     f"it: {spec.recycle.reference_filter!r}"
-                )
+                ), Coord("contract"), "template.gap")
             filter_column = match.group("column")
             filter_value = match.group("value").strip("'")
         recycle = {
@@ -588,7 +667,9 @@ def build_context(
         "file_format": spec.file_format,
         "delimiter": spec.delimiter,
         "landing_location": spec.landing_location,
-        "default_catalog": next((s.stage_table.catalog for s in spec.segments), None),
+        "default_catalog": (nb_env.values.get("stage_catalog")
+                            or next((s.stage_table.catalog for s in spec.segments), None)),
+        "notebook_env": nb_env.as_context(),
         "stage_schema": spec.segments[0].stage_table.schema_name,
         "is_segmented": spec.is_segmented,
         # M4: fixed-width source (positions from the STTM source band) and
@@ -614,7 +695,7 @@ def build_context(
         # True only when the contract declares a FILE_TYPE audit column
         # (segmented-extraction feeds); flat feeds render byte-identically.
         "has_file_type_audit": any(a.column == "FILE_TYPE" for a in spec.audit_columns),
-        "natural_key": spec.natural_key_columns,
+        "natural_key": spec.not_null_columns,
         "phi_columns": spec.phi_columns,
         "errors_table": spec.errors_table.table,
         "processed_files_table": spec.processed_files_table.table,
@@ -643,7 +724,9 @@ def build_context(
         "duplicate_rule_text": duplicate_rule_text,
         "notifications": {
             "emails": config.job.notification_emails,
-            "rule_texts": notification_rule_texts,
+            # post68: a document's own addresses never reach the job
+            "rule_texts": [redact_contacts(text, config.job.notification_emails)
+                           for text in notification_rule_texts],
         },
         "schedule": schedule_from_sla(spec.frequency),
         "sla_texts": spec.load_windows_sla,

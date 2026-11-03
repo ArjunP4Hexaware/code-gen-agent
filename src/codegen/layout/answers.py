@@ -1,0 +1,448 @@
+"""The answers file and the unresolved-headers report (M8.3) — the layout
+dialog for a terminal / a notebook, where no UI can ask.
+
+``answers.yaml`` places unresolved roles by hand. Each entry names a
+(document, sheet, role) and the column that carries it, as the header TEXT
+(compared in ``normalize`` form) or a 1-based index / column letter:
+
+    answers:
+      - document: sttm                 # sttm | vdd
+        workbook: STTM_feed.xlsx       # optional: only for this file name
+        sheet: "Mapping - Daily File"  # as written, or sheets[<i>] (0-based position)
+        layer: stage                   # optional when (sheet, role) is unambiguous
+        role: table
+        column: "Target Table Name"    # header text | 3 | "C"
+      - sheet: "Mapping - Daily File"  # Chunk A: a band nothing names (the
+        layer: band[2]                 # question <sheet>/band[2]/layer) is
+        role: layer                    # answered with its LAYER:
+        value: stage                   # source | stage | standard
+    gaps:                              # choice / layer questions, by question key
+      "feeds[0].file_format": {value: "Delimited"}
+    pairing:                           # an undecided content pairing
+      STTM_feed.xlsx: {frd: FRD_feed.docx, vdd: VDD_feed.xlsx}
+
+An answer may set ANY role of a sheet's bands, open or not (M9.1): it
+carries ``source=user`` through the same merge + validation the dialog's
+answers take, and where it conflicts with a synonym / model / cache
+placement the answer wins. An entry that names no sheet / band of the
+document is reported, never applied silently elsewhere. (Inside ACFC an
+answer for a role the cached profile never listed as open was refused —
+"matches no open question" — and the run could not be repaired by hand.)
+
+``unresolved_report`` writes ``unresolved_headers.md``: for each unresolved
+role the sheet name as written, the header-row texts and the candidate
+columns. STRUCTURAL LABELS ONLY — no data row, no cell value — so the file
+can leave the workspace and the strings be added to the synonym tables.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
+from openpyxl.utils import column_index_from_string
+
+from codegen.layout.discover import normalize
+from codegen.run_errors import Coord, located
+
+
+class AnswersFileError(ValueError):
+    """The answers file is malformed; the message names the entry."""
+
+
+@dataclass
+class AnswersFile:
+    entries: list[dict] = field(default_factory=list)
+    gaps: dict[str, dict] = field(default_factory=dict)
+    pairing: dict[str, dict] = field(default_factory=dict)
+    # 2026-10-14 (D1 post44): values a written workbook still lacks (INPUT_NEEDED
+    # lines, never blocking) — {key: text}, e.g. feeds[0].active_start_date
+    inputs: dict[str, str] = field(default_factory=dict)
+    # post59: an input's explicit choice — {key: Choice(use_default |
+    # naming_standard | leave_blank, standard)} (codegen.input_choices)
+    input_choices: dict = field(default_factory=dict)
+
+
+_ENTRY_KEYS = {"document", "workbook", "sheet", "layer", "role", "column", "value",
+               # the answers template's reading aids (codegen.layout.answers_template)
+               "question", "candidates", "sheet_name"}
+
+
+def _blank(value) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _is_band_entry(entry: dict) -> bool:
+    from codegen.layout.profile import BAND_LAYER_ROLE, BAND_REF_RE
+
+    return (entry.get("role") == BAND_LAYER_ROLE
+            and BAND_REF_RE.match(str(entry.get("layer") or "")) is not None)
+
+
+def _files_value(value):
+    """A gaps entry answered per FILE (``files: {<file>: <value>}``, the LOB
+    lookup's question): the filled files as ``<file>=<value>; ...`` text; a
+    block left empty is no answer."""
+    if not isinstance(value, dict) or not isinstance(value.get("files"), dict):
+        return value
+    for name, v in value["files"].items():
+        if v is not None and not isinstance(v, str):
+            # YAML reads an unquoted 0100 as a number (octal 64): never guessed back
+            raise located(AnswersFileError(f"files[{name!r}] = {v!r}: write the value quoted "
+                                           "(\"0100\") — YAML reads an unquoted code as a number"),
+                          Coord("answers"), "answers.file")
+    filled = [f"{name}={v.strip()}" for name, v in value["files"].items() if not _blank(v)]
+    out = {k: v for k, v in value.items() if k not in ("files", "question", "candidates")}
+    out["value"] = "; ".join(filled)
+    return out
+
+
+def load_answers(path: Path) -> AnswersFile:
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    if not isinstance(raw, dict) or set(raw) - {"answers", "gaps", "pairing", "inputs"}:
+        raise located(AnswersFileError(
+            f"{path}: expected a mapping with `answers`, `gaps`, `pairing` and / or `inputs`"),
+            Coord("answers"), "answers.file")
+    # 2026-10-13: an answers TEMPLATE entry left empty is not an answer — it
+    # is skipped and its question stays open (codegen.layout.answers_template).
+    entries = [e for e in raw.get("answers") or []
+               if not (isinstance(e, dict) and {"column", "value"} & set(e)
+                       and all(_blank(e.get(k)) for k in ("column", "value")))]
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict) or set(entry) - _ENTRY_KEYS:
+            raise located(AnswersFileError(f"{path}: answers[{index}] has unknown keys "
+                                           f"{sorted(set(entry) - _ENTRY_KEYS)}"),
+                          Coord("answers", n=index + 1), "answers.file")
+        if _is_band_entry(entry):
+            from codegen.layout.profile import BAND_LAYER_CHOICES
+
+            layer = entry.get("value", entry.get("column"))
+            if "sheet" not in entry or layer not in BAND_LAYER_CHOICES:
+                raise located(AnswersFileError(
+                    f"{path}: answers[{index}] answers {entry.get('layer')} of sheet "
+                    f"{entry.get('sheet')!r}: it needs `sheet:` and `value:` "
+                    f"{' | '.join(BAND_LAYER_CHOICES)}"),
+                    Coord("answers", n=index + 1), "answers.file")
+            continue
+        missing = {"sheet", "role", "column"} - set(entry)
+        if missing:
+            raise located(AnswersFileError(
+                f"{path}: answers[{index}] is missing {sorted(missing)}"),
+                Coord("answers", n=index + 1), "answers.file")
+        if entry.get("document", "sttm") not in ("sttm", "vdd"):
+            raise located(AnswersFileError(f"{path}: answers[{index}].document must be sttm | vdd "
+                                           "(FRD cells are placed with `gaps` / in the dialog)"),
+                          Coord("answers", n=index + 1), "answers.file")
+    # post74: a key read by its role name - feeds[0].Delimiter answers
+    # feeds[0].delimiter (codegen.answer_keys)
+    from codegen.answer_keys import canonical_keys
+
+    gaps = {key: _files_value(value)
+            for key, value in canonical_keys(raw.get("gaps") or {}).items()}
+    gaps = {key: value for key, value in gaps.items()
+            if not (isinstance(value, dict) and _blank(value.get("value")))}
+    for value in gaps.values():
+        # `{value: 13}` (a byte width) is YAML's integer: read as its text.
+        stated = value.get("value") if isinstance(value, dict) else None
+        if isinstance(stated, int) and not isinstance(stated, bool):
+            value["value"] = str(stated)
+    for key, value in gaps.items():
+        if not isinstance(value, dict) or not isinstance(value.get("value"), str):
+            raise located(AnswersFileError(
+                f"{path}: gaps[{key!r}] must be {{value: <text>, layer?}}"),
+                Coord("answers"), "answers.file")
+    pairing = raw.get("pairing") or {}
+    for name, value in pairing.items():
+        if not isinstance(value, dict) or set(value) - {"frd", "vdd"}:
+            raise located(AnswersFileError(f"{path}: pairing[{name!r}] must be {{frd?, vdd?}}"),
+                          Coord("answers"), "answers.file")
+    inputs: dict[str, str] = {}
+    choices: dict = {}
+    from codegen.input_choices import parse_choice, validate_choice
+    from codegen.layout.answers_template import flatten_inputs
+
+    # post47: inputs.run / inputs.feeds.<feed> read as run.<k> / feeds.<feed>.<k>
+    for key, value in canonical_keys(flatten_inputs(raw.get("inputs") or {})).items():
+        choice = parse_choice(str(key), value)
+        if choice is not None:
+            problem = validate_choice(str(key), choice)
+            if problem is not None:
+                raise located(AnswersFileError(f"{path}: {problem}"), Coord("answers"),
+                              "answers.file")
+            choices[str(key)] = choice
+        stated = value.get("value") if isinstance(value, dict) else value
+        if isinstance(stated, (int, float)) and not isinstance(stated, bool):
+            stated = str(stated)
+        if not isinstance(stated, str) and stated is not None:
+            raise located(AnswersFileError(f"{path}: inputs[{key!r}] must be {{value: <text>}}"),
+                          Coord("answers"), "answers.file")
+        if not _blank(stated):
+            inputs[str(key)] = stated.strip()
+    return AnswersFile(list(entries), dict(gaps), dict(pairing), inputs, choices)
+
+
+def _column_of(entry: dict, question) -> int | None:
+    """The 1-based column an entry names, among the question's candidates."""
+    columns = {int(c["col"]): str(c.get("header") or "") for c in question.candidates
+               if "col" in c}
+    return _column_among(entry, columns, question.sheet)
+
+
+def _column_among(entry: dict, columns: dict[int, str], sheet: str | None) -> int | None:
+    wanted = entry["column"]
+    if isinstance(wanted, int):
+        return wanted if wanted >= 1 else None
+    text = str(wanted).strip()
+    by_header = [col for col, header in columns.items() if normalize(header) == normalize(text)]
+    if len(by_header) == 1:
+        return by_header[0]
+    if len(by_header) > 1:
+        raise located(AnswersFileError(
+            f"header {text!r} names {len(by_header)} columns on sheet {sheet!r} "
+            f"({sorted(by_header)}) — give the column index instead"),
+            Coord("answers"), "answers.file")
+    if text.isdigit():
+        # post116 (codeflow audit #21): the answers template writes `column: ""`,
+        # so an index filled in between the quotes arrives as text
+        return int(text) if int(text) >= 1 else None
+    if text.isalpha() and len(text) <= 3:            # a column letter
+        return column_index_from_string(text.upper())
+    return None
+
+
+def _placed_role(entry: dict, index: int, profile, workbook) -> tuple[str, int] | None:
+    """(answer key, column) for an entry that addresses no open question: the
+    role is placed (or re-placed) in the named sheet's band. The band is
+    ``layer:`` when given, else the one band whose header row carries the
+    entry's header text, else the one band that already carries the role."""
+    from codegen.layout.discover import text as cell_text
+    from codegen.layout.profile import Role, confidence_key
+
+    sheet = profile.sheet(entry["sheet"]) if profile is not None else None
+    if sheet is None or sheet.header_row is None or workbook is None \
+            or entry["sheet"] not in workbook.sheetnames:
+        return None
+    if entry["role"] not in {r.value for r in Role}:
+        raise located(AnswersFileError(f"answers[{index}]: {entry['role']!r} is not a layout role"),
+                      Coord("answers", n=index + 1), "answers.file")
+    header = next(workbook[sheet.name].iter_rows(min_row=sheet.header_row,
+                                                 max_row=sheet.header_row, values_only=True))
+
+    def headers(band) -> dict[int, str]:
+        return {c: cell_text(header[c - 1]) or "" for c in range(band.col_start, band.col_end + 1)
+                if c - 1 < len(header)}
+
+    bands = [b for b in sheet.bands if entry.get("layer") in (None, b.layer)]
+    if entry.get("layer") is None and len(bands) > 1:
+        holding = [b for b in bands if entry["role"] in b.roles]
+        naming = [b for b in bands if not isinstance(entry["column"], int) and any(
+            normalize(h) == normalize(str(entry["column"])) for h in headers(b).values())]
+        bands = naming if len(naming) == 1 else holding if len(holding) == 1 else bands
+    if not bands:
+        return None
+    if len(bands) > 1:
+        raise located(AnswersFileError(
+            f"answers[{index}]: sheet {entry['sheet']!r} has several bands "
+            f"({[b.layer for b in bands]}) that could carry {entry['role']!r} — add `layer:`"),
+            Coord("answers", n=index + 1), "answers.file")
+    band = bands[0]
+    column = _column_among(entry, headers(band), sheet.name)
+    if column is None:
+        raise located(AnswersFileError(
+            f"answers[{index}]: column {entry['column']!r} is neither a header of the "
+            f"{band.layer} band of sheet {entry['sheet']!r}, an index nor a column letter"),
+            Coord("answers", n=index + 1), "answers.file")
+    return confidence_key(sheet.name, band.layer, entry["role"]), column
+
+
+def band_layer_answers(answers: AnswersFile, names: dict[str, str] | None = None
+                       ) -> dict[str, str]:
+    """The file's band-layer answers (Chunk A) as resolver answers,
+    ``{"<sheet>/band[<n>]/layer": layer}`` — applied FIRST, so the bands they
+    create exist when the file's column entries are mapped onto them."""
+    out: dict[str, str] = {}
+    for entry in answers.entries:
+        if entry.get("document", "sttm") != "sttm" or not _is_band_entry(entry):
+            continue
+        if entry.get("workbook") and names is not None \
+                and entry["workbook"] != names.get("sttm"):
+            continue
+        out[f"{entry['sheet']}/{entry['layer']}/layer"] = entry.get("value", entry.get("column"))
+    return out
+
+
+def _named_sheet(entry: dict, document: tuple | None) -> dict | None:
+    """post57: an entry may name its sheet by position (``sheet: sheets[2]``,
+    the form the printed keys use) — read as the workbook's sheet name; None
+    when the workbook has no such sheet (or is not at hand)."""
+    from codegen.layout.sheet_refs import SHEET_REF_RE, sheet_name
+
+    if not SHEET_REF_RE.match(str(entry.get("sheet") or "").strip()):
+        return entry
+    workbook = document[1] if document else None
+    name = sheet_name(entry["sheet"], workbook) if workbook is not None else None
+    return None if name is None else {**entry, "sheet": name}
+
+
+def apply_answers(answers: AnswersFile, questions: list, names: dict[str, str],
+                  documents: dict[str, tuple] | None = None) -> tuple[dict, list[str]]:
+    """Map the file onto the resolution → (the resolver's ``answers`` dict,
+    notes). An entry addresses the OPEN question it matches; with
+    ``documents`` = {"sttm": (profile, workbook), "vdd": (…)} an entry that
+    matches none still places its role in the named band (M9.1) and the note
+    says what it overrides. ``names`` = {"sttm": file name, "vdd": file name}
+    for the optional ``workbook`` filter."""
+    out: dict = {"sttm": {}, "frd": {}, "vdd": {}, "gaps": {}}
+    notes: list[str] = []
+    open_role = [q for q in questions if q.kind == "role" and q.document in ("sttm", "vdd")]
+    for index, entry in enumerate(answers.entries):
+        document = entry.get("document", "sttm")
+        if entry.get("workbook") and entry["workbook"] != names.get(document):
+            continue
+        entry = _named_sheet(entry, (documents or {}).get(document))
+        if entry is None:
+            notes.append(f"answers[{index}] names a sheet position (sheets[<i>]) this "
+                         f"{document} workbook does not have - not applied")
+            continue
+        if _is_band_entry(entry):
+            # Chunk A: a band LAYER always travels (re-discovery applies it); a
+            # band that is no longer open just reads the same layer again.
+            key = f"{entry['sheet']}/{entry['layer']}/layer"
+            if not any(q.key == key for q in questions):
+                notes.append(f"answers[{index}] ({key}) matches no open question - applied to "
+                             "discovery as given (no effect if the sheet has no such band)")
+            out["sttm"][key] = entry.get("value", entry.get("column"))
+            continue
+        matches = [q for q in open_role
+                   if q.document == document and q.sheet == entry["sheet"]
+                   and q.role == entry["role"]
+                   and entry.get("layer") in (None, q.layer)]
+        if not matches:
+            profile, workbook = (documents or {}).get(document) or (None, None)
+            placed = _placed_role(entry, index, profile, workbook)
+            if placed is None:
+                notes.append(f"answers[{index}] ({document} {entry['sheet']!r} {entry['role']}) "
+                             "names no sheet / band of this document — not applied")
+                continue
+            key, column = placed
+            layer = key.split("/")[1]
+            current = profile.sheet(entry["sheet"]).band(layer).column(entry["role"])
+            if current == column:
+                notes.append(f"answers[{index}] ({key}) confirms column {column} "
+                             f"({profile.role_source(entry['sheet'], layer, entry['role'])})")
+            elif current is not None:
+                notes.append(f"answers[{index}] ({key}) overrides column {current} "
+                             f"({profile.role_source(entry['sheet'], layer, entry['role'])}) "
+                             f"with column {column}")
+            else:
+                notes.append(f"answers[{index}] ({key}) places a role no question asked for, "
+                             f"at column {column}")
+            out[document][key] = column
+            continue
+        if len(matches) > 1:
+            raise located(AnswersFileError(
+                f"answers[{index}]: role {entry['role']!r} is open in several layers of sheet "
+                f"{entry['sheet']!r} ({sorted(str(q.layer) for q in matches)}) — add `layer:`"),
+                Coord("answers", n=index + 1), "answers.file")
+        column = _column_of(entry, matches[0])
+        if column is None:
+            raise located(AnswersFileError(
+                f"answers[{index}]: column {entry['column']!r} is neither a candidate header "
+                f"of sheet {entry['sheet']!r}, an index nor a column letter"),
+                Coord("answers", n=index + 1), "answers.file")
+        out[document][matches[0].key] = column
+    from codegen.extract.generic import AUDIT_KEY_RE
+    from codegen.layout.resolve import answerable_frd_field, unanswerable_frd_reason
+    from codegen.resolve.gapfill import TARGET_KEY_RE
+    from codegen.resolve.widths import WIDTH_KEY_RE
+
+    # Chunk B: an FRD field the reader could not place (a role question of the
+    # FRD) is answered with its value under gaps: too - when the layout stage
+    # applies a value for that field (B2: a feed_name answer used to be
+    # counted as applied and then dropped).
+    open_keys = {q.key for q in questions if q.kind in ("choice", "layer", "text")}
+    frd_fields = {q.key for q in questions if q.kind == "role" and q.document == "frd"}
+    for key, value in answers.gaps.items():
+        # A byte-width answer (M9.2) always travels: on a later pass the
+        # question is no longer open BECAUSE it was answered.
+        if (key in open_keys or (key in frd_fields and answerable_frd_field(key))
+                or WIDTH_KEY_RE.match(key) or TARGET_KEY_RE.match(key)):
+            out["gaps"][key] = {"value": value["value"], "layer": value.get("layer"),
+                                "source": "user"}
+        elif AUDIT_KEY_RE.match(key):
+            # Chunk B: consumed by extract-sttm (a sheet with no audit row);
+            # carried without a note - the layout stage never asks it.
+            out["gaps"][key] = {"value": value["value"], "layer": value.get("layer"),
+                                "source": "user"}
+        elif key in frd_fields:
+            notes.append(f"gaps[{key!r}] is not applied - {unanswerable_frd_reason(key)}")
+        else:
+            notes.append(f"gaps[{key!r}] matches no open question")
+    return out, notes
+
+
+def unresolved_report(questions: list, names: dict[str, str],
+                      rejections: list[str] | None = None,
+                      sheet_names: dict[str, list[str]] | None = None) -> str:
+    """``unresolved_headers.md`` — structural labels only (module docstring).
+    ``rejections`` (2026-10-13): why a model layout answer was rejected, line
+    by line (schema locations and messages — never an input value).
+    ``sheet_names`` (post57): per document, the workbook's sheets in order —
+    the question key then reads ``sheets[<i>]/…`` as on the console, the sheet
+    as written stays on its own line (this file is ACFC-side)."""
+    from codegen.layout.sheet_refs import public_role_key
+    rejected = ["## Model answer rejected", "",
+                *(f"- {line}" for line in rejections or []), ""] if rejections else []
+    lines = ["# Unresolved layout roles", "",
+             "Structural labels only: sheet names, header-row texts and candidate columns — "
+             "no data row and no cell value. Add the header strings to the matching synonym "
+             "table (`extractor.discovery` / `extractor.vdd` / `extractor.frd` in a config "
+             "overlay), or place the role with an answers file "
+             "(`codegen layout --answers answers.yaml`).", ""]
+    lines += rejected
+    if not questions:
+        return "\n".join([*lines, "Nothing is unresolved.", ""])
+    for question in questions:
+        document = names.get(question.document, question.document)
+        lines.append(f"## {question.document.upper()} · {document}")
+        lines.append("")
+        key = question.key
+        if sheet_names and question.kind == "role" and question.document in sheet_names:
+            key = public_role_key(key, sheet_names[question.document])
+        by_field_name = question.kind == "text" and ".fields[" in key
+        if by_field_name:
+            # A width question is keyed by the FIELD NAME — a data cell, which
+            # this file never carries. The CLI output / the dialog show the key.
+            key = key.split(".fields[")[0] + ".fields[<field name>].width"
+        lines.append(f"- question key: `{key}`")
+        if question.sheet is not None:
+            lines.append(f"- sheet (as written): `{question.sheet}`")
+        if question.layer:
+            lines.append(f"- layer / band: `{question.layer}`")
+        if by_field_name:
+            lines.append("- role: the byte width of one fixed-width field whose Length cell "
+                         "is not an integer (field name and cell value withheld)")
+        else:
+            lines.append(f"- role: `{question.role}` — {question.title or question.reason}")
+        if question.kind == "role" and question.role == "layer" and str(
+                question.layer or "").startswith("band["):
+            lines.append("- answer: under `answers:` - `sheet`, `layer: "
+                         f"{question.layer}`, `role: layer`, `value: source | stage | standard`")
+            if question.header:
+                lines.append("- header row: " + " | ".join(f"`{h}`" for h in question.header))
+            lines.append("")
+            continue
+        if question.kind != "role":
+            # choice / layer questions carry document VALUES: name the question only.
+            lines.append(f"- kind: `{question.kind}` — answer under `gaps:` with the question key")
+            lines.append("")
+            continue
+        if question.header:
+            lines.append("- header row: " + " | ".join(f"`{h}`" for h in question.header))
+        labels = [f"`{c.get('col', c.get('table'))}: {c.get('header', c.get('label', ''))}`"
+                  for c in question.candidates]
+        if labels:
+            lines.append("- candidate columns: " + ", ".join(labels))
+        lines.append("")
+    return "\n".join(lines)

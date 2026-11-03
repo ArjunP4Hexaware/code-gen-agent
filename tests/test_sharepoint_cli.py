@@ -98,7 +98,8 @@ def test_fetch_surfaces_a_config_error_without_a_traceback(workdir, monkeypatch,
 
     monkeypatch.setattr(sp, "config_for", unconfigured)
     assert main(["sharepoint-fetch", "--config", CONFIG, "--dest", "inbox"]) == 1
-    out = capsys.readouterr().out
+    source, _, out = capsys.readouterr().out.partition("\n")
+    assert source.startswith("codegen ")                 # line 1: the code that ran
     assert out.startswith("FAIL") and "not configured" in out
     assert "Traceback" not in out
 

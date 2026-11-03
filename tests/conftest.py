@@ -23,6 +23,148 @@ from codegen.resolve.resolver import resolve_pair as resolve_contracts
 
 REPO = Path(__file__).resolve().parents[1]
 
+# The committed ACFC environment overlay (config/overlays/acfc_env.yaml) is
+# ALWAYS applied by load_config unless CODEGEN_SKIP_ENV_OVERLAY=1; the suite
+# asserts the SHIPPED config (goldens, inventories), so it opts out here — at
+# import, before any module-level load_config. Tests that want the overlay
+# pass overlays= or monkeypatch the env.
+os.environ["CODEGEN_SKIP_ENV_OVERLAY"] = "1"
+os.environ.pop("CODEGEN_CONFIG_OVERLAYS", None)
+# 2026-10-15: the out-of-tree, per-workspace files (codegen-state/environments/
+# <name>.yaml, codegen-state/overlays/<profile>.yaml) never reach the suite.
+# The environment profiles are the suite's own synthetic ones (a complete D1:
+# tests/environment_profiles/d1.yaml); a test of the missing-value QUESTION
+# points CODEGEN_ENVIRONMENTS_DIR at an empty folder (no_environment_profiles).
+os.environ["CODEGEN_ENVIRONMENTS_DIR"] = str(REPO / "tests" / "environment_profiles")
+os.environ["CODEGEN_STATE_OVERLAYS_DIR"] = str(REPO / "tests" / "_no_state_overlays")
+# post81: ACTIVE_START_DATE defaults to the run date; the suite pins it so emitted
+# workbooks stay byte-stable (test_run_date_default unsets it)
+os.environ["CODEGEN_RUN_DATE"] = "2026-01-02"
+
+# 2026-10-13: the suite NEVER opens a live model connection. Every live call
+# site (codegen.reasoning.mode.guard_live_call) raises LiveModelBlocked while
+# this is set — a BaseException, so no ``except Exception`` can hide it —
+# unless CODEGEN_ALLOW_LIVE_TESTS=1 opts a deliberate live run in. The
+# provider switch starts at its default (mock) whatever the operator's shell
+# says: fixtures and the real SD documents at home stay mock-only.
+os.environ["CODEGEN_BLOCK_LIVE_MODEL"] = "1"
+
+
+# 2026-10-23 (parallel runs, `pytest -n 4 --dist loadgroup`): every test module
+# is its own xdist group (loadscope: module fixtures built once), except the
+# modules that drive the App backend or the checkout's inputs/ — they share
+# REPO-level files (ui/backend/state/, inputs/uploads/), so they form ONE group
+# and run one after another on one worker. Without xdist the marks are inert.
+_SHARED_STATE_MARKERS = ("ui.backend", '"inputs"', "inputs/uploads")
+_shared_state_by_module: dict[str, bool] = {}
+
+
+def _uses_shared_state(path: Path) -> bool:
+    key = str(path)
+    if key not in _shared_state_by_module:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        _shared_state_by_module[key] = any(m in text for m in _SHARED_STATE_MARKERS)
+    return _shared_state_by_module[key]
+
+
+def pytest_collection_modifyitems(config, items):
+    if not config.pluginmanager.hasplugin("xdist"):
+        return
+    for item in items:
+        path = Path(str(item.fspath))
+        group = "repo_shared_state" if _uses_shared_state(path) else path.stem
+        item.add_marker(pytest.mark.xdist_group(group))
+
+
+# post68: EVERY notebook a test emits is validated (nbformat.validate) as it is
+# built or resynced; an invalid one fails that test. Counted per session for
+# tests/test_notebook_validation.py. Without nbformat (an install that predates
+# the dev extra) nothing is wrapped - that test then fails, never silently.
+NOTEBOOKS_VALIDATED = {"count": 0}
+
+
+def _validate_notebook_text(text: str) -> None:
+    import nbformat
+
+    nbformat.validate(nbformat.reads(text, as_version=4))
+    NOTEBOOKS_VALIDATED["count"] += 1
+
+
+@pytest.fixture(autouse=True)
+def _validate_every_emitted_notebook(monkeypatch):
+    try:
+        import nbformat  # noqa: F401
+    except ImportError:
+        yield
+        return
+    from codegen.emit import emitter, notebook
+
+    build, resync = emitter.build_notebook, notebook.resync_notebook
+
+    def built(*args, **kwargs):
+        text = build(*args, **kwargs)
+        _validate_notebook_text(text)
+        return text
+
+    def resynced(notebook_path, feed_dir):
+        resync(notebook_path, feed_dir)
+        _validate_notebook_text(Path(notebook_path).read_text(encoding="utf-8"))
+
+    from codegen.emit import notebook_v2
+
+    write_v2 = notebook_v2.write
+
+    def written_v2(nb, feed_dir, slug):         # post69: the v2 notebook too
+        _validate_notebook_text(nb.ipynb)
+        return write_v2(nb, feed_dir, slug)
+
+    monkeypatch.setattr(emitter, "build_notebook", built)
+    monkeypatch.setattr(notebook, "resync_notebook", resynced)
+    monkeypatch.setattr(notebook_v2, "write", written_v2)
+    yield
+
+
+def offer_notebooks(config):
+    """post91: ``config`` with notebooks offered in the App again
+    (output.app_options both) - what turning them back on does."""
+    return config.model_copy(update={"output": config.output.model_copy(
+        update={"app_options": ["notebook", "framework"]})})
+
+
+@pytest.fixture
+def notebooks_in_app(monkeypatch):
+    """post91: the App with notebooks offered again, for the tests of its notebook
+    behaviour - so it keeps working while the shipped config hides it. Every config
+    the App loads offers them, and so does the App's already-loaded store."""
+    import contextlib
+    import sys
+
+    import codegen.config as config_mod
+
+    real = config_mod.load_config
+
+    def offering(*args, **kwargs):
+        return offer_notebooks(real(*args, **kwargs))
+
+    monkeypatch.setattr(config_mod, "load_config", offering)
+    with contextlib.suppress(ImportError, AttributeError):
+        monkeypatch.setattr("ui.backend.service.load_config", offering)
+    main = sys.modules.get("ui.backend.main")
+    if main is not None and getattr(main, "store", None) is not None:
+        monkeypatch.setattr(main.store, "config", offer_notebooks(main.store.config))
+
+
+@pytest.fixture
+def no_environment_profiles(tmp_path, monkeypatch):
+    """No profile file: the overlay blocks alone (D1's storage account a placeholder)."""
+    folder = tmp_path / "no_environment_profiles"
+    folder.mkdir()
+    monkeypatch.setenv("CODEGEN_ENVIRONMENTS_DIR", str(folder))
+    return folder
+# post47b: what the operator asked for is remembered (never acted on) — the
+# live-only D1 placeholder check (tests/test_d1_placeholders.py) reads it.
+os.environ["CODEGEN_PROVIDER_REQUESTED"] = os.environ.pop("CODEGEN_PROVIDER", "") or ""
+
 # Importing ui.backend.main (test_demo_ui and friends) runs load_dotenv as an
 # import side effect, which can put the OPERATOR'S machine-local env overrides
 # (e.g. CODEGEN_NOTIFICATION_EMAILS — a client value) into this process. The
@@ -44,10 +186,35 @@ def _strip_machine_local_env():
         os.environ.pop(name, None)
     yield
 
+
+@pytest.fixture(autouse=True)
+def _restrip_machine_local_env_after_each_test():
+    # cli.main() runs load_dotenv() too: a CLI test re-imports the operator's
+    # machine-local overrides mid-session, and a session fixture built after it
+    # (pair1_config / pair4_config) would carry them — the full-cell IIG checks
+    # (EMAIL_TO) caught exactly that (2026-10-08). Strip again after every test.
+    yield
+    for name in _MACHINE_LOCAL_ENV:
+        os.environ.pop(name, None)
+
 FIXTURES_REMOVED = (
     "contract/workbook fixtures are not in the repo (removed 2026-08-22 -- no "
     "client documents in the repository); restore anonymized fixtures to run"
 )
+
+
+def with_dml(config, profile: str = "acfc_prx"):
+    """The config with the DML deliverable forced ON for ``profile``.
+
+    IIG-first (2026-10-02): ``emit_dml`` ships false; the DML tests opt in
+    here so they keep exercising emit/dml.py unchanged."""
+    profiles = dict(config.conventions.profiles)
+    profiles[profile] = profiles[profile].model_copy(update={"emit_dml": True})
+    return config.model_copy(update={"conventions": config.conventions.model_copy(
+        update={"profiles": profiles}), "dml": config.dml.model_copy(update={"enabled": True})})
+
+
+DML_ON_OVERLAY = Path(__file__).resolve().parent / "dml_on_overlay.yaml"
 
 
 def require_fixture_files(*paths: Path) -> None:
@@ -107,8 +274,11 @@ LAYOUT_PROFILES = REPO / "fixtures" / "layout_profiles"
 
 @pytest.fixture(scope="session")
 def pair1_spec(pair1_config, tmp_path_factory):
-    """Pair 1 end to end the M4 way: mock layout, STTM + FRD(docx) + VDD
-    contracts, resolver takes file pattern + segments from the STTM."""
+    """Pair 1 end to end (M9.4): the real-shape fixtures resolve by synonyms
+    alone — the mock provider is offered and must never be called, no answers
+    file — then STTM + FRD(docx) + VDD contracts. The FRD's Object Name cell
+    lists the files (the patterns); the STTM supplies segments, schema and
+    catalog; the layout stage names the feed after the stage band."""
     config = pair1_config
     tmp = tmp_path_factory.mktemp("pair1_contracts")
     import json
@@ -121,15 +291,18 @@ def pair1_spec(pair1_config, tmp_path_factory):
     from codegen.layout.model import MockLayoutProvider
     from codegen.layout.resolve import resolve_pair as resolve_layout_pair
 
+    provider = MockLayoutProvider([LAYOUT_PROFILES / "mock", LAYOUT_PROFILES])
     pair = resolve_layout_pair(
         ACFC_SHAPES / "sttm" / "pair_1_family_a.xlsx",
-        ACFC_SHAPES / "frd" / "f1_pair_1.docx", config,
-        provider=MockLayoutProvider([LAYOUT_PROFILES / "mock", LAYOUT_PROFILES]),
-                        cache_dirs=[tmp / "cache"], generated_date="2026-01-01",
-                        vdd_path=ACFC_SHAPES / "vdd" / "pair_1_v1_segments.xlsx")
+        ACFC_SHAPES / "frd" / "f1_pair_1.docx", config, provider=provider,
+        cache_dirs=[tmp / "cache"], generated_date="2026-01-01",
+        vdd_path=ACFC_SHAPES / "vdd" / "pair_1_v1_segments.xlsx")
+    assert pair.provider_calls == 0 and provider.requests == [] and pair.questions == []
     frd_json = tmp / "frd.contract.json"
     frd_json.write_text(frd_to_json(pair.frd_contract), encoding="utf-8")
-    assert json.loads(frd_json.read_text(encoding="utf-8"))["feeds"][0]["file_name_patterns"] == []
+    frd_feed = json.loads(frd_json.read_text(encoding="utf-8"))["feeds"][0]
+    assert frd_feed["feed_name"] == "vnd_p_accum_client"       # named after the stage band
+    assert len(frd_feed["file_name_patterns"]) == 4            # the Object Name cell's lines
     sttm_json = tmp / "sttm.contract.json"
     contract = extract_contract(ACFC_SHAPES / "sttm" / "pair_1_family_a.xlsx", frd_json, config,
                                 generated_date="2026-01-01", layout=pair.sttm.profile)
@@ -140,3 +313,87 @@ def pair1_spec(pair1_config, tmp_path_factory):
     vdd_json.write_text(vdd_to_json(vdd_contract), encoding="utf-8")
     (spec,) = resolve_contracts(frd_json, sttm_json, config, vdd_path=vdd_json)
     return spec
+
+
+# ---- multi-table Phase C (docs/acfc/MULTI_TABLE_DESIGN.md §6): pair 4 + pair 1 IIG payloads
+
+@pytest.fixture(scope="session")
+def pair4_config():
+    from multi_table_golden import PAIR4_OVERLAY
+
+    return load_config(REPO / "config" / "config.yaml", overlays=[PAIR4_OVERLAY])
+
+
+@pytest.fixture(scope="session")
+def pair4_spec(pair4_config, tmp_path_factory):
+    """Pair 4 (multi-table fixture): STTM extracted by synonyms, resolved
+    against its FRD contract under the pair-4 environment overlay."""
+    from acfc_shapes import FIXTURE_ROOT, pair4_nb
+    from codegen.extract import contract_to_json, extract_contract
+
+    sttm = extract_contract(FIXTURE_ROOT / pair4_nb.STTM_PATH, FIXTURE_ROOT / pair4_nb.FRD_PATH,
+                            pair4_config, generated_date="2026-10-07")
+    path = tmp_path_factory.mktemp("pair4_spec") / "sttm.contract.json"
+    path.write_text(contract_to_json(sttm), encoding="utf-8")
+    (spec,) = resolve_contracts(FIXTURE_ROOT / pair4_nb.FRD_PATH, path, pair4_config)
+    return spec
+
+
+@pytest.fixture(scope="session")
+def pair4_payload(pair4_config, pair4_spec):
+    from acfc_shapes import FIXTURE_ROOT, pair4_nb
+    from codegen.metadata_sheet import metadata_sheet_payload
+
+    return metadata_sheet_payload(pair4_config, REPO, specs=[pair4_spec],
+                                  frd_path=FIXTURE_ROOT / pair4_nb.FRD_PATH, template="iig_v2",
+                                  conventions_profile="acfc_prx")
+
+
+@pytest.fixture(scope="session")
+def pair4_golden() -> dict:
+    from multi_table_golden import load_golden
+
+    return load_golden()
+
+
+@pytest.fixture(scope="session")
+def pair1_payload(pair1_config, pair1_spec, tmp_path_factory):
+    """Pair 1's iig_v2 payload from its resolved spec (the preview FRD carries
+    only the feed-level facts the spec already has)."""
+    import json
+
+    from codegen.metadata_sheet import metadata_sheet_payload
+
+    spec = pair1_spec
+    frd = tmp_path_factory.mktemp("pair1_payload") / "frd.contract.json"
+    feed = {"feed_name": spec.feed_name, "source_system": spec.source_system,
+            "file_name_patterns": spec.file_name_patterns, "file_format": spec.file_format,
+            "delimiter": spec.delimiter, "record_segments": [], "frequency": spec.frequency,
+            "load_windows_sla": [], "lobs": spec.lobs, "domain": spec.domain,
+            "sub_domain": spec.sub_domain, "landing_location": spec.landing_location,
+            "stage_target": {"catalog": None, "schema": None, "tables": [], "load_strategy": None},
+            "standard_target": {"catalog": None, "schema": None, "tables": [],
+                                "load_strategy": None},
+            "validation_rules": [], "recycle_rule": None, "history_backfill": None,
+            "archive_retention": None, "phi_pii_notes": None, "sttm_reference": None,
+            "requirement_ids": []}
+    frd.write_text(json.dumps({
+        "contract_name": "pair-1 preview", "generated_from_frd": "x", "status": "PASS",
+        "generated_date": "2026-01-01T00:00:00+00:00", "generator": "test",
+        "project": {"project_id": None, "project_name": "x", "business_context_summary": None},
+        "in_scope": [], "out_of_scope": [], "assumptions_constraints_dependencies": [],
+        "feeds": [feed], "system_interfaces": [], "open_items": []}), encoding="utf-8")
+    return metadata_sheet_payload(pair1_config, REPO, specs=[spec], frd_path=frd,
+                                  template="iig_v2", conventions_profile="acfc_prx")
+
+
+@pytest.fixture
+def landing_autoset_off(tmp_path, monkeypatch):
+    """post84: acfc_env.yaml writes the landing convention by default
+    (landing_autoset); a test of the landing QUESTION turns that off with an
+    overlay applied last (CODEGEN_CONFIG_OVERLAYS)."""
+    path = tmp_path / "landing_autoset_off.yaml"
+    path.write_text("metadata:\n  templates:\n    iig_v2:\n      landing_autoset: false\n",
+                    encoding="utf-8")
+    monkeypatch.setenv("CODEGEN_CONFIG_OVERLAYS", str(path))
+    return path

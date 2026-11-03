@@ -1,0 +1,29 @@
+def build_standard(standard: dict, files: list[str]) -> DataFrame:
+    """STGDELTA_STDDELTA_INGESTION_DET: the stage table (SRC_CATALOG_NAME /
+    SRC_SCHEMA_NAME / SRC_TABLE_NAME) mapped by SRC_COLUMNS (stage:standard)
+    and cast to TGT_DATA_TYPE{% if file_column %}; only this run's files ({{ file_column }}){% endif %}."""
+    stage = table_name(standard["src_catalog"], standard["src_schema"], standard["src_table"])
+    df = spark.read.table(stage)
+{% if file_column %}
+    if files:
+        names = [path.rsplit("/", 1)[-1] for path in files]
+        df = df.filter(F.col({{ file_column | py }}).isin(names))
+{% else %}
+    del files  # no file-name audit column in the profile's set: the whole stage table
+{% endif %}
+    types = dict(zip(standard["target_columns"], standard["target_types"], strict=False))
+    mapped = {target for _source, target in standard["mapping"]}
+    columns = [
+        F.col(source).cast(types[target]).alias(target)
+        if types.get(target)
+        else F.col(source).alias(target)
+        for source, target in standard["mapping"]
+    ]
+    carried = [c for c in standard["target_columns"] if c not in mapped and c in df.columns]
+    return df.select(*columns, *carried)
+
+
+def write_standard(df: DataFrame, standard: dict) -> None:
+    """TGT_CATALOG_NAME.TGT_SCHEMA_NAME.TGT_TABLE_NAME, the row's load option."""
+    target = table_name(standard["catalog"], standard["schema"], standard["table"])
+    write_table(df, target, standard)

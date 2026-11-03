@@ -1,0 +1,44 @@
+# cold_3 nb_provider_roster - what a person answers (tests/acfc_shapes/COLD_PAIRS.md).
+# No sheet has a band row naming stage AND standard or a target label group
+# ("Schema | Table | Column | Type" is one synonym short of a group): each
+# mapping sheet is read as a CANDIDATE by its band title row (pass 3). "Raw
+# Zone" is stage by its stg_ schema values; "Curated Zone" names no layer and
+# its schema carries no prefix, so the person names it. "Source Field" and
+# "Table / Column / Type" are no synonym: the person places them (a live
+# layout model would). The three sheets share one layout.
+answers:
+  - {sheet: "sheets[2]", layer: "band[2]", role: layer, value: standard}
+  - {sheet: "sheets[2]", layer: source, role: field_name, column: "Source Field"}
+  - {sheet: "sheets[2]", layer: stage, role: table, column: "Table"}
+  - {sheet: "sheets[2]", layer: stage, role: column, column: "Column"}
+  - {sheet: "sheets[2]", layer: stage, role: target_type, column: "Type"}
+  - {sheet: "sheets[2]", layer: standard, role: table, column: "Table"}
+  - {sheet: "sheets[2]", layer: standard, role: column, column: "Column"}
+  - {sheet: "sheets[2]", layer: standard, role: target_type, column: "Type"}
+  - {sheet: "sheets[3]", layer: "band[2]", role: layer, value: standard}
+  - {sheet: "sheets[3]", layer: source, role: field_name, column: "Source Field"}
+  - {sheet: "sheets[3]", layer: stage, role: table, column: "Table"}
+  - {sheet: "sheets[3]", layer: stage, role: column, column: "Column"}
+  - {sheet: "sheets[3]", layer: stage, role: target_type, column: "Type"}
+  - {sheet: "sheets[3]", layer: standard, role: table, column: "Table"}
+  - {sheet: "sheets[3]", layer: standard, role: column, column: "Column"}
+  - {sheet: "sheets[3]", layer: standard, role: target_type, column: "Type"}
+  - {sheet: "sheets[4]", layer: "band[2]", role: layer, value: standard}
+  - {sheet: "sheets[4]", layer: source, role: field_name, column: "Source Field"}
+  - {sheet: "sheets[4]", layer: stage, role: table, column: "Table"}
+  - {sheet: "sheets[4]", layer: stage, role: column, column: "Column"}
+  - {sheet: "sheets[4]", layer: stage, role: target_type, column: "Type"}
+  - {sheet: "sheets[4]", layer: standard, role: table, column: "Table"}
+  - {sheet: "sheets[4]", layer: standard, role: column, column: "Column"}
+  - {sheet: "sheets[4]", layer: standard, role: target_type, column: "Type"}
+# post70: the three standard loads are Upserts and no input marks a key (no
+# Primary Key cell, FRD key statement or FAQ natural_key_columns): the person
+# types each table's key.
+inputs:
+  feeds:
+    nb_provider_demographic:
+      primary_key: "PROVIDER_ID"
+    nb_provider_location:
+      primary_key: "PROVIDER_ID, LOCATION_ID"
+    nb_provider_specialty:
+      primary_key: "PROVIDER_ID, SPECIALTY_CODE"

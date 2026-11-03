@@ -1,0 +1,30 @@
+# App demo checklist — SD pair (pair_2), src tree 54a50fefb007 (0.5.8.post36)
+
+Home proof (2026-10-13, mock env, this build, home documents): App path == CLI path — every
+`framework/` + `ddl/` file of the 3 feeds byte-identical; the `*_IIG.xlsx` also equal round 7's
+(post33); selection 1.0 s, FRD + VDD auto-paired, a second POST of it = 200 `joined`.
+
+1. **Redeploy.** D1 Git folder: `git pull --ff-only origin feature/multi-table` →
+   `python scripts/stamp_build.py` (the App gets no `.git`; the stamp `src/codegen/_build.py` is
+   untracked, never committed) → `databricks apps deploy <app> --source-code-path <Git folder>`
+   (or Deploy in the UI). `app.yaml` runs `python -m ui.backend.main`, its env names the four
+   storage roots; `ui/frontend/dist` is current (`index-BdZrOxwQ.js` = a fresh build).
+2. **Health line.** `GET /api/health/facts` → `health_line`: version >= `0.5.8.post36`, `build
+   <sha> on feature/multi-table … (stamp)`, overlays `config/overlays/acfc_env.yaml`, startup
+   error none. No stamp → `build unknown … src tree 54a50fefb007` (`git rev-parse HEAD:src`).
+   Any other tree = stale code: STOP.
+3. **Live.** `GET /api/demo/live-available` → `available: true`, `databricks_fmapi` (CAN_QUERY).
+4. **Choose.** Generate → Choose documents… → the SD STTM of **61,141 B** (never the blank-cell
+   copy); every step done, FRD + VDD chips auto-paired. **Selection sticks** (running / 409):
+   `DELETE /api/demo/workbook` (the chooser's Clear), choose again.
+5. **Generate.** Header badge must read `Output: Framework artefacts` (acfc_prx default) → confirm.
+   With the VDD attached, expect frequency questions only — proceed with unresolved or answer
+   Monthly (prod's value).
+6. **Dashboard.** 3 feeds PASS_WITH_FLAGS, 1 pending Layer-2 candidate each in the review queue;
+   model usage: layout "Resolved from the documents (no model call needed)", Layer 2 the
+   endpoint · N call(s); each feed's `framework/` has `_IIG.xlsx`, `_IIG_REVIEW.xlsx`,
+   `metadata_inserts.sql`.
+7. **D1 proof (App == round-7 CLI).** `python scripts/doc_fingerprint.py --json <outputs
+   root>/demo_<ts>/*/framework/*_IIG.xlsx > /tmp/app.json`; the same over
+   `/tmp/r7/push.work/out/*/framework/*_IIG.xlsx > /tmp/cli.json` (gone → re-run
+   `GENIE_RUN_pair_2_r7.md` step 3); `--compare /tmp/cli.json /tmp/app.json` → no HARD line.

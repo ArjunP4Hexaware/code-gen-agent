@@ -57,6 +57,44 @@ engineering_standards:`.
 | IIG Framework, `DATA_QUALITY_RULES` / `EMAIL_TEMPLATE_CONFIG` tables, Logic App email path, Tidal scheduling, ADF Git rules | **Out of this agent's remit**: those are shared-platform integration points. The generated job JSON carries the notification recipients and SLA text so the integration step has everything it needs. |
 | Vacuum on Delta tables / temp-table cleanup in `tempdb` | Maintenance-operations concern of the deployed pipeline, not per-run ingest logic; noted here so the TDD picks it up. |
 
+## Data Lakehouse Data Layers Standards (reviewed 2026-10-30)
+
+A third client standard, **Data Lakehouse Data Layers Standards**: the file
+is named V1.1, but its revision history runs to **1.3 (Feb 2026, after the
+ERB review)**, so read it as v1.3. It is a layer-architecture document (Raw /
+STG / STD / EDH / BSL: object type, load type, catalog and schema naming,
+user access). Most of it governs the client's platform and framework. The
+rows below are the clauses that touch what this agent generates. The document
+is not in the repo; client-specific tables (storage accounts, the domain ->
+schema list, catalog inventory) stay out of it too. If a check needs them,
+they go in an overlay or the state root.
+
+| Standard clause | Status here |
+|---|---|
+| STG and STD objects are Delta **managed** tables | Aligned: `acfc_prx` writes no LOCATION. |
+| Databricks best practices: liquid clustering | Aligned: every DDL table `CLUSTER BY AUTO`. |
+| Table and column metadata descriptions | Aligned: column / table COMMENTs from the STTM description (+ load strategy on the table COMMENT). |
+| Table **and column** tags | **Partial**: table `DOMAIN` / `SUBDOMAIN` tags from the FRD (`ALTER TABLE … SET TAGS`, flag `ddl_tags_blank` when either is unstated); no column tags. Which column tags the standard means is not stated: open question. |
+| ETL standard audit columns | Aligned: the STTM's trailing `NA` rows -> `audit_columns`. |
+| Success / failure notifications with record counts | Aligned for the generated job (`on_success` + `on_failure`); record counts and the IIG email rows are the framework's. |
+| STG attributes all **string** for file sources ("to avoid any data rejections"); RDBMS sources keep proper types | **Conflict**: under `acfc_prx` stage columns are typed as the STTM states them (`typed_stage: true`, decided 2026-10-29), and notebook mode stops the load on a value the type cannot read. The STTMs state the types, so either the STTMs or this clause gives: to be settled with the architecture team. No change until then. |
+| STG load default Overwrite (Truncate & Load); any deviation approved by Data Architecture | **Not checked**: the agent transcribes the FRD's Load Strategy STG as stated. Proposed: a non-blocking `load_strategy_deviation:stage` flag citing the FRD cell (never a changed value). |
+| STD load default Upsert (a full refresh still upserts only the impacted rows); Append needs architecture approval | **Not checked**, same as above: proposed `load_strategy_deviation:standard`. |
+| STG schema for flat files = `STG_` + domain abbreviation; STD schema = the domain abbreviation (a 15-domain table) | **Not checked**: schemas come from the STTM stage / standard bands (authoritative, never derived; correct). At least one prod golden uses a schema outside the standard's abbreviation. Proposed: a check-only flag driven by an overlay domain -> schema table. The standard's schema abbreviations are a **different set** from the job-name `domain_abbreviations` above (Naming Standards table 3.4): keep them apart. |
+| Catalogs `<env>_DLK` (STG) and `<env>_STD` (STD), plus separate PerformRx catalogs | Aligned for the two main catalogs (`catalog_map`, per environment). A PRX catalog an STTM names has no D1 mapping yet and is flagged `catalog_unmapped:<layer>`; its environment names go in the state root's environment file, never guessed. |
+| STD default cleansing: trim strings, dates `YYYY-MM-DD`, timestamps ISO 8601 | **Open**: notebook v2 trims only where an IIG row states `LRTrimRule`; whether the framework applies these defaults or the IIG must state them is unknown. Ask before generating anything. |
+| STD schema drift not recommended (STG may enable it) | Nothing to emit: the agent writes no schema-evolution options. |
+| Reject tables with error description + standard layout; STG recycle / reject process | The framework's (IIG rows); notebook mode writes rejects to its reject path. |
+| Inbound landing folder `mftlanding/inbound/<Domain>/<Sub-Domain>/<vendor>` | Aligned: `demo.source_files.landing_root_template` (display-only; the FRD's ADLS location wins). |
+| No temp / transient data in STG; temp schema naming | Not applicable: the agent creates no tables. |
+| RDBMS source in STD: Delta table vs view by query volume / core-source status | Not built: table ingestion (the RDMS sheet) is held. Applies when it is built. |
+| Raw layer storage accounts and archival, Kafka / HVR routing, EDH, BSL, user access | Out of this agent's remit. |
+
+**Proposed follow-ups** (none built yet):
+1. Gate flags `load_strategy_deviation:<layer>` (STG not Truncate and Load, STD not Upsert), non-blocking, each citing the FRD Load Strategy cell.
+2. A check-only schema-naming flag from an overlay domain -> schema table (values never in the tracked config).
+3. Questions for the architecture team: stage string typing vs `typed_stage`; who applies the STD default cleansing; which column tags.
+
 ## What the SFMC FRD validation surfaced (2026-08-26)
 
 Running the generator against a contract pair authored from

@@ -51,9 +51,9 @@
             "field_name": 2,
             "description": 4,
             "comments": 5,
+            "source_type": 6,
             "pii": 8,
             "required": 3,
-            "source_type": 6,
             "length": 7
           },
           "label": null
@@ -192,6 +192,7 @@
     "MAPPING_FEED_7/source/field_name": 1.0,
     "MAPPING_FEED_7/source/description": 1.0,
     "MAPPING_FEED_7/source/comments": 1.0,
+    "MAPPING_FEED_7/source/source_type": 1.0,
     "MAPPING_FEED_7/source/pii": 1.0,
     "MAPPING_FEED_7/stage/schema": 1.0,
     "MAPPING_FEED_7/stage/table": 1.0,
@@ -202,7 +203,6 @@
     "MAPPING_FEED_7/rules/recycle_flag": 1.0,
     "MAPPING_FEED_7/rules/comments": 1.0,
     "MAPPING_FEED_7/source/required": 1.0,
-    "MAPPING_FEED_7/source/source_type": 1.0,
     "MAPPING_FEED_7/source/length": 1.0,
     "MAPPING_FEED_7/stage/column": 1.0,
     "MAPPING_FEED_7/stage/target_type": 1.0,

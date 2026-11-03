@@ -36,7 +36,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from datetime import UTC
+from datetime import timezone
 from pathlib import Path
 
 # What the generator can consume from a volume: STTM workbooks for
@@ -51,6 +51,14 @@ class DatabricksConfigError(RuntimeError):
 
 class DatabricksTransportError(RuntimeError):
     """A volumes call failed; carries the SDK's message verbatim."""
+
+
+class ModelContentFilteredError(DatabricksTransportError):
+    """post158 (live injection eval, 2026-10-30): the serving endpoint's safety
+    filter blocked the reply (``finish_reason: content_filter``, no content).
+    On a request built from document text this usually means the text carries
+    instructions or code - named, so a caller can isolate the request that
+    tripped it instead of reporting an unexplained content shape."""
 
 
 @dataclass(frozen=True)
@@ -94,11 +102,21 @@ _YAML_KEYS = {
 # readable_tables is list-valued and comes from YAML only (no env override).
 
 
-def config_for(settings=None, env=None) -> DatabricksVolumesConfig:
+# The knobs the document-volumes seam (list / fetch) cannot work without.
+VOLUME_KNOBS = ("catalog", "schema", "frd_volume", "sttm_volume")
+
+
+def config_for(settings=None, env=None,
+               require: tuple[str, ...] = VOLUME_KNOBS) -> DatabricksVolumesConfig:
     """YAML knobs + env overrides → config, failing loudly on gaps.
 
     Precedence per knob: DATABRICKS_* env var > config.yaml ``databricks:``
     section > nothing (an empty knob is an error naming both remedies).
+
+    ``require`` names the knobs THIS caller needs. The volumes seam needs
+    all four volume knobs (the default); the model endpoint needs none of
+    them (``require=()``) — so volumes left blank, as shipped, never drop
+    live Layer 2 to mock.
     """
     env = os.environ if env is None else env
 
@@ -130,8 +148,7 @@ def config_for(settings=None, env=None) -> DatabricksVolumesConfig:
         "readable_tables": tuple(getattr(settings, "readable_tables", ()) or ())
         if settings is not None else (),
     }
-    required = ("catalog", "schema", "frd_volume", "sttm_volume")
-    missing = sorted(k for k in required if not values[k])
+    missing = sorted(k for k in require if not values[k])
     if missing:
         raise DatabricksConfigError(
             "Databricks volumes are not configured — missing: " + ", ".join(missing) + ". "
@@ -357,6 +374,36 @@ def get_job(cfg: DatabricksConfig, job_id: int, client=None) -> dict:
     }
 
 
+_BLOCK_TYPE_LABEL = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,40}")
+
+
+def _nesting_depth(value) -> int:
+    if isinstance(value, dict):
+        return 1 + max((_nesting_depth(v) for v in value.values()), default=0)
+    if isinstance(value, (list, tuple)):
+        return 1 + max((_nesting_depth(v) for v in value), default=0)
+    return 0
+
+
+def _block_type_label(block) -> str:
+    if not isinstance(block, dict):
+        return f"<{type(block).__name__}>"
+    kind = block.get("type")
+    if isinstance(kind, str) and _BLOCK_TYPE_LABEL.fullmatch(kind):
+        return kind
+    return "<unrecognized type>" if isinstance(kind, str) else f"<type {type(kind).__name__}>"
+
+
+def _content_shape_error(problem: str, content: list) -> DatabricksTransportError:
+    # Structure only — types, block "type" values, nesting depth. Never a
+    # value: the content is model output over client documents.
+    labels = ", ".join(_block_type_label(b) for b in content)
+    return DatabricksTransportError(
+        f"unexpected chat content shape: {problem}; content is a list of "
+        f"{len(content)} block(s) [{labels}], nesting depth {_nesting_depth(content)}"
+    )
+
+
 def _chat_content_text(content) -> str:
     """Normalize an FMAPI chat message ``content`` to plain text.
 
@@ -364,38 +411,61 @@ def _chat_content_text(content) -> str:
     as a LIST of typed blocks (e.g. a ``reasoning`` block with a summary +
     signature, then a ``text`` block) instead of a plain string. Text
     blocks are joined; every non-text block is ignored.
+
+    Only the two observed shapes are accepted (2026-10-05): a string, or a
+    list of dict blocks with at least one ``text`` block whose ``text`` is
+    a string (``""`` included). Anything else raises
+    ``DatabricksTransportError`` instead of being guessed at — a non-empty
+    list with no text block used to come back as a silent ``""``. The
+    message describes structure only, never the content text.
     """
-    if content is None:
-        return ""
     if isinstance(content, str):
         return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-                continue
-            get = block.get if isinstance(block, dict) else (
-                lambda key, _b=block: getattr(_b, key, None)
-            )
-            if get("type") == "text":
-                parts.append(get("text") or "")
-        return "".join(parts)
-    raise DatabricksTransportError(
-        f"unexpected chat content shape: {type(content).__name__}"
-    )
+    if not isinstance(content, list):
+        raise DatabricksTransportError(
+            f"unexpected chat content shape: {type(content).__name__}"
+        )
+    if not content:
+        return ""
+    parts: list[str] = []
+    for index, block in enumerate(content):
+        if not isinstance(block, dict):
+            raise _content_shape_error(
+                f"block {index} is a {type(block).__name__}, not a dict", content)
+        if block.get("type") != "text":
+            continue
+        text = block.get("text")
+        if not isinstance(text, str):
+            raise _content_shape_error(
+                f"text block {index} carries 'text' of type {type(text).__name__} "
+                f"(nesting depth {_nesting_depth(text)})", content)
+        parts.append(text)
+    if not parts:
+        raise _content_shape_error("no text block", content)
+    return "".join(parts)
 
 
 def chat(cfg: DatabricksConfig, messages: list[dict], endpoint: str | None = None,
-         max_tokens: int = 1024, client=None) -> str:
+         max_tokens: int = 1024, client=None, usage: dict | None = None) -> str:
     """One chat completion via a Foundation Model API serving endpoint.
 
     Anthropic remains the sole model vendor — FMAPI serving a Claude model
     is a TRANSPORT, not a vendor change. ``messages`` are
     ``{"role": ..., "content": ...}`` dicts; no sampling parameters, ever
-    (same no-temperature rule as the Anthropic provider).
+    (same no-temperature rule as the Anthropic provider). ``usage`` (post67):
+    the response's token counts are written into it
+    (``codegen.reasoning.usage.completion_tokens``; the App's live-run cost).
     """
     name = endpoint or _require(cfg, "serving_endpoint")
+    if client is None:
+        # A REAL connection is about to open (a fake ``client`` opens none).
+        from codegen.reasoning.mode import guard_live_call
+
+        try:
+            import databricks.sdk as sdk_module
+        except ImportError:
+            sdk_module = None             # nothing can connect; _client names the gap
+        guard_live_call(f"the serving endpoint {name!r}", sdk_module=sdk_module)
     client = client if client is not None else _client(cfg)
     try:
         from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
@@ -407,7 +477,17 @@ def chat(cfg: DatabricksConfig, messages: list[dict], endpoint: str | None = Non
         response = client.serving_endpoints.query(
             name=name, messages=sdk_messages, max_tokens=max_tokens
         )
-        return _chat_content_text(response.choices[0].message.content)
+        if usage is not None:
+            from codegen.reasoning.usage import completion_tokens
+
+            usage.update(completion_tokens(response))
+        choice = response.choices[0]
+        if getattr(choice, "finish_reason", None) == "content_filter":
+            raise ModelContentFilteredError(
+                f"the serving endpoint {name!r} blocked the reply (finish_reason "
+                "content_filter): the request's document text may carry instructions "
+                "or code - nothing was returned")
+        return _chat_content_text(choice.message.content)
     except (DatabricksConfigError, DatabricksTransportError):
         raise
     except Exception as exc:  # noqa: BLE001
@@ -589,7 +669,7 @@ def list_landing(cfg: DatabricksConfig, prefix: str = "",
                     from datetime import datetime
 
                     modified = datetime.fromtimestamp(
-                        entry.last_modified / 1000, tz=UTC
+                        entry.last_modified / 1000, tz=timezone.utc
                     ).strftime("%Y-%m-%d %H:%M:%S")
                 entries.append({
                     "path": relative,

@@ -24,6 +24,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from openpyxl.utils import get_column_letter
+
 from codegen.config import Config, DiscoveryConfig
 from codegen.contracts.frd import FrdContract, FrdFeed
 from codegen.contracts.sttm import (
@@ -32,6 +34,7 @@ from codegen.contracts.sttm import (
     FieldProvenance,
     LayoutSummary,
     LoadRules,
+    PendingAnswer,
     RecycleSpec,
     SourceFile,
     SttmContract,
@@ -39,8 +42,13 @@ from codegen.contracts.sttm import (
     SttmField,
     TableRef,
 )
-from codegen.layout.discover import Discovery, normalize, text
+from codegen.extract.audit_names import clean_audit_column
+from codegen.extract.audit_types import audit_datatype
+from codegen.extract.audit_types import expectation as audit_expectation
+from codegen.extract.type_format import split_type
+from codegen.layout.discover import Discovery, is_blank_placeholder, normalize, text
 from codegen.layout.profile import LayoutProfile, Role, SheetProfile
+from codegen.run_errors import Coord, located, sheet_number
 
 _AUDIT_DATATYPES = {"string": "String", "timestamp": "Timestamp"}
 _CANONICAL_SEGMENTS = ("Header", "Detail", "Trailer")
@@ -66,6 +74,9 @@ class AuditRow:
     column: str
     datatype_raw: str
     table: str | None
+    col: int | None = None          # the stage column cell (citation only)
+    rule: str | None = None         # the row's load rule / transformation cell
+    description: str | None = None  # post104: the row's description (never Comments)
 
 
 @dataclass
@@ -93,6 +104,19 @@ class GenericIR:
     auxiliary: list[AuxiliarySheet]
     version: str | None
     diagnostics: list[str]
+    # FILE_DETAILS rows that do not fit the row schema, skipped (one
+    # extraction-report line each — codegen.extract.annotations).
+    annotations: list[str] = field(default_factory=list)
+    # The workbook's sheet order — error coordinates name a sheet by its
+    # 1-based position, never its name (codegen.run_errors.Coord).
+    sheetnames: list[str] = field(default_factory=list)
+
+
+def _at(ir: GenericIR | None, sheet_name: str | None, row: int | None = None,
+        col: int | None = None) -> Coord:
+    """An STTM position for an error's coordinates tier."""
+    return Coord("STTM", sheet=sheet_number(ir.sheetnames, sheet_name) if ir else None,
+                 row=row, col=col)
 
 
 def layout_summary(profile: LayoutProfile) -> LayoutSummary:
@@ -115,6 +139,7 @@ def read_workbook(found: Discovery, name: str, config: Config) -> GenericIR:
     auxiliary: list[AuxiliarySheet] = []
     version: str | None = None
     diagnostics = list(found.diagnostics)
+    annotations: list[str] = []
     for sp in profile.sheets:
         ws = workbook[sp.name]
         if sp.kind == "mapping":
@@ -122,16 +147,32 @@ def read_workbook(found: Discovery, name: str, config: Config) -> GenericIR:
         elif sp.kind == "version":
             version = _last_version(ws, sp) or version
         elif sp.kind != "ignore":
-            auxiliary.append(_read_auxiliary(ws, sp))
+            auxiliary.append(_read_auxiliary(ws, sp, annotations))
     return GenericIR(workbook_name=name, profile=profile, sheets=sheets, auxiliary=auxiliary,
-                     version=version, diagnostics=diagnostics)
+                     version=version, diagnostics=diagnostics, annotations=annotations,
+                     sheetnames=list(getattr(workbook, "sheetnames", None) or []))
 
 
-def _read_auxiliary(ws, sp: SheetProfile) -> AuxiliarySheet:
+def _read_auxiliary(ws, sp: SheetProfile, annotations: list[str] | None = None
+                    ) -> AuxiliarySheet:
+    from codegen.extract.annotations import annotation_reason, describe, file_name_index
+
     header_row = sp.header_row or 1
+    name_col = (file_name_index([normalize(h) for h in sp.headers])
+                if sp.kind == "file_details" else None)
     rows = []
-    for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
-        cells = [text(c) for c in row[: len(sp.headers)]]
+    for row_number, row in enumerate(ws.iter_rows(min_row=header_row + 1),
+                                     start=header_row + 1):
+        styled = row[: len(sp.headers)]
+        cells = [text(c.value) for c in styled]
+        if sp.kind == "file_details":
+            # Guidance written into the table ("DataType = …", a note row, an
+            # italic example) is not a file: skipped and reported.
+            reason = annotation_reason(cells, name_col, styled)
+            if reason is not None:
+                if annotations is not None:
+                    annotations.append(describe(sp.name, row_number, reason, cells))
+                continue
         if any(c is not None for c in cells):
             rows.append(cells + [None] * (len(sp.headers) - len(cells)))
     return AuxiliarySheet(kind=sp.kind, sheet=sp.name, headers=list(sp.headers), rows=rows)
@@ -167,6 +208,7 @@ def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Con
     stage_type_col = stage.column(Role.TARGET_TYPE) if stage is not None else None
     segments = _segment_lookup(disc)
     audit_markers = {normalize(m) for m in config.extractor.audit_source_markers}
+    audit_names = {normalize(n) for n in config.extractor.audit_column_names}
 
     meta: dict[str, str] = {}
     meta_raw: list[tuple[str, str | None]] = []
@@ -175,6 +217,11 @@ def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Con
         if entry.value_col is not None:
             value = text(ws.cell(row=entry.row, column=entry.value_col).value)
         meta_raw.append((entry.label, value))
+        if value is not None and is_blank_placeholder(value, disc.meta_blank_values):
+            # "TBD": a stated blank, not a value — the chain looks further.
+            diagnostics.append(f"sheet {sp.name!r} row {entry.row}: meta {entry.label!r} reads "
+                               f"{value!r} (a placeholder); read as blank")
+            continue
         if entry.key is not None and value is not None and entry.key not in meta:
             meta[entry.key] = value
 
@@ -198,6 +245,15 @@ def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Con
             current_segment_raw = filled[0][1]
             data.skipped.append(f"row {row_number}: segment banner {filled[0][1]!r}")
             continue
+        # M9.0: a sheet with a Segment COLUMN may still introduce each record
+        # block with a banner row ("Details"). The column states the segment;
+        # the banner is structure, logged as such (not as a nameless field).
+        if (sp.segment_strategy == "column" and len(filled) == 1 and source is not None
+                and source.col_start <= filled[0][0] <= source.col_end
+                and normalize(filled[0][1]) in segments):
+            data.skipped.append(f"row {row_number}: segment banner {filled[0][1]!r} "
+                                "(the Segment column states the segment)")
+            continue
         field_name = _cell(cells, field_col)
         stage_column = _cell(cells, stage_column_col)
         source_values = [c for i, c in filled if source is not None
@@ -213,7 +269,10 @@ def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Con
             segment_raw = current_segment_raw
         is_audit = (field_name is not None and normalize(field_name) in audit_markers) or (
             field_name is None and stage_column is not None
-            and all(normalize(v) in audit_markers for v in source_values))
+            and (all(normalize(v) in audit_markers for v in source_values)
+                 # post94: no source field + an audit column name (a description cell
+                 # in the source band does not make it a mapping row)
+                 or normalize(stage_column) in audit_names))
         if is_audit:
             if stage_column is None:
                 data.skipped.append(f"row {row_number}: audit marker without a stage column; "
@@ -223,7 +282,9 @@ def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Con
                 sheet=sp.name, row=row_number,
                 segment=segments.get(normalize(segment_raw)) if segment_raw else None,
                 column=stage_column, datatype_raw=_cell(cells, stage_type_col) or "",
-                table=_cell(cells, stage_table_col)))
+                table=_cell(cells, stage_table_col), col=stage_column_col,
+                rule=_audit_rule(sp, cells),
+                description=_audit_description(sp, cells, audit_markers)))
             continue
         if field_name is None:
             reason = ("field_name role unresolved" if field_col is None
@@ -257,6 +318,49 @@ class GenericExtractionError(ValueError):
     """The generic IR cannot be paired/emitted as a contract; names the spot."""
 
 
+def _type_base(datatype: str) -> str:
+    """'Decimal(17,2)' -> 'DECIMAL': the type keyword a tally groups by."""
+    return re.sub(r"\(.*", "", datatype).strip().upper()
+
+
+def _stage_type_by_standard(sheet: SheetData) -> dict[str, dict[str, dict[str, int]]]:
+    """post94: per standard type keyword, the stage types the sheet's rows that
+    state BOTH pair with it - post95: grouped by type (case-insensitive, pair_10
+    writes string / String / STRING), each with its spellings and counts."""
+    tally: dict[str, dict[str, dict[str, int]]] = {}
+    for row in sheet.fields:
+        stage, standard = _first(row, "stage.target_type"), _first(row, "standard.target_type")
+        if stage and standard:
+            types = tally.setdefault(_type_base(standard), {})
+            spellings = types.setdefault(stage.strip().upper(), {})
+            spellings[stage.strip()] = spellings.get(stage.strip(), 0) + 1
+    return tally
+
+
+def _stage_type_proposal(row: FieldRow, tally: dict[str, dict[str, int]],
+                         disc: DiscoveryConfig) -> tuple[str | None, str]:
+    """post94 (pairs 08 / 10): for a row with no stage type, the stage type the
+    sheet's other rows unanimously pair with this row's standard type (at least
+    ``stage_type_proposal_min_rows`` of them) - a proposal shown with the
+    question, never written; (None, "") when there is none."""
+    standard = _first(row, "standard.target_type")
+    if not standard:
+        return None, ""
+    base = _type_base(standard)
+    types = tally.get(base, {})
+    if len(types) != 1:
+        return None, ""
+    (spellings,) = types.values()
+    total = sum(spellings.values())
+    if total < disc.stage_type_proposal_min_rows:
+        return None, ""
+    # the sheet's most common spelling of it (first seen on a tie)
+    proposal = max(spellings, key=spellings.__getitem__)
+    return proposal, (f"; proposed {proposal!r}: this sheet's other rows typed {base} in "
+                      f"the standard band are {proposal!r} in the stage band ({total} of "
+                      f"{total}) - confirm it")
+
+
 def _yes(value: str | None, disc: DiscoveryConfig) -> bool:
     return normalize(value) in {normalize(v) for v in disc.yes_values}
 
@@ -269,6 +373,68 @@ def _first(row: FieldRow, *keys: str) -> str | None:
     return None
 
 
+def _table_descriptions(sheet, band_tables: dict, sheet_name: str,
+                        flags: list[str]) -> dict[str, str]:
+    """post140: each target table's Table Description cell (``<layer>.table_description``),
+    keyed ``<layer>.<table>`` - the row's own table, else the band's. Usually
+    stated once per table; a table whose rows state two different texts gets
+    none (never a silent pick) and one ``table_description_differs`` flag."""
+    found: dict[str, list[str]] = {}
+    for row in sheet.fields:
+        for layer, band_table in band_tables.items():
+            if band_table is None and row.values.get(f"{layer}.table") is None:
+                continue
+            text = row.values.get(f"{layer}.table_description")
+            if text is None or not str(text).strip():
+                continue
+            table = row.values.get(f"{layer}.table") or band_table
+            seen = found.setdefault(f"{layer}.{table}", [])
+            value = re.sub(r"\s+", " ", str(text)).strip()
+            if value not in seen:
+                seen.append(value)
+    out: dict[str, str] = {}
+    for key, values in found.items():
+        if len(values) == 1:
+            out[key] = values[0]
+        else:
+            flags.append(f"table_description_differs:{sheet_name} {key} — {len(values)} "
+                         "different Table Description cells; the table COMMENT carries none")
+    return out
+
+
+_AUDIT_RULE_ROLES = ("rules.load_rule", "source.load_rule", "stage.transformation",
+                     "source.business_rule")
+
+
+_AUDIT_DESCRIPTION_ROLES = ("stage.field_description", "standard.field_description",
+                            "source.description", "rules.data_definition")
+
+
+def _audit_description(sp, cells, audit_markers: set[str]) -> str | None:
+    """post104: an audit row's description, in SttmField.ddl_description's
+    order (a Comments cell is rule text, never read); an audit marker ("NA",
+    what makes the row an audit row) is no description. None = none stated."""
+    values = {f"{band.layer}.{role}": _cell(cells, col)
+              for band in sp.bands for role, col in band.roles.items()}
+    return next((values[k] for k in _AUDIT_DESCRIPTION_ROLES
+                 if values.get(k) and normalize(values[k]) not in audit_markers), None)
+
+
+def _audit_rule(sp, cells) -> str | None:
+    """An audit row's load rule / transformation cells, as a field's
+    value_spec is read ("Default to 'CAQH'"); None when it states none."""
+    values = {f"{band.layer}.{role}": _cell(cells, col)
+              for band in sp.bands for role, col in band.roles.items()}
+    parts = [values[k] for k in _AUDIT_RULE_ROLES if values.get(k)]
+    return "; ".join(parts) if parts else None
+
+
+def _differs(value: str | None, band_value: str | None) -> str | None:
+    """A row's own band cell when it differs from the band's value (multi-table
+    rule 1: a table is a distinct (catalog, schema, table) triple), else None."""
+    return value if value is not None and value != band_value else None
+
+
 def _dominant(values: list[str | None]) -> str | None:
     counts: dict[str, int] = {}
     for value in values:
@@ -277,16 +443,294 @@ def _dominant(values: list[str | None]) -> str | None:
     return max(counts, key=counts.get) if counts else None
 
 
+def _band_constant(sheet: SheetData, key: str) -> tuple[str | None, str]:
+    """(value, provenance) of a band-level constant — schema, table, catalog.
+
+    A band constant is stated once per sheet: repeated on every data row, or
+    once in a merged cell whose anchor is the only non-empty cell (openpyxl
+    reads the rest of a merged range as None). Either way it is the FIRST
+    non-empty cell of the column, and the provenance names that cell. A
+    column that holds SEVERAL distinct values is not a constant (one table
+    per segment, pair 8): the dominant value stands for the sheet, as before,
+    and the provenance says so."""
+    layer, role = key.split(".")
+    band = sheet.profile.band(layer)  # type: ignore[arg-type]
+    col = band.column(role) if band is not None else None
+    stated = [(r.row, r.values.get(key)) for r in sheet.fields if r.values.get(key) is not None]
+    if col is None:
+        return None, f"{layer} {role} role is not placed on sheet {sheet.profile.name!r}"
+    if not stated:
+        return None, (f"{sheet.profile.name}!{get_column_letter(col)}: every data row of the "
+                      f"{layer} {role} column is empty")
+    distinct = list(dict.fromkeys(v for _r, v in stated))
+    if len(distinct) == 1:
+        row, value = stated[0]
+        return value, (f"{sheet.profile.name}!{get_column_letter(col)}{row} (first non-empty "
+                       f"cell of the {layer} {role} column; {len(stated)} row(s) state it)")
+    value = _dominant([v for _r, v in stated])
+    row = next(r for r, v in stated if v == value)
+    return value, (f"{sheet.profile.name}!{get_column_letter(col)}{row} (dominant of "
+                   f"{len(distinct)} values in the {layer} {role} column)")
+
+
+def _schema_chain(layer: str, band_value: str | None, band_provenance: str, frd_value: str | None,
+                  config: Config, sheet: str, notes: list[str], flags: list[str]) -> str | None:
+    """STTM target band -> FRD -> conventions.default_schema[layer]; every
+    link after the first is a provenance note AND a flag. None = no source."""
+    if band_value is not None:
+        notes.append(f"sheet {sheet!r}: {layer} schema {band_value!r} — {band_provenance}")
+        return band_value
+    default = config.conventions.default_schema.get(layer)
+    for value, source in ((frd_value, "FRD 'Target Catalog and Schema'"),
+                          (default, f"layer convention (conventions.default_schema[{layer}])")):
+        if value:
+            flags.append(f"sttm_target_missing:{layer}.schema source_used:{source}: {value!r} — "
+                         f"{band_provenance}")
+            notes.append(f"sheet {sheet!r}: {layer} schema not stated in the STTM "
+                         f"({band_provenance}); taken from {source}: {value!r}")
+            return value
+    return None
+
+
+def _table_chain(layer: str, band_value: str | None, band_provenance: str,
+                 details: tuple[str, str] | None, frd_tables: list[str], sheet: str,
+                 notes: list[str], flags: list[str]) -> str | None:
+    """STTM target band -> this feed's File Details row (its target-table
+    cell; stage only) -> the FRD (when it names exactly ONE table for the
+    layer); every link after the first is a provenance note AND a
+    ``sttm_target_missing`` flag. None = no source."""
+    if band_value is not None:
+        return band_value
+    candidates: list[tuple[str | None, str]] = []
+    if details is not None:
+        candidates.append((details[0], f"File Details {details[1]}"))
+    if len(frd_tables) == 1:
+        candidates.append((frd_tables[0], f"FRD {layer} target (its only table)"))
+    for value, source in candidates:
+        if value:
+            flags.append(f"sttm_target_missing:{layer}.table source_used:{source}: {value!r} — "
+                         f"{band_provenance}")
+            notes.append(f"sheet {sheet!r}: {layer} table not stated in the STTM "
+                         f"({band_provenance}); taken from {source}: {value!r}")
+            return value
+    return None
+
+
+def _details_target(feed: FrdFeed, ir: GenericIR, sheet: SheetData,
+                    config: Config) -> tuple[str, str] | None:
+    """(target table, cell) from the File Details row of THIS feed's file:
+    the row whose file name is one of the FRD's patterns, else — one sheet,
+    one row — the only row. None when the sheet has no target-table column."""
+    wanted = {normalize(h) for h in config.extractor.file_details_headers.target_table}
+    own = [p.strip() for key in ("file_names", "file_name_example")
+           for p in re.split(r"[\n;,]+", sheet.meta.get(key) or "") if p.strip()]
+    canonical = {_canonical_file_name(p) for p in [*feed.file_name_patterns, *own]}
+    for aux in ir.auxiliary:
+        if aux.kind != "file_details":
+            continue
+        headers = [normalize(h) for h in aux.headers]
+        target = next((i for i, h in enumerate(headers) if h in wanted), None)
+        name = next((i for i, h in enumerate(headers)
+                     if h in ("filename", "file name", "inbound file name")), None)
+        if target is None:
+            continue
+        rows = [r for r in aux.rows if name is not None and name < len(r) and r[name]
+                and _canonical_file_name(r[name]) in canonical]
+        if not rows and len(aux.rows) == 1 and len(ir.sheets) == 1:
+            rows = aux.rows
+        values = list(dict.fromkeys(r[target] for r in rows if target < len(r) and r[target]))
+        if len(values) == 1:
+            return values[0], (f"{aux.sheet}!{get_column_letter(target + 1)} "
+                               f"({aux.headers[target]!r}, the row of this feed's file)")
+    return None
+
+
+class NeedsAnswers(GenericExtractionError):
+    """No document states a target of this sheet: the feed is held back as
+    NEEDS_ANSWERS with the answers-file keys that unblock it."""
+
+    def __init__(self, pending: list[PendingAnswer]) -> None:
+        self.pending = pending
+        super().__init__("; ".join(f"{p.sheet}: answer `{p.key}` under "
+                                   f"{answers_section(p.key)}: — {p.reason}" for p in pending))
+
+
+_ROLE_KEY_RE = re.compile(r"^.+/(source|rules|stage|standard)/[a-z_|]+$")
+
+
+def answers_section(key: str) -> str:
+    """Where an answers.yaml answer for ``key`` goes: a band layer (Chunk A)
+    or a column placement (``<sheet>/<layer>/<role>``, Chunk B) under
+    ``answers:``, every other held-back key under ``gaps:``."""
+    from codegen.layout.profile import is_band_layer_key
+
+    return "answers" if is_band_layer_key(key) or _ROLE_KEY_RE.match(key) else "gaps"
+
+
+
+def _open_band_layers(sheet: SheetData, ir: GenericIR) -> list[PendingAnswer]:
+    """Chunk A: a sheet with a band whose layer no evidence names is not
+    read into a feed until the band is answered (source | stage | standard)
+    — its stage / standard bands may be the wrong columns."""
+    from codegen.layout.profile import BAND_LAYER_CHOICES, BAND_LAYER_ROLE, BAND_REF_RE
+
+    name = sheet.profile.name
+    return [PendingAnswer(feed_name=name, sheet=name, key=f"{name}/{u.layer}/{u.role}",
+                          reason=u.reason, candidates=list(BAND_LAYER_CHOICES))
+            for u in ir.profile.unresolved_for(name)
+            if BAND_REF_RE.match(str(u.layer)) and u.role == BAND_LAYER_ROLE]
+
+
+def _open_required_roles(sheet: SheetData, ir: GenericIR, stop: str) -> list[PendingAnswer]:
+    """Chunk B (cold drill): a sheet whose extraction STOPS (``stop``, the
+    extractor's own message) while a REQUIRED role of it (field name; schema /
+    table / column / data type of a target band) is unplaced is held back
+    with that role's key - the column placement a person gives under
+    ``answers:`` - instead of failing the whole run; the stop is the reason."""
+    from codegen.layout.profile import BAND_LAYER_ROLE, is_required_role
+
+    name = sheet.profile.name
+    return [PendingAnswer(feed_name=name, sheet=name, key=f"{name}/{u.layer}/{u.role}",
+                          reason=f"{u.reason} ({stop})",
+                          candidates=[get_column_letter(c) for c in u.candidates])
+            for u in ir.profile.unresolved_for(name)
+            if u.role != BAND_LAYER_ROLE and is_required_role(u.layer, u.role)]
+
+
+def _unmapped_markers(config: Config) -> set[str]:
+    """The skip markers: the conventions profile's ``skip_row_markers`` plus
+    the older ``extractor.unmapped_markers``, normalized."""
+    profile = config.conventions.get(None)
+    return {normalize(m) for m in [*profile.skip_row_markers,
+                                   *config.extractor.unmapped_markers]}
+
+
+# post74 (D1 post73 pair_05): the target cells a skip marker may sit in.
+_TARGET_CELLS = ("stage.column", "stage.target_type", "standard.column",
+                 "standard.target_type")
+
+
+def _skip_marker(row: FieldRow, markers: set[str]) -> tuple[str, str] | None:
+    """(role key, cell text) of the skip marker that leaves ``row`` unmapped,
+    else None. The stage column cell reading a marker, or — that cell blank —
+    any other target column / data type cell reading one. A real stage column
+    keeps the row (a marker in the standard band alone = stage only)."""
+    stage_column = row.values.get("stage.column")
+    if stage_column is not None and normalize(stage_column) not in markers:
+        return None
+    for key in _TARGET_CELLS:
+        value = row.values.get(key)
+        if value is not None and normalize(value) in markers:
+            return key, value
+    return None
+
+
+def _role_col(sp: SheetProfile, key: str) -> int | None:
+    layer, _dot, role = key.partition(".")
+    band = sp.band(layer)  # type: ignore[arg-type]
+    return band.column(role) if band is not None else None
+
+
+CELL_KEY_RE = re.compile(r"^feeds\[(\d+)\]\.columns\[(\d+)\]\.([a-z_]+)$")
+VALUE_KEY_RE = re.compile(r"^feeds\[(\d+)\]\.(file_format|source_system|recycle\.applies_to)$")
+
+
+def parse_cell_answers(gaps: dict | None) -> dict[str, str]:
+    """post74: the answers file's ``feeds[i].columns[j].<role>`` values (one
+    mapping row's open cell, :func:`_build_feed`'s QUESTION) and the contract
+    values a validation question asks (``feeds[i].file_format`` /
+    ``.source_system``), by key."""
+    out: dict[str, str] = {}
+    for key, answer in (gaps or {}).items():
+        if CELL_KEY_RE.match(str(key)) or VALUE_KEY_RE.match(str(key)):
+            value = answer.get("value") if isinstance(answer, dict) else answer
+            if str(value or "").strip():
+                out[str(key)] = str(value).strip()
+    return out
+
+
+def _cell_ref(sp: SheetProfile, row: int, key: str) -> str:
+    """``<sheet>!<col><row>`` of a band role, else ``<sheet> row <row>``."""
+    layer, _dot, role = key.partition(".")
+    band = sp.band(layer)  # type: ignore[arg-type]
+    col = band.column(role) if band is not None else None
+    return f"{sp.name}!{get_column_letter(col)}{row}" if col else f"{sp.name} row {row}"
+
+
+def hit_rules(hits, key: str, prefix: str, column_index: dict[str, int], fields) -> str:
+    """The rule names behind one answers key (vocabulary only)."""
+    from codegen.contracts.validation import answer_key
+
+    return ", ".join(dict.fromkeys(h.rule for h in hits
+                                   if key in answer_key(h, prefix, column_index, fields)))
+
+
+def contract_invalid(error_type, feed_name: str, hits, coord: Coord) -> BaseException:
+    """post74: a FAIL naming each failed contract rule and its count (the
+    coordinates tier), the details (locations, the model's messages) in the
+    message - the full tier."""
+    from codegen.contracts.validation import rule_counts
+
+    counts = rule_counts(hits)
+    details = "; ".join(f"{h.rule}" + (f" at {'.'.join(str(p) for p in h.loc)}" if h.loc
+                                       else "") + (f": {h.text}" if h.text else "")
+                        for h in hits)
+    exc = located(error_type(
+        f"feed {feed_name!r}: contract validation: "
+        + ", ".join(f"{rule} ({n})" for rule, n in counts.items())
+        + f" — {' '.join(details.split())}"), coord, "contract.invalid")
+    exc.contract_rules = counts  # type: ignore[attr-defined]
+    return exc
+
+
+def _skipped_rows_flag(prefix: str, marked: list[str], unnamed: list[str]) -> str:
+    """ONE flag per feed: how many rows were left out before the required-
+    element checks, and why — cells cited, nothing else read from them."""
+    parts = []
+    if marked:
+        parts.append(f"{len(marked)} read a skip marker (conventions profile skip_row_markers): "
+                     + ", ".join(marked))
+    if unnamed:
+        parts.append(f"{len(unnamed)} name no target column (not a mapping row): "
+                     + ", ".join(unnamed))
+    total = len(marked) + len(unnamed)
+    return (f"skipped_rows:{prefix.rstrip('.')} — {total} row(s) left out of both layers "
+            f"before the required-element checks: {'; '.join(parts)}")
+
+
 def _canonical_file_name(name: str) -> str:
     return name.strip().lower().replace("ccyy", "yyyy")
 
 
 def _match_feed(sheet: SheetData, stage_table: str | None, frd: FrdContract,
                 ir: GenericIR, notes: list[str]) -> FrdFeed:
+    from codegen.resolve.gapfill import blank_sheet_feed_name
+
     if stage_table is not None:
         matches = [f for f in frd.feeds if stage_table in f.stage_target.tables]
         if len(matches) == 1:
             return matches[0]
+        if len(matches) > 1:
+            # Several FRD feeds land in this table (family E: a file per
+            # sheet): the feed the layout stage named after THIS sheet.
+            named = [f for f in matches if f.feed_name.lower()
+                     == blank_sheet_feed_name(sheet.profile.name).lower()]
+            if len(named) == 1:
+                notes.append(f"sheet {sheet.profile.name!r} paired to FRD feed "
+                             f"{named[0].feed_name!r}, named after it by the layout stage")
+                return named[0]
+    # 2026-10-13 (family E, a file per sheet): the sheet's OWN file row first —
+    # the workbook's File Details lists every sheet's file, so pooled with it
+    # each sheet matched every per-file feed. Only ever adds a match: a sheet
+    # the pooled rule paired goes to the same feed.
+    own = {_canonical_file_name(p) for p in _sheet_file_patterns(sheet, None)}
+    if own:
+        mine = [f for f in frd.feeds
+                if own & {_canonical_file_name(p) for p in f.file_name_patterns}]
+        if len(mine) == 1:
+            notes.append(f"sheet {sheet.profile.name!r} paired to FRD feed "
+                         f"{mine[0].feed_name!r} by its own file row")
+            return mine[0]
     patterns = _sheet_file_patterns(sheet, ir)
     canonical = {_canonical_file_name(p) for p in patterns}
     matches = [f for f in frd.feeds
@@ -295,25 +739,38 @@ def _match_feed(sheet: SheetData, stage_table: str | None, frd: FrdContract,
         notes.append(f"sheet {sheet.profile.name!r} paired to FRD feed "
                      f"{matches[0].feed_name!r} by file pattern")
         return matches[0]
+    if stage_table is None:
+        # Blank TableName cells (first ACFC run): the feed the layout stage
+        # derived for this sheet, named after it.
+        from codegen.resolve.gapfill import blank_sheet_feed_name
+
+        named = [f for f in frd.feeds if f.feed_name.lower()
+                 == blank_sheet_feed_name(sheet.profile.name).lower()]
+        if len(named) == 1:
+            notes.append(f"sheet {sheet.profile.name!r} (blank TableName cells) paired to FRD "
+                         f"feed {named[0].feed_name!r}, derived for it by the layout stage")
+            return named[0]
     if len(frd.feeds) == 1 and len(ir.sheets) == 1:
         notes.append(f"sheet {sheet.profile.name!r} paired to the FRD's only feed "
                      f"{frd.feeds[0].feed_name!r} (single sheet, single feed)")
         return frd.feeds[0]
-    raise GenericExtractionError(
+    raise located(GenericExtractionError(
         f"sheet {sheet.profile.name!r} (stage table {stage_table!r}, file patterns "
         f"{sorted(patterns)}) matches {len(matches)} FRD feeds "
         f"{[f.feed_name for f in frd.feeds]}; expected exactly one by stage table or "
         "file pattern"
-    )
+    ), _at(ir, sheet.profile.name), "sttm.conflict")
 
 
-def _sheet_file_patterns(sheet: SheetData, ir: GenericIR) -> list[str]:
+def _sheet_file_patterns(sheet: SheetData, ir: GenericIR | None) -> list[str]:
+    """The sheet's own file meta rows, then (``ir`` given) every File
+    Details row of the workbook."""
     patterns: list[str] = []
     for key in ("file_names", "file_name_example"):
         value = sheet.meta.get(key)
         if value:
             patterns += [p.strip() for p in re.split(r"[\n;,]+", value) if p.strip()]
-    for aux in ir.auxiliary:
+    for aux in (ir.auxiliary if ir is not None else []):
         if aux.kind != "file_details":
             continue
         headers = [normalize(h) for h in aux.headers]
@@ -350,19 +807,46 @@ def _file_details_row(feed: FrdFeed, ir: GenericIR) -> dict[str, str] | None:
 
 
 def _recycle(sheet: SheetData, config: Config, disc: DiscoveryConfig) -> RecycleSpec | None:
-    flagged = [(row, row.values.get("rules.recycle_flag")) for row in sheet.fields
-               if row.values.get("rules.recycle_flag")]
-    if not flagged:
+    """The sheet's recycle rule from its per-row Recycle Flag cells.
+
+    post110 (codeflow audit #1): a cell reading a ``no_values`` word (N, No) is
+    an unflagged row; every other non-empty cell must be a ``Y ( <validation> )``
+    flag, as the classic reader (``workbook.parse_recycle_text``) requires. The
+    first flagged cell used to decide alone, so an N above the Y row dropped the
+    rule silently. Several flagged rows stating the SAME rule are one rule (the
+    first row's column); rules that differ, a cell that is neither, or a flag with
+    no validation text stop the extraction (never a silent drop, never a guess)."""
+    # The recycle column is per row; the band that carries it is a layout detail.
+    flagged = [(row, value) for row in sheet.fields
+               if (value := _first(row, "rules.recycle_flag", "standard.recycle_flag",
+                                   "stage.recycle_flag", "source.recycle_flag"))]
+    no_words = {normalize(v) for v in disc.no_values}
+    rules: list[tuple[FieldRow, str, int]] = []
+    for row, raw in flagged:
+        if normalize(raw) in no_words:
+            continue
+        where = f"sheet {sheet.profile.name!r} row {row.row}"
+        match = _RECYCLE_FLAG_RE.search(raw)
+        if match is None:
+            raise located(GenericExtractionError(
+                f"{where}: the Recycle Flag cell is neither a no-value nor a 'Y (...)' flag: "
+                f"{raw!r}"), Coord("STTM", row=row.row), "sttm.value")
+        validation = raw[match.end():].strip().rstrip(")").rstrip()
+        if not validation:
+            raise located(GenericExtractionError(
+                f"{where}: the recycle flag carries no validation text: {raw!r}"),
+                Coord("STTM", row=row.row), "sttm.missing", role="recycle_validation")
+        window = _WINDOW_DAYS_RE.search(raw)
+        rules.append((row, validation,
+                      int(window.group(1)) if window else config.defaults.recycle_window_days))
+    if not rules:
         return None
-    row, raw = flagged[0]
-    match = _RECYCLE_FLAG_RE.search(raw or "")
-    if match is None:
-        return None
-    validation = raw[match.end():].strip().rstrip(")").rstrip()
-    if not validation:
-        return None
-    window = _WINDOW_DAYS_RE.search(raw)
-    days = int(window.group(1)) if window else config.defaults.recycle_window_days
+    if len({(validation, days) for _row, validation, days in rules}) > 1:
+        raise located(GenericExtractionError(
+            f"sheet {sheet.profile.name!r}: {len(rules)} rows carry different recycle rules "
+            f"(rows {[r.row for r, _v, _d in rules]}); expected one"),
+            Coord("STTM"), "sttm.conflict")
+    row, validation, days = rules[0]
     return RecycleSpec(
         applies_to=_first(row, "source.field_name") or "",
         enabled=True,
@@ -373,14 +857,140 @@ def _recycle(sheet: SheetData, config: Config, disc: DiscoveryConfig) -> Recycle
     )
 
 
+AUDIT_KEY_RE = re.compile(r"^feeds\[(\d+)\]\.audit_columns$")
+
+
+def parse_audit_answers(gaps: dict | None) -> dict[int, list[tuple[str, str]]]:
+    """``feeds[i].audit_columns`` answers (Chunk B) -> {feed index: [(column,
+    type)]}. The value lists ``NAME:Type`` entries separated by ``;`` / ``,``
+    / line breaks; the type is one of the audit types (String / Timestamp)."""
+    out: dict[int, list[tuple[str, str]]] = {}
+    for key, answer in (gaps or {}).items():
+        match = AUDIT_KEY_RE.match(str(key))
+        if match is None:
+            continue
+        value = answer.get("value") if isinstance(answer, dict) else answer
+        columns: list[tuple[str, str]] = []
+        for part in re.split(r"[;,\n]+", str(value or "")):
+            name, _sep, dtype = part.strip().partition(":")
+            if not name.strip():
+                continue
+            datatype = _AUDIT_DATATYPES.get(normalize(dtype))
+            if datatype is None:
+                raise located(GenericExtractionError(
+                    f"answers file: gaps[{key!r}] entry {part.strip()!r} needs NAME:Type with "
+                    f"Type one of {sorted(set(_AUDIT_DATATYPES.values()))}"),
+                    Coord("answers"), "answers.file")
+            columns.append((name.strip(), datatype))
+        if columns:
+            out[int(match.group(1))] = columns
+    return out
+
+
+def _split_by_table(sheets: list[SheetData], frd: FrdContract) -> list[SheetData]:
+    """post156: a mapping sheet whose stage TableName column names several tables,
+    each of them ONE FRD feed's only stage table (the layout stage split the FRD
+    per table), is read as one sheet per table - the rows of each table, in sheet
+    order. A row with a blank table cell belongs to the table of the row above it
+    (a merged cell's anchor states it); an audit row to the block it sits in. A
+    segmented sheet (a table per record type) is never split here."""
+    own = {normalize(f.stage_target.tables[0]) for f in frd.feeds
+           if len(f.stage_target.tables) == 1}
+    out: list[SheetData] = []
+    for sheet in sheets:
+        tables = list(dict.fromkeys(
+            r.values.get("stage.table") for r in sheet.fields if r.values.get("stage.table")))
+        if (len(tables) < 2 or sheet.profile.segment_strategy != "none"
+                or not all(normalize(t) in own for t in tables)):
+            out.append(sheet)
+            continue
+        current: str | None = None
+        rows_of: dict[str, list[FieldRow]] = {t: [] for t in tables}
+        block_at: list[tuple[int, str]] = []
+        for row in sorted(sheet.fields, key=lambda r: r.row):
+            current = row.values.get("stage.table") or current
+            if current is None:
+                continue
+            rows_of[current].append(row)
+            block_at.append((row.row, current))
+        audit_of: dict[str, list[AuditRow]] = {t: [] for t in tables}
+        for audit in sheet.audit:
+            table = audit.table if audit.table in audit_of else next(
+                (t for r, t in reversed(block_at) if r < audit.row), tables[0])
+            audit_of[table].append(audit)
+        for n, table in enumerate(tables):
+            out.append(SheetData(profile=sheet.profile, meta=sheet.meta,
+                                 meta_raw=sheet.meta_raw, fields=rows_of[table],
+                                 audit=audit_of[table],
+                                 skipped=sheet.skipped if n == 0 else []))
+    return out
+
+
 def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
                            contract_name: str | None = None,
-                           generated_date: str) -> SttmContract:
+                           generated_date: str,
+                           width_answers: dict[int, dict[str, int]] | None = None,
+                           audit_answers: dict[int, list[tuple[str, str]]] | None = None,
+                           cell_answers: dict[str, str] | None = None
+                           ) -> SttmContract:
     disc = config.extractor.discovery
     notes: list[str] = []
     feeds: list[SttmFeed] = []
-    for sheet in ir.sheets:
-        feeds.append(_build_feed(sheet, ir, frd, config, disc, notes))
+    pending: list[PendingAnswer] = []
+    questions: list[PendingAnswer] = []
+    for sheet in _split_by_table(ir.sheets, frd):
+        try:
+            open_bands = _open_band_layers(sheet, ir)
+            if open_bands:
+                raise NeedsAnswers(open_bands)
+            try:
+                feeds.append(_build_feed(sheet, ir, frd, config, disc, notes,
+                                         width_answers or {}, audit_answers or {},
+                                         cell_answers or {}, questions))
+            except NeedsAnswers:
+                raise
+            except GenericExtractionError as stop:
+                owed = _open_required_roles(sheet, ir, str(stop))
+                if not owed:
+                    raise
+                raise NeedsAnswers(owed) from stop
+        except NeedsAnswers as held:
+            # One sheet without a stated target holds back ITS feed only.
+            pending.extend(held.pending)
+            notes.extend(f"sheet {p.sheet!r}: feed {p.feed_name!r} NEEDS_ANSWERS — answer "
+                         f"`{p.key}` under {answers_section(p.key)}: ({p.reason})"
+                         for p in held.pending)
+    # post74: one row's open cell of a feed that WAS built - blocking, asked
+    # alongside the held-back feeds' answers
+    pending.extend(questions)
+    notes.extend(f"sheet {q.sheet!r}: feed {q.feed_name!r} — answer `{q.key}` under gaps: "
+                 f"({q.reason})" for q in questions)
+    if not feeds:
+        from codegen.extract.extractor import NeedsAnswersError
+
+        raise NeedsAnswersError(pending)
+    sheets_by_id: dict[str, list[str]] = {}
+    for f in feeds:
+        sheets_by_id.setdefault(f.feed_id, []).append(f.mapping_sheet or "?")
+    shared = {fid: sheets for fid, sheets in sheets_by_id.items() if len(sheets) > 1}
+    if shared:
+        # 2026-10-13: say WHICH sheets met one FRD feed, and what splits them —
+        # never the bare "duplicate feed_id(s)" of the contract model.
+        first_shared = next(iter(shared.values()))
+        raise located(GenericExtractionError(
+            "; ".join(f"sheets {sheets} all pair with the one FRD feed {fid!r}"
+                      for fid, sheets in shared.items())
+            + " — each mapping sheet must be its own feed: write the FRD contract with "
+            "`codegen layout --frd-contract-out` (it splits one FRD block into a feed per "
+            "sheet, named by the sheet's own File Name row, else the sheet), or give each "
+            "sheet its own file / table"), _at(ir, first_shared[-1]), "sttm.conflict")
+    if ir.annotations:
+        from codegen.extract.annotations import flag
+
+        notes += [f"FILE_DETAILS annotation row skipped (not read as a file): {e}"
+                  for e in ir.annotations]
+        feeds = [f.model_copy(update={"extraction_flags": [
+            *f.extraction_flags, *(flag(e) for e in ir.annotations)]}) for f in feeds]
     return SttmContract(
         contract_name=contract_name or f"STTM mapping contract extracted from {ir.workbook_name}",
         generated_from_workbook=ir.workbook_name,
@@ -397,58 +1007,229 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
         feeds=feeds,
         auxiliary_sheets=ir.auxiliary,
         layout=layout_summary(ir.profile),
+        needs_answers=pending,
     )
 
 
+def _width_facts(row: FieldRow, field_name: str, sp: SheetProfile, flags: list[str]
+                 ) -> tuple[int | None, str | None]:
+    """(source_width, source_precision) for one field row — the STTM links of
+    the width chain (codegen.resolve.widths), flagged with their cells. The
+    width is returned only when it is NOT the plain integer length."""
+    from codegen.resolve.widths import as_integer, as_precision, sttm_width
+
+    length = _first(row, "source.length", "source.field_length")
+    start, end = _first(row, "source.start"), _first(row, "source.end")
+    if as_integer(start) is None or as_integer(length) is not None:
+        return None, None            # not positional, or the length IS the width
+    source = sp.band("source")
+    label = " ".join(field_name.split())
+
+    def cell(*roles: str) -> str:
+        col = next((source.column(r) for r in roles if source and source.column(r)), None)
+        return f"{sp.name}!{get_column_letter(col)}{row.row}" if col else f"{sp.name} row {row.row}"
+
+    precision = as_precision(length)
+    if precision is not None:
+        flags.append(f"length_is_precision:{label} — STTM {cell('length', 'field_length')} reads "
+                     f"{length!r}: a precision, kept as the source type precision "
+                     f"{precision}; it is not a byte width and none is derived from it")
+    elif length is not None:
+        flags.append(f"length_not_a_width:{label} — STTM {cell('length', 'field_length')} reads "
+                     f"{length!r}, which is not an integer byte width")
+    width, link = sttm_width(length, start, end)
+    if link == "sttm_span":
+        flags.append(f"width_from_sttm_span:{label} — STTM {cell('start')} / {cell('end')}: "
+                     f"end {end} - start {start} + 1 = {width}")
+        return width, precision
+    return None, precision
+
+
 def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Config,
-                disc: DiscoveryConfig, notes: list[str]) -> SttmFeed:
+                disc: DiscoveryConfig, notes: list[str],
+                width_answers: dict[int, dict[str, int]] | None = None,
+                audit_answers: dict[int, list[tuple[str, str]]] | None = None,
+                cell_answers: dict[str, str] | None = None,
+                questions: list[PendingAnswer] | None = None) -> SttmFeed:
+    """``cell_answers`` / ``questions`` (post74): the person's
+    ``feeds[i].columns[j].<role>`` answers, and the open ones this feed adds
+    (blocking QUESTIONs; the feed is still built without those rows)."""
     from codegen.resolve.resolver import _FORMAT_DELIMITERS, normalize_feed_name
+    from codegen.resolve.widths import normalize_field_name
 
     sp = sheet.profile
     name = sp.name
+    questions = questions if questions is not None else []
     if not sheet.fields:
-        raise GenericExtractionError(
+        raise located(GenericExtractionError(
             f"sheet {name!r}: no field rows could be read "
             f"(skipped: {sheet.skipped[:3]}{'…' if len(sheet.skipped) > 3 else ''}; "
-            f"unresolved: {[u.role for u in ir.profile.unresolved_for(name)]})")
-    missing = [role for role in ("table", "column", "target_type")
-               if all(r.values.get(f"stage.{role}") is None for r in sheet.fields)]
+            f"unresolved: {[u.role for u in ir.profile.unresolved_for(name)]})"),
+            _at(ir, name, sp.header_row), "sttm.missing", role="field_row")
+    if sp.band("stage") is None:
+        targets = [f"{b.layer} (columns {b.col_start}-{b.col_end}, "
+                   f"{b.layer_evidence or 'band row'})"
+                   for b in sp.bands if b.layer == "standard"]
+        raise located(GenericExtractionError(
+            f"sheet {name!r} has no stage band - its target band(s) read as {targets or 'none'}; "
+            "a feed lands in stage first. If a band IS the stage band, answer its layer under "
+            f"answers: (`{name}/band[<n>]/layer`: stage, the target bands numbered left to "
+            "right) - an answer outranks every other evidence"),
+            _at(ir, name, sp.band_row), "sttm.band")
+    # post74 (D1 post73 pair_05): rows a skip marker leaves unmapped are out
+    # before any required-element check.
+    markers = _unmapped_markers(config)
+    skip = {r.row: hit for r in sheet.fields if (hit := _skip_marker(r, markers)) is not None}
+    mapping_rows = [r for r in sheet.fields if r.row not in skip]
+    missing = [role for role in ("column", "target_type")
+               if all(r.values.get(f"stage.{role}") is None for r in mapping_rows)]
     if missing:
-        raise GenericExtractionError(
+        raise located(GenericExtractionError(
             f"sheet {name!r}: the stage band has no values for {missing} (roles unresolved or "
-            "empty) — a contract needs stage table, column and data type per field")
-    stage_schema = _dominant([r.values.get("stage.schema") for r in sheet.fields])
-    stage_table = _dominant([r.values.get("stage.table") for r in sheet.fields])
-    stage_catalog = _dominant([r.values.get("stage.catalog") for r in sheet.fields])
-    if stage_schema is None or stage_table is None:
-        raise GenericExtractionError(f"sheet {name!r}: stage schema/table cells are empty")
-    feed = _match_feed(sheet, stage_table, frd, ir, notes)
+            "empty) — a contract needs stage column and data type per field"),
+            _at(ir, name, sp.header_row), "sttm.missing", role=missing[0])
+    flags: list[str] = []
+    band_table, table_provenance = _band_constant(sheet, "stage.table")
+    stage_catalog, _ = _band_constant(sheet, "stage.catalog")
+    if band_table is not None:
+        notes.append(f"sheet {name!r}: stage table {band_table!r} — {table_provenance}")
+    feed = _match_feed(sheet, band_table, frd, ir, notes)
     feed_id = config.feed_aliases.get(feed.feed_name) or normalize_feed_name(feed.feed_name)
+    prefix = f"feeds[{frd.feeds.index(feed)}]."
+    pending: list[PendingAnswer] = []
 
-    has_standard = any(r.values.get("standard.column") for r in sheet.fields)
-    standard_schema = _dominant([r.values.get("standard.schema") for r in sheet.fields])
-    standard_table = _dominant([r.values.get("standard.table") for r in sheet.fields])
-    standard_catalog = _dominant([r.values.get("standard.catalog") for r in sheet.fields])
+    def need(dotted: str, reason: str) -> None:
+        pending.append(PendingAnswer(feed_name=feed.feed_name, sheet=name, key=prefix + dotted,
+                                     reason=reason))
 
-    segmented = any(r.segment_raw is not None for r in sheet.fields)
+    # The table chain (first ACFC run): STTM band -> this feed's File Details
+    # row -> the FRD's only table; then NEEDS_ANSWERS, never a mid-run stop.
+    stage_table = _table_chain("stage", band_table, table_provenance,
+                               _details_target(feed, ir, sheet, config),
+                               list(feed.stage_target.tables), name, notes, flags)
+    if stage_table is None:
+        need("stage_target.tables",
+             f"{table_provenance}; no File Details row states a target table for this feed "
+             f"and the FRD names {len(feed.stage_target.tables)} stage table(s)")
+    # The schema chain (M9.2): STTM band -> FRD -> the layer convention
+    # (conventions.default_schema), then NEEDS_ANSWERS — an empty schema never
+    # reaches a contract.
+    band_schema, schema_provenance = _band_constant(sheet, "stage.schema")
+    stage_schema = _schema_chain("stage", band_schema, schema_provenance,
+                                 feed.stage_target.schema_name, config, name, notes, flags)
+    if stage_schema is None:
+        need("stage_target.schema",
+             f"{schema_provenance}; the FRD 'Target Catalog and Schema' is blank and "
+             "conventions.default_schema.stage is unset")
+
+    has_standard = any(
+        r.values.get("standard.column") for r in sheet.fields
+        if normalize(r.values.get("standard.column")) not in _unmapped_markers(config))
+    standard_table, standard_provenance = _band_constant(sheet, "standard.table")
+    standard_catalog, _ = _band_constant(sheet, "standard.catalog")
+    standard_schema = None
+    if has_standard:
+        standard_table = _table_chain("standard", standard_table, standard_provenance, None,
+                                      list(feed.standard_target.tables), name, notes, flags)
+        if standard_table is None:
+            need("standard_target.tables",
+                 f"{standard_provenance}; the FRD names {len(feed.standard_target.tables)} "
+                 "standard table(s)")
+        band_schema, schema_provenance = _band_constant(sheet, "standard.schema")
+        standard_schema = _schema_chain("standard", band_schema, schema_provenance,
+                                        feed.standard_target.schema_name, config, name, notes,
+                                        flags)
+        if standard_schema is None:
+            need("standard_target.schema",
+                 f"{schema_provenance}; the FRD 'Target Catalog and Schema' is blank and "
+                 "conventions.default_schema.standard is unset")
+    if pending:
+        raise NeedsAnswers(pending)
+
+    # D1 post51 pair_05: a Segment cell reading 'NA' / '-' (unsegmented_markers)
+    # or blank says "no segment" — the segmented path needs one real segment
+    # word; a marker beside one stays outside the vocabulary (FAIL below).
+    no_segment = {normalize(m) for m in config.extractor.discovery.unsegmented_markers}
+    segmented = any(r.segment is not None for r in sheet.fields) or any(
+        r.segment_raw is not None and normalize(r.segment_raw) not in no_segment
+        for r in sheet.fields)
+    if not segmented and any(r.segment_raw is not None for r in sheet.fields):
+        notes.append(f"sheet {name!r}: Segment cells read only "
+                     f"{sorted({r.segment_raw for r in sheet.fields} - {None})} "
+                     "(extractor.discovery.unsegmented_markers); read as unsegmented")
     if segmented:
         unknown = sorted({r.segment_raw for r in sheet.fields if r.segment is None} - {None})
         if unknown:
-            raise GenericExtractionError(
+            first_row = next(r.row for r in sheet.fields
+                             if r.segment is None and r.segment_raw is not None)
+            raise located(GenericExtractionError(
                 f"sheet {name!r}: segment spelling(s) {unknown} are outside the "
                 f"{'/'.join(_CANONICAL_SEGMENTS)} vocabulary (extractor.discovery."
-                "segment_synonyms); the contract dialect cannot carry them")
+                "segment_synonyms); the contract dialect cannot carry them"),
+                _at(ir, name, first_row, sp.segment_column), "sttm.record_type")
 
     fields: list[SttmField] = []
+    stage_band = sp.band("stage")
+    stage_column_col = stage_band.column("column") if stage_band is not None else None
+    marked: list[str] = []
+    unnamed: list[str] = []
+    row_index = {r.row: j for j, r in enumerate(sheet.fields)}
+    stage_by_standard = _stage_type_by_standard(sheet)
     for row in sheet.fields:
         field_name = _first(row, "source.field_name")
         assert field_name is not None
         stage_column = _first(row, "stage.column")
         stage_type = _first(row, "stage.target_type")
-        if stage_column is None or stage_type is None:
-            raise GenericExtractionError(
-                f"sheet {name!r} row {row.row}: field {field_name!r} has no stage "
-                f"column/data type (column={stage_column!r}, type={stage_type!r})")
+        if row.row in skip:
+            # The STTM says this source field is not mapped: left out of both
+            # layers, counted in the feed's skipped_rows flag with the cell
+            # that says so (never a note only).
+            key, value = skip[row.row]
+            cell = _cell_ref(sp, row.row, key)
+            marked.append(f"{cell} {value!r}")
+            notes.append(f"sheet {name!r} row {row.row}: field "
+                         f"{' '.join(field_name.split())!r} skipped — {cell} reads {value!r}")
+            continue
+        if stage_column is None and stage_type is None and not any(
+                v for k, v in row.values.items() if k.startswith(("stage.", "standard."))):
+            # Chunk B (cold drill): a source field whose stage AND standard
+            # bands are blank on its row (a fixed-width "filler") is mapped
+            # nowhere by the STTM - left out of both layers and flagged with
+            # the row, like a "Do Not Map" cell; never a column the STTM
+            # does not name.
+            label = " ".join(field_name.split())
+            cell = f"{name}!{get_column_letter(stage_column_col or 1)}{row.row}"
+            flags.append(f"field_unmapped:{label} — STTM {cell}: the stage and standard "
+                         "bands are blank on this row; the field is in neither the stage nor "
+                         "the standard table")
+            notes.append(f"sheet {name!r} row {row.row}: field {label!r} skipped — no "
+                         "target cell on its row")
+            continue
+        if stage_column is None:
+            # post74 (D1 post73 pair_08): a row that names no target column is
+            # not a mapping row - left out, counted in the skipped_rows flag
+            unnamed.append(_cell_ref(sp, row.row, "stage.column"))
+            notes.append(f"sheet {name!r} row {row.row}: field "
+                         f"{' '.join(field_name.split())!r} skipped — it names no stage column")
+            continue
+        if stage_type is None:
+            # post74 (D1 post73 pair_08): ONE row's missing data type never fails
+            # the feed - a blocking QUESTION for that cell, the rest proceeds
+            key = f"{prefix}columns[{row_index[row.row]}].target_type"
+            where = _at(ir, name, row.row, _role_col(sp, "stage.target_type"))
+            answer = (cell_answers or {}).get(key)
+            if not answer:
+                proposal, why = _stage_type_proposal(row, stage_by_standard, disc)
+                questions.append(PendingAnswer(
+                    feed_name=feed.feed_name, sheet=name, key=key,
+                    reason=f"the stage data type cell at {where} is empty while the row names "
+                           "a stage column; answer the column's data type (the column is left "
+                           f"out of the contract until then){why}",
+                    candidates=[proposal] if proposal else []))
+                continue
+            stage_type = answer
+            flags.append(f"answered_cell:{key} — {where} is empty; the person answered "
+                         f"{answer!r}")
         # A NULLABLE column says "NULL"/"nullable"/"yes" for nullable and
         # "NOT NULL"/"no" for required — the null-ish spellings of no_values
         # (meant for yes/no columns) do not apply to it.
@@ -461,53 +1242,126 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         mandatory = _yes(_first(row, "source.required", "source.mandatory",
                                 "rules.required", "stage.mandatory_column"), disc)
         pii = _yes(_first(row, "source.pii", "rules.pii"), disc)
+        primary_key = _yes(_first(row, "stage.primary_key", "rules.primary_key", "source.key"),
+                           disc)
+        standard_mandatory = standard_primary_key = None
+        if has_standard:
+            # The Standard band's own Mandatory / Primary Key, kept only when
+            # they differ from the Stage band's (rule 6: each band its own).
+            stated_mandatory = _first(row, "standard.mandatory_column")
+            if stated_mandatory is not None and _yes(stated_mandatory, disc) != mandatory:
+                standard_mandatory = not mandatory
+            stated_key = _first(row, "standard.primary_key")
+            if stated_key is not None and _yes(stated_key, disc) != primary_key:
+                standard_primary_key = not primary_key
         rule_parts = [v for v in (_first(row, "rules.load_rule", "source.load_rule"),
                                   _first(row, "stage.transformation"),
                                   _first(row, "source.business_rule")) if v]
         value_spec = "; ".join(rule_parts) if rule_parts else _first(row, "source.comments")
+        source_width, source_precision = _width_facts(row, field_name, sp, flags)
+        answered = (width_answers or {}).get(frd.feeds.index(feed), {}).get(
+            normalize_field_name(field_name))
+        # post74 (D1 post73 pair_06): "timestamp(YYYY-MM-DD HH:MM:SS)" = the
+        # keyword + a format kept on the column (codegen.extract.type_format)
+        stage_parts = split_type(stage_type)
+        standard_parts = split_type(_first(row, "standard.target_type")) if has_standard else None
+        source_description = _first(row, "source.description", "rules.data_definition")
+        comments = _first(row, "source.comments")
+        description = _first(row, "source.description", "rules.data_definition",
+                             "source.comments", "stage.field_description")
+        # post104: the target band's Field Description (the DDL COMMENT), kept
+        # apart when description is other text; a Comments cell is rule text.
+        field_description = _first(row, "stage.field_description",
+                                   "standard.field_description")
+        # post139 (D1 pair_11): kept apart unless ``description`` IS that text
+        # read from a description column. A Comments cell repeating the Field
+        # Description word for word made ``description`` the Comments text
+        # (description_from_comments) and dropped the Field Description as its
+        # duplicate - the DDL then wrote no COMMENT at all for a description the
+        # STTM states twice.
+        from_comments = source_description is None and comments is not None
         fields.append(SttmField(
             source_column=field_name,
-            description=_first(row, "source.description", "rules.data_definition",
-                               "source.comments", "stage.field_description"),
+            description=description,
+            field_description=(field_description
+                               if field_description != description or from_comments
+                               else None),
+            description_from_comments=from_comments,
             sample_value=_first(row, "source.sample_value", "source.example_value"),
             source_datatype=_first(row, "source.source_type") or "unstated",
             nullable=not (not_null or mandatory),
             phi=pii,
             mandatory=mandatory,
             stage_column=stage_column,
-            stage_datatype=stage_type,
+            stage_datatype=stage_parts.type_text,
             standard_column=_first(row, "standard.column") if has_standard else None,
-            standard_datatype=_first(row, "standard.target_type") if has_standard else None,
+            standard_datatype=(standard_parts.type_text or None) if standard_parts else None,
             value_spec=value_spec,
             source_length=_first(row, "source.length", "source.field_length"),
             source_start=_first(row, "source.start"),
             source_end=_first(row, "source.end"),
+            source_width=source_width,
+            source_precision=source_precision,
+            width_answer=answered,
             record_segment=row.segment if segmented else None,  # type: ignore[arg-type]
             record_segment_label=row.segment_raw if segmented else None,
             stage_table=(_first(row, "stage.table") or stage_table) if segmented else None,
             standard_table=(_first(row, "standard.table") if segmented and has_standard
                             else None),
+            primary_key=primary_key,
+            stage_catalog=_differs(_first(row, "stage.catalog"), stage_catalog),
+            stage_schema=_differs(_first(row, "stage.schema"), stage_schema),
+            standard_catalog=(_differs(_first(row, "standard.catalog"), standard_catalog)
+                              if has_standard else None),
+            standard_schema=(_differs(_first(row, "standard.schema"), standard_schema)
+                             if has_standard else None),
+            standard_mandatory=standard_mandatory,
+            standard_primary_key=standard_primary_key,
+            stage_datatype_format=stage_parts.format,
+            standard_datatype_format=standard_parts.format if standard_parts else None,
             provenance=FieldProvenance(
                 sheet=row.sheet, row=row.row, col=row.col,
                 source=ir.profile.role_source(row.sheet, "source", "field_name")),
         ))
+    if marked or unnamed:
+        flags.append(_skipped_rows_flag(prefix, marked, unnamed))
 
     audit: list[AuditColumn] = []
     seen: set[str] = set()
     for entry in sheet.audit:
-        datatype = _AUDIT_DATATYPES.get(normalize(entry.datatype_raw))
+        datatype = audit_datatype(entry.column, entry.datatype_raw, config)
         if datatype is None:
-            raise GenericExtractionError(
+            raise located(GenericExtractionError(
                 f"sheet {name!r} row {entry.row}: audit column {entry.column!r} has datatype "
-                f"{entry.datatype_raw!r}; expected one of {sorted(_AUDIT_DATATYPES)}")
-        if entry.column not in seen:
-            seen.add(entry.column)
-            audit.append(AuditColumn(column=entry.column, datatype=datatype))  # type: ignore[arg-type]
+                f"{entry.datatype_raw!r}; {audit_expectation(entry.column, config)}"),
+                _at(ir, entry.sheet, entry.row), "sttm.audit", role="audit_column",
+                type_text=entry.datatype_raw or "")
+        column = clean_audit_column(
+            entry.column, prefix + "audit_columns",
+            f"{entry.sheet}!{get_column_letter(entry.col)}{entry.row}" if entry.col
+            else f"{entry.sheet} row {entry.row}", flags)
+        if column not in seen:
+            seen.add(column)
+            audit.append(AuditColumn(column=column, datatype=datatype,  # type: ignore[arg-type]
+                                     value_spec=entry.rule,
+                                     datatype_format=split_type(entry.datatype_raw).attribute,
+                                     description=entry.description))
     if not audit:
-        raise GenericExtractionError(
-            f"sheet {name!r}: no audit rows (rows whose source-side field name is an audit "
-            f"marker {config.extractor.audit_source_markers} with a stage column) — the "
-            "contract requires at least one audit column; add them to the STTM")
+        # Chunk B (cold drill): the STTM lists no audit row. The framework's
+        # audit set is never added silently: the feed waits for the person's
+        # list (feeds[i].audit_columns under gaps:, NAME:Type entries).
+        answered = (audit_answers or {}).get(frd.feeds.index(feed))
+        if not answered:
+            raise NeedsAnswers([PendingAnswer(
+                feed_name=feed.feed_name, sheet=name, key=prefix + "audit_columns",
+                reason=(f"the STTM lists no audit row (a row whose source-side field name is "
+                        f"an audit marker {config.extractor.audit_source_markers} with a stage "
+                        "column); answer the feed's audit columns as NAME:Type entries "
+                        "separated by ';' (Type String | Timestamp)"))])
+        audit = [AuditColumn(column=column, datatype=datatype)  # type: ignore[arg-type]
+                 for column, datatype in answered]
+        flags.append(f"audit_columns_from_user:{prefix}audit_columns \u2014 the STTM lists no "
+                     f"audit row; the person stated {[c for c, _t in answered]}")
 
     details = _file_details_row(feed, ir)
     patterns = _sheet_file_patterns(sheet, ir)
@@ -517,56 +1371,121 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         # M4: a docx-extracted FRD may name no file pattern; the workbook's
         # meta rows / FILE_DETAILS then supply it (the resolver flags the
         # provenance: file_pattern_from_sttm).
+        distinct = list(dict.fromkeys(_canonical_file_name(p) for p in patterns))
+        if len(ir.sheets) > 1 and len(distinct) > 1:
+            # 2026-10-12: several mapping sheets and several files, and the FRD
+            # (after the layout split) names none for THIS feed — the layout
+            # asked which file it is. The first one listed would be a guess:
+            # the feed waits for the answer, the others extract.
+            raise NeedsAnswers([PendingAnswer(
+                feed_name=feed.feed_name, sheet=name, key=prefix + "file_name_patterns",
+                candidates=list(dict.fromkeys(patterns)),
+                reason=(f"File for table {feed.feed_name}: the FRD names no file for this "
+                        f"feed and the workbook lists {len(distinct)} {patterns}; answer "
+                        f"`{prefix}file_name_patterns` under gaps: (the layout question) - "
+                        "the agent never guesses a file"))])
         name_pattern = patterns[0]
         notes.append(f"feed {feed.feed_name!r}: the FRD names no file pattern; taken from the "
                      f"workbook ({name_pattern!r})")
-    if name_pattern is None:
-        if not feed.file_name_patterns:
-            raise GenericExtractionError(
-                f"feed {feed.feed_name!r}: neither the FRD nor the workbook names a file pattern")
+    if name_pattern is None and feed.file_name_patterns:
         name_pattern = feed.file_name_patterns[0]
         notes.append(f"feed {feed.feed_name!r}: file pattern taken from the FRD "
                      f"({name_pattern!r}); the workbook names none that matches")
-    delimiter = feed.delimiter or sheet.meta.get("delimiter") or \
-        _FORMAT_DELIMITERS.get((feed.file_format or "").lower())
-    frequency = (details or {}).get("frequency") or sheet.meta.get("frequency") or feed.frequency
-    source_system = (details or {}).get("vendor") or sheet.meta.get("file_generator") \
-        or feed.source_system
+    elif name_pattern is None:
+        # M9.1b: not a hard stop any more. The chain FRD -> STTM meta rows /
+        # File Details -> VDD FILES sheet -> the `file_patterns` gap answer
+        # continues at resolve time; only `generate` stops when it ends empty.
+        notes.append(f"feed {feed.feed_name!r}: neither the FRD nor the workbook (meta rows "
+                     "'File Names' / 'File Name Example', File Details sheet) names a file "
+                     "pattern; left open for the VDD FILES sheet / the file_patterns answer")
+    # post74: a contract value no document states, answered under gaps:
+    # (the question contract validation asked: feeds[i].file_format, ...)
+    def answered(field_name: str, stated: str | None) -> str | None:
+        answer = (cell_answers or {}).get(prefix + field_name)
+        if stated or not answer:
+            return stated
+        flags.append(f"answered_value:{prefix}{field_name} — no document states it; the person "
+                     f"answered {answer!r}")
+        return answer
 
+    file_format = answered("file_format", feed.file_format)
+    delimiter = feed.delimiter or sheet.meta.get("delimiter") or \
+        _FORMAT_DELIMITERS.get((file_format or "").lower())
+    frequency = (details or {}).get("frequency") or sheet.meta.get("frequency") or feed.frequency
+    source_system = answered("source_system", (details or {}).get("vendor")
+                             or sheet.meta.get("file_generator") or feed.source_system)
+    recycle = _recycle(sheet, config, disc)
+    if recycle is not None and recycle.applies_to not in {f.source_column for f in fields}:
+        # post117 (codeflow audit #3): the recycle_unknown_column QUESTION's answer
+        # (the rule's column is no source column) - it used to be dropped unread,
+        # so the feed could only ask again
+        answer = (cell_answers or {}).get(prefix + "recycle.applies_to")
+        if answer:
+            flags.append(f"answered_value:{prefix}recycle.applies_to — the recycle rule's "
+                         f"column {recycle.applies_to!r} is no source column of the sheet; "
+                         f"the person answered {answer!r}")
+            recycle = recycle.model_copy(update={"applies_to": answer})
+
+    table_descriptions = _table_descriptions(
+        sheet, {"stage": stage_table, "standard": standard_table if has_standard else None},
+        name, flags)
     try:
         return SttmFeed(
             feed_id=feed_id,
             source_system=source_system,
             mapping_sheet=name,
-            source_file=SourceFile(name_pattern=name_pattern, format=feed.file_format,
+            source_file=SourceFile(name_pattern=name_pattern, format=file_format,
                                    delimiter=delimiter, frequency=frequency),
             stage=TableRef(schema=stage_schema, table=stage_table, catalog=stage_catalog),
             standard=(TableRef(schema=standard_schema or "", table=standard_table or "",
                                catalog=standard_catalog) if has_standard else None),
             load_rules=LoadRules(
                 not_null_columns=_rule_columns(fields, segmented, lambda f: not f.nullable),
+                natural_key=_rule_columns(fields, segmented, lambda f: f.primary_key),
                 mandatory_columns=_rule_columns(fields, segmented, lambda f: f.mandatory),
                 phi_columns=_rule_columns(fields, segmented, lambda f: f.phi),
-                recycle=_recycle(sheet, config, disc),
+                recycle=recycle,
             ),
             audit_columns=audit,
             field_count=len(fields),
             fields=fields,
             meta_rows=dict(sheet.meta),
             source_table=_dominant([r.values.get("source.source_table") for r in sheet.fields]),
+            extraction_flags=flags,
+            table_descriptions=table_descriptions,
         )
     except ValueError as exc:
-        raise GenericExtractionError(
-            f"feed {feed.feed_name!r}: extracted feed fails contract validation:\n{exc}"
-        ) from exc
+        # post74 (D1 post73 pair_10): the rules by name. Every hit a
+        # `question` -> the feed waits for the answers (NEEDS_ANSWERS);
+        # any `fail` -> FAIL naming each rule and its count.
+        from codegen.contracts.validation import answer_key, classify
+
+        hits = classify(exc)
+        if hits and all(h.disposition == "question" for h in hits):
+            column_index = {f.source_column: row_index[f.provenance.row]
+                            for f in fields if f.provenance and f.provenance.row in row_index}
+            keys = list(dict.fromkeys(k for h in hits
+                                      for k in answer_key(h, prefix, column_index, fields)))
+            raise NeedsAnswers([PendingAnswer(
+                feed_name=feed.feed_name, sheet=name, key=key,
+                reason=f"contract validation: {hit_rules(hits, key, prefix, column_index, fields)}"
+                       " — no document states it in a form the contract can carry")
+                for key in keys]) from exc
+        raise contract_invalid(GenericExtractionError, feed.feed_name, hits,
+                               _at(ir, name)) from exc
 
 
 def extract_generic_contract(found: Discovery, workbook_path: Path, frd: FrdContract,
                              config: Config, *, contract_name: str | None,
-                             generated_date: str) -> SttmContract:
+                             generated_date: str,
+                             width_answers: dict[int, dict[str, int]] | None = None,
+                             audit_answers: dict[int, list[tuple[str, str]]] | None = None,
+                             cell_answers: dict[str, str] | None = None
+                             ) -> SttmContract:
     ir = read_workbook(found, workbook_path.name, config)
     return build_generic_contract(ir, frd, config, contract_name=contract_name,
-                                  generated_date=generated_date)
+                                  generated_date=generated_date, width_answers=width_answers,
+                                  audit_answers=audit_answers, cell_answers=cell_answers)
 
 
 __all__ = [
@@ -575,8 +1494,10 @@ __all__ = [
     "GenericExtractionError",
     "GenericIR",
     "SheetData",
+    "answers_section",
     "build_generic_contract",
     "extract_generic_contract",
     "layout_summary",
+    "parse_cell_answers",
     "read_workbook",
 ]

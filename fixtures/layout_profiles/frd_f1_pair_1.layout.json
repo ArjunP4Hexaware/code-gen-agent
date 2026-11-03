@@ -322,6 +322,17 @@
       "feed_index": 0,
       "labelled_rule": false
     },
+    "feeds[0].key_statement": {
+      "table": 7,
+      "row": 10,
+      "col": 1,
+      "value_col": 2,
+      "label": "Business Key",
+      "section": "technical",
+      "inline_label": null,
+      "feed_index": 0,
+      "labelled_rule": false
+    },
     "feeds[0].description#data_quality": {
       "table": 8,
       "row": 2,
@@ -452,6 +463,7 @@
     "feeds[0].validation_rules[3]": 1.0,
     "feeds[0].phi_pii_notes": 1.0,
     "feeds[0].validation_rules[4]": 1.0,
+    "feeds[0].key_statement": 1.0,
     "feeds[0].description#data_quality": 1.0,
     "feeds[0].description#vendor": 1.0,
     "feeds[0].source_system#fallback": 1.0

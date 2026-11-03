@@ -606,7 +606,7 @@ accurate case.` + button `Provide…` (opens the documents modal, FRD variant).
 | Condition | Shows |
 |---|---|
 | live-availability answered `available: false` | a muted block `Live is unavailable: <<reason>> (provider: <<p>>)` — the reason is provider-specific from the backend, never hard-coded; when the backend gives none: `Live is unavailable: the backend cannot reach a Layer-2 provider` (D4); the `(provider: …)` hint only when a provider name exists |
-| otherwise | primary button `Generate from this STTM…`, disabled until an STTM is chosen (tooltip `Choose an STTM workbook first`) and while running, where it reads `Live run in progress…`; click opens the cost confirmation modal (§2.4.5) |
+| otherwise | primary button `Generate Documents`, disabled until an STTM is chosen (tooltip `Choose an STTM workbook first`) and while running, where it reads `Live run in progress…`; click opens the cost confirmation modal (§2.4.5) |
 
 Under the mock lock `available` is true and provider is `mock (locked)`: the button is live
 and the modal says zero calls are made.

@@ -32,9 +32,51 @@ def _version_sheet(wb, title, header, header_row, rows, merge_a2d2=False):
 # --------------------------------------------------------------- Family A ---
 
 
-def build_pair1():
-    """Pair 1 (Family A): Version | LOB_CROSSWALK | FEED_1_MAPPING.
-    Meta r1-r12, band r14 (4 merged groups), field headers r15 (27 cols)."""
+# The layout-gaps VARIANT (tests/test_layout_gap_labels.py): two source headers
+# a test overlay makes AMBIGUOUS between two OPTIONAL roles each, and the stage
+# band's data-type header renamed to text no synonym knows (a REQUIRED role).
+LAYOUT_GAP_HEADERS = {"ordinal": "Ref", "description": "Remarks",
+                      "stage_target_type": "Value Kind (DL)"}
+
+
+def build_pair1(amounts: bool = False, amount_end: bool = False,
+                rec_type_targets: dict[str, str] | None = None, blank_targets: bool = False,
+                layout_gaps: bool = False):
+    """``layout_gaps`` (a VARIANT): ``LAYOUT_GAP_HEADERS`` replace the source
+    'S.No' / 'Description' headers and the STAGE band's 'Target Data Type in
+    DL' (the standard band keeps its own) — two optional columns and one
+    required column the layout cannot place on synonyms alone.
+
+    ``rec_type_targets`` (a test VARIANT — the first ACFC run's key-lookup
+    defect): the field leading every record is named ``REC_TYPE`` in the
+    header, the detail AND the trailer, and each segment maps it to its OWN
+    target column (``{"HDDR": "REC_TYP_HDR", "DET": …, "TRLR": …}``).
+    ``blank_targets`` (a VARIANT — the first ACFC run's blank Schema /
+    TableName): every data row leaves both bands' schema and table empty.
+
+    ``amounts`` (M9.2, a test VARIANT — not the tracked fixture): six more
+    Detail fields whose Length cell reads ``10,2`` (pair1.AMOUNT_FIELDS), with
+    no End cell unless ``amount_end``.
+
+    Pair 1 (Family A): Version | LOB_CROSSWALK | FEED_1_MAPPING — the REAL
+    sheet geometry (M9.0), transcribed from the two ACFC captures on the
+    ``acfc-hotfix-1`` branch: ``docs/acfc/HANDOVER_GENIE.md`` §2 (meta rows,
+    data-row constants) and ``docs/acfc/PAIR1_HEADERS.md`` §1 (rows 14-15,
+    cell by cell, and the four merges).
+
+    Meta r1-r12 with the recorded labels (``PAIR1_REAL_RUN.md`` §2b adds
+    r11 ``Load Strategy`` = ``Append`` and r12 ``Notes``, empty — the first
+    capture stopped at r10); file names / example / frequency read ``TBD``,
+    the format reads ``.dat``, the rest are empty. Band r14,
+    four merges: ``Source Data`` A14:I14, ``Data Rules and Primary Keys``
+    K14:P14, ``Staging Layer Table`` R14:W14, ``Standard Layer Table``
+    Y14:AD14. Header r15: nine source headers in A-I, six rules headers in
+    K-P, the six ``… in DL`` layer headers at R-W and again at Y-AD — 27
+    header texts over 30 columns; J, Q and X are EMPTY spacer columns in both
+    rows. Schema and table constants repeat on every data row; each record
+    block is introduced by a segment banner row (``Header`` / ``Details`` /
+    ``Trailer``) while the Segment column keeps the golden's own vocabulary;
+    one detail row's target column reads ``Do Not Map`` with no data type."""
     wb = new_workbook()
     _version_sheet(
         wb, "Version",
@@ -53,10 +95,10 @@ def build_pair1():
 
     ws = wb.create_sheet("FEED_1_MAPPING")
     meta = [
-        ["File Names", "; ".join(pair1.FILE_PATTERNS)],
-        ["File Name Example", pair1.FILE_PATTERNS[0].replace("*", "20260115", 1).replace("*", "0900")],
-        ["Frequency", pair1.FREQUENCY],
-        ["File Format (text, csv)", pair1.FILE_FORMAT],
+        ["File Names", "TBD"],
+        ["File Name Example", "TBD"],
+        ["Frequency", "TBD"],
+        ["File Format (text, csv)", ".dat"],
         ["File Delimiter", None],
         ["Last Update Date", None],
         ["Version", None],
@@ -67,36 +109,85 @@ def build_pair1():
         ["Notes", None],
     ]
     write_rows(ws, meta, start_row=1)
-    groups = [("Source Data", 9), ("Data Rules and Primary Keys", 6),
-              ("Staging Layer Table", 6), ("Standard Layer Table", 6)]
-    write_rows(ws, [band_row(groups)], start_row=14)
-    merge_bands(ws, 14, groups)
+    # (label, first column, last column) — 1-based, inclusive.
+    bands = [("Source Data", 1, 9), ("Data Rules and Primary Keys", 11, 16),
+             ("Staging Layer Table", 18, 23), ("Standard Layer Table", 25, 30)]
+    for label, first, last in bands:
+        ws.cell(row=14, column=first, value=label)
+        merge_span(ws, 14, first, last)
     layer_headers = ["Workspace", "Target Catalog", "Target Schema Name in DL",
                      "Target Table Name in DL", "Target_Column_Name_in_DL",
                      "Target Data Type in DL"]
-    header = (["S.No", "Segment", "Field Name", "Required?", "Format", "Start", "Length",
-               "End", "Description", "Data Definition", "PII", "Primary Key",
-               "Critical Data", "Not NULL", "Load Rules"] + layer_headers + layer_headers)
-    assert len(header) == 27
+    source_headers = ["S.No", "Segment", "Field Name", "Required?", "Format", "Start", "Length",
+                      "End", "Description"]
+    rules_headers = ["Data Definition", "PII", "Primary Key", "Critical Data", "Not NULL",
+                     "Load Rules"]
+    stage_headers = list(layer_headers)
+    if layout_gaps:
+        source_headers = [LAYOUT_GAP_HEADERS["ordinal"], *source_headers[1:8],
+                          LAYOUT_GAP_HEADERS["description"]]
+        stage_headers[5] = LAYOUT_GAP_HEADERS["stage_target_type"]
+    header = (source_headers + [None] + rules_headers + [None] + stage_headers + [None]
+              + layer_headers)
+    assert len([h for h in header if h]) == 27 and len(header) == 30
+    assert [i + 1 for i, h in enumerate(header) if h is None] == [10, 17, 24]      # J, Q, X
     write_rows(ws, [header], start_row=15)
-    rows = []
-    for sno, c in enumerate(pair1.columns(), start=1):
+
+    def targets(stage_column, stage_type, standard_column, standard_type):
+        stage_schema, standard_schema, table = (
+            (None, None, None) if blank_targets
+            else (pair1.STAGE_SCHEMA, pair1.STANDARD_SCHEMA, pair1.TABLE))
+        return [None,
+                "DLK", pair1.STAGE_CATALOG, stage_schema, table,
+                stage_column, stage_type, None,
+                "DLK", pair1.STANDARD_CATALOG, standard_schema, table,
+                standard_column, standard_type]
+
+    rows: list[list] = []
+    sno = 0
+    segment = None
+    for c in pair1.columns():
+        if c.segment != segment:
+            if segment == pair1.UNMAPPED_AFTER_SEGMENT:
+                sno += 1
+                rows.append(_pair1_unmapped_row(sno, targets))
+                for name, column, start in (pair1.AMOUNT_FIELDS if amounts else []):
+                    sno += 1
+                    end = start + pair1.AMOUNT_VDD_WIDTH - 1 if amount_end else None
+                    rows.append([sno, segment, name, "N", pair1.SOURCE_TYPE, start,
+                                 pair1.AMOUNT_LENGTH_CELL, end, "Accumulated amount", None,
+                                 "Accumulated amount", "N", None, "N", "N", "Load as is",
+                                 *targets(column, pair1.AMOUNT_TYPE, column, pair1.AMOUNT_TYPE)])
+            segment = c.segment
+            rows.append([pair1.SEGMENT_BANNERS[segment]])
+        sno += 1
+        name = column = c.name
+        if rec_type_targets and c.name == "SEGMENT_IDENTIFIER":
+            name, column = "REC_TYPE", rec_type_targets[c.segment]
         rows.append([
-            sno, c.segment, c.name, c.required, pair1.SOURCE_TYPE, c.start, c.length,
-            c.start + c.length - 1, c.description,
+            sno, c.segment, name, c.required, pair1.SOURCE_TYPE, c.start, c.length,
+            c.start + c.length - 1, c.description, None,
             c.description, "N", None, "N", "Y" if c.required == "Y" else "N", c.load_rule,
-            "DLK", pair1.STAGE_CATALOG, pair1.STAGE_SCHEMA, pair1.TABLE, c.name, c.dtype,
-            "DLK", pair1.STANDARD_CATALOG, pair1.STANDARD_SCHEMA, pair1.TABLE, c.name, c.dtype,
+            *targets(column, c.dtype, column, c.dtype),
         ])
     for name, dtype in pair1.AUDIT_COLUMNS:
         rows.append([
-            None, None, "NA", None, None, None, None, None, "Audit column",
+            None, None, "NA", None, None, None, None, None, "Audit column", None,
             None, None, None, None, None, None,
-            "DLK", pair1.STAGE_CATALOG, pair1.STAGE_SCHEMA, pair1.TABLE, name, dtype,
-            "DLK", pair1.STANDARD_CATALOG, pair1.STANDARD_SCHEMA, pair1.TABLE, name, dtype,
+            *targets(name, dtype, name, dtype),
         ])
     write_rows(ws, rows, start_row=16)
     return wb
+
+
+def _pair1_unmapped_row(sno: int, targets) -> list:
+    """The one source field the STTM marks ``Do Not Map`` (no data type) —
+    closes the detail block, after the last mapped detail field."""
+    name, start, length = pair1.UNMAPPED_FIELD
+    marker = pair1.UNMAPPED_MARKER
+    return [sno, pair1.UNMAPPED_AFTER_SEGMENT, name, "N", pair1.SOURCE_TYPE, start, length,
+            start + length - 1, "Reserved for future use", None, "Reserved for future use", "N",
+            None, "N", "N", None, *targets(marker, None, marker, None)]
 
 
 def build_pair8():
@@ -199,6 +290,61 @@ def build_pair2():
                             ("REC_UPDATED_TIME", "timestamp")):
             rows.append(["NA", "NULL", "NA", "NA", "NA", "No", "No", None,
                          "stg_vendor_b", table, name, dtype, "vendor_b", table, name, dtype])
+        write_rows(ws, rows, start_row=3)
+    return wb
+
+
+def build_pair11():
+    """Pair 11 (Family B, the one-block / many-files FRD's STTM): FILE_DETAILS
+    with three files and their frequencies (the FRD's Frequency cell points
+    here), three MAPPING- sheets whose stage tables the FRD never names (it
+    lists the FILE names), two schemas across the three sheets, and a
+    standard band that mixes a type inside one suffix group (the sibling-type
+    check's target: one _pct column typed String among Decimal siblings)."""
+    from . import frd as frd_fixtures
+
+    wb = new_workbook()
+    ws = wb.create_sheet("FILE_DETAILS")
+    write_rows(ws, [["Vendor", "FileName", "File Description", "Location", "Frequency"]])
+    files = [("VENDOR_C", frd_fixtures.PAIR11_FILES[0], None, None, "Yearly Twice"),
+             ("VENDOR_C", frd_fixtures.PAIR11_FILES[1], None, None, "Yearly Twice"),
+             ("VENDOR_C", frd_fixtures.PAIR11_FILES[2], None, None, "Monthly")]
+    write_rows(ws, [list(f) for f in files], start_row=2)
+    ws = wb.create_sheet("VERSION_HISTORY")
+    write_rows(ws, [["Version", "Date", "Author", "Change Description"],
+                    ["1.0", "2026-03-01", "SYN Author D", "Initial"]])
+    header = (["Database column Name", "NULL CHECK", "Description", "Sample Value", "DataType",
+               "PHI Field", "Mandatory Field", "Comment"] + _STAGE_STD_4 + _STAGE_STD_4)
+    specs = {
+        "MAPPING-VC_ENROLLMENT": ("stg_dom_a", "dom_a", "vc_enrollment",
+                                  [("MEMBER_ID", "String"), ("ZIP_CODE", "String"),
+                                   ("POVERTY_PCT", "Decimal(18,2)"), ("UNEMPLOYMENT_PCT", "Decimal(18,2)"),
+                                   ("UNINSURED_PCT", "String"), ("TOTAL_POP", "Decimal(18,0)"),
+                                   ("ELDERLY_POP", "Decimal(18,0)"), ("REPORT_DT", "Date")]),
+        "MAPPING-VC_DISENROLLMENT": ("stg_dom_a", "dom_a", "vc_disenrollment",
+                                     [("MEMBER_ID", "String"), ("ZIP_CODE", "String"),
+                                      ("RISK_SCORE", "Decimal(18,4)"), ("RISK_CD", "String"),
+                                      ("REPORT_DT", "Date")]),
+        "MAPPING-VC_INDIVIDUAL_RISK": ("stg_dom_b", "dom_b", "vc_individual_risk",
+                                       [("MEMBER_ID", "String"), ("RISK_SCORE", "Decimal(18,4)"),
+                                        ("RISK_CD", "String"), ("REPORT_DT", "Date")]),
+    }
+    for sheet_name, (stage_schema, std_schema, table, fields) in specs.items():
+        ws = wb.create_sheet(sheet_name)
+        write_rows(ws, [["Source File Layout", None, None, None, None, None, None, None,
+                         "Stage Layer", None, None, None, "Standard Layer"]])
+        write_rows(ws, [header], start_row=2)
+        rows = []
+        for i, (f, dtype) in enumerate(fields):
+            rows.append([f, "Not NULL" if i == 0 else "NULL", f"{f.title()} value", f"S{i:03d}",
+                         "String", "Yes" if f == "MEMBER_ID" else "No",
+                         "Yes" if i == 0 else "No", "Load as is",
+                         stage_schema, table, f, "String",
+                         std_schema, table, f, dtype])
+        for name, dtype in (("SRC_FILE_NAME", "string"), ("REC_CREATION_TIME", "timestamp"),
+                            ("REC_UPDATED_TIME", "timestamp")):
+            rows.append(["NA", "NULL", "NA", "NA", "NA", "No", "No", None,
+                         stage_schema, table, name, dtype, std_schema, table, name, dtype])
         write_rows(ws, rows, start_row=3)
     return wb
 
@@ -621,6 +767,7 @@ BUILDERS = {
     "sttm/pair_1_family_a.xlsx": build_pair1,
     "sttm/pair_8_family_a.xlsx": build_pair8,
     "sttm/pair_2_family_b.xlsx": build_pair2,
+    "sttm/pair_11_family_b.xlsx": build_pair11,
     "sttm/pair_3_family_c.xlsx": build_pair3,
     "sttm/pair_4_family_d.xlsx": build_pair4,
     "sttm/pair_6_family_d.xlsx": build_pair6,

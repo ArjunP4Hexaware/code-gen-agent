@@ -51,13 +51,25 @@ def _generate_all(config, tmp: Path, mode: str, output_mode: str | None = None):
         yield spec, gate
 
 
+def _stable_bytes(path: Path) -> bytes:
+    """A report's "Produced by" line names the checkout and version that ran
+    (codegen.build_info) — environment metadata, left out of the hash."""
+    from codegen.build_info import PRODUCED_BY_PREFIX
+
+    data = path.read_bytes()
+    if path.suffix != ".md":
+        return data
+    prefix = PRODUCED_BY_PREFIX.encode("utf-8")
+    return b"\n".join(line for line in data.split(b"\n") if not line.startswith(prefix))
+
+
 def _manifest(tmp: Path) -> dict[str, str]:
     manifest = {}
     for base, label in ((tmp / "out", "out"), (tmp / "reports", "reports")):
         for p in sorted(base.rglob("*")):
             if p.is_file():
                 rel = f"{label}/{p.relative_to(base).as_posix()}"
-                manifest[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
+                manifest[rel] = hashlib.sha256(_stable_bytes(p)).hexdigest()
     return manifest
 
 
@@ -95,7 +107,8 @@ def test_framework_mode_tree_and_verdicts(config, framework_run, tmp_path):
         assert names == ["ADDITION.md", "config_inserts.xlsx",
                          "config_rows.xlsx",
                          f"{spec.feed_slug}_stage_table_creation.txt",
-                         f"{spec.feed_slug}_standard_table_creation.txt"]
+                         f"{spec.feed_slug}_standard_table_creation.txt",
+                         "metadata_inserts.sql"]   # always, framework mode (2026-10-08)
 
 
 @needs_demo_pair
@@ -176,7 +189,9 @@ def test_ddl_txt_style_conforms_to_reference_goldens(framework_run):
     """Structural conformance to the client's scrubbed reference goldens:
     clause presence/order, LOCATION on stage only, CLUSTER BY AUTO on
     standard only, TBLPROPERTIES key sets, trailing SET TAGS — never value
-    equality (different feed, different columns)."""
+    equality (different feed, different columns). One deliberate deviation
+    (post112): CREATE TABLE IF NOT EXISTS where the goldens write CREATE OR
+    REPLACE — the DDL is re-run against deployed tables."""
     golden_stage = (_REF / "SFMC_stage_table_creation.txt").read_text(encoding="utf-8")
     golden_standard = (_REF / "SFMC_standard_table_creation.txt").read_text(encoding="utf-8")
     tmp, results = framework_run
@@ -186,11 +201,13 @@ def test_ddl_txt_style_conforms_to_reference_goldens(framework_run):
         standard = standard_path.read_text(encoding="utf-8")
 
         for text in (stage, standard):
-            assert "CREATE OR REPLACE TABLE " in text
+            # post112: re-runnable against deployed tables, unlike the goldens'
+            # CREATE OR REPLACE (codeflow audit #12)
+            assert "CREATE TABLE IF NOT EXISTS " in text
+            assert "OR REPLACE" not in text
             assert " COMMENT '" in text          # per-column COMMENT clauses
             assert "USING delta" in text
             assert "SET TAGS ('DOMAIN' = " in text
-            assert "CREATE TABLE IF NOT EXISTS" not in text
 
         # LOCATION on stage only; CLUSTER BY AUTO on standard only.
         assert "LOCATION '" in stage and "LOCATION '" not in standard
@@ -205,11 +222,11 @@ def test_ddl_txt_style_conforms_to_reference_goldens(framework_run):
 
         # Clause order within the first table section mirrors the goldens.
         for text, has_location in ((stage, True), (standard, False)):
-            create = text.index("CREATE OR REPLACE TABLE ")
+            create = text.index("CREATE TABLE IF NOT EXISTS ")
             using = text.index("USING delta")
             props = text.index("TBLPROPERTIES (")
             tags = text.index("SET TAGS (")
-            assert text.index(f"--{text[create:].split()[4]}") < create
+            assert text.index(f"--{text[create:].split()[5]}") < create
             assert create < using < props < tags
             if has_location:
                 assert using < text.index("LOCATION '") < props
@@ -315,7 +332,34 @@ def test_both_mode_is_the_union(config, tmp_path):
         assert (feed_dir / "framework" / "config_rows.xlsx").is_file()
         report = (tmp_path / "reports" / f"{spec.feed_slug}.md").read_text(
             encoding="utf-8")
-        assert "## Framework output (Option B)" in report
+        assert "## Framework artefacts" in report
+
+
+def test_the_report_section_matches_the_artefacts_panel():
+    """2026-10-16 (post63): the report's framework section lists the files the
+    App presents (DDL, IIG, IIG review copy, ADDITION.md) under the panel's
+    heading and approval sentence — never inserts, config rows or Option B."""
+    from pathlib import Path
+
+    from codegen.emit.framework import FrameworkArtefacts, report_section
+
+    written = ["SYN_DDL.txt", "config_rows.xlsx", "config_inserts.xlsx",
+               "metadata_inserts.sql", "syn_IIG_REVIEW.xlsx", "syn_IIG.xlsx", "ADDITION.md"]
+    section = report_section(FrameworkArtefacts(
+        files=[Path("framework") / name for name in written],
+        row_counts={"ADLS_DELTA_INGESTION_DETAILS": 2},
+        coverage={"derived": 3, "synthetic": 0, "needs_template": 1, "total": 4},
+        dml_disabled_reason="conventions profile 'acfc_prx' has emit_dml: false"))
+    assert "## Framework artefacts" in section
+    assert ("The BSA-annotated IIG is the approval artefact; the CI/CD pipeline\n"
+            "applies the DDL after approval.") in section
+    listed = [line.split("`")[1] for line in section.splitlines()
+              if line.startswith("| `")]
+    assert listed == ["SYN_DDL.txt", "syn_IIG.xlsx", "syn_IIG_REVIEW.xlsx", "ADDITION.md"]
+    assert "| IIG rows: ADLS_DELTA_INGESTION_DETAILS | 2 |" in section
+    lowered = section.lower()
+    for word in ("insert", "config row", "config_rows", "option b"):
+        assert word not in lowered, word
 
 
 @needs_demo_pair

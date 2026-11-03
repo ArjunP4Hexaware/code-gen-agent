@@ -1,0 +1,240 @@
+{
+  "$comment": "Stands in for v2.2: a file whose two blocks load two different tables (1 of 11 real files, 4 rows per block) with its mixed_target note; target_format filled and field_length null (1 of 11 real files, 11 rows) with its type_in_length_column note. Read as two feeds.",
+  "document_name": "SYN_EDH_E2E_Mapping_SYN_SPLIT_A_DIM_V1.0",
+  "source_file": "SYN Mappings/SYN_EDH_E2E_Mapping_SYN_SPLIT_A_DIM_V1.0.xlsx",
+  "layer": "gold",
+  "destination_catalog": "syn_edh",
+  "target_table": "SYN_SPLIT_A_DIM",
+  "refresh_schedule": "Daily",
+  "load_type": "This is a full SYN load",
+  "mapping_count": 6,
+  "mappings": [
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_SPLIT_A_SRC",
+      "source_field": "SYN_S0",
+      "target_table": "SYN_SPLIT_A_DIM",
+      "target_attribute": "SYN_SPLIT_ID",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": null,
+      "target_format": "VARCHAR2(12)",
+      "indexes": "Primary key",
+      "comments": null,
+      "block_index": 0,
+      "source_row": 4
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_SPLIT_A_SRC",
+      "source_field": "SYN_S1",
+      "target_table": "SYN_SPLIT_A_DIM",
+      "target_attribute": "SYN_SPLIT_NM",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": null,
+      "target_format": "VARCHAR2(40)",
+      "indexes": null,
+      "comments": null,
+      "block_index": 0,
+      "source_row": 5
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_SPLIT_A_SRC",
+      "source_field": "SYN_S2",
+      "target_table": "SYN_SPLIT_A_DIM",
+      "target_attribute": "SYN_SPLIT_DT",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": null,
+      "target_format": "DATE",
+      "indexes": null,
+      "comments": null,
+      "block_index": 0,
+      "source_row": 6
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_SPLIT_B_SRC",
+      "source_field": "SYN_S0",
+      "target_table": "SYN_SPLIT_B_DIM",
+      "target_attribute": "SYN_SPLIT_ID",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": null,
+      "target_format": "VARCHAR2(12)",
+      "indexes": "Primary key",
+      "comments": null,
+      "block_index": 1,
+      "source_row": 12
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_SPLIT_B_SRC",
+      "source_field": "SYN_S1",
+      "target_table": "SYN_SPLIT_B_DIM",
+      "target_attribute": "SYN_SPLIT_NM",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": null,
+      "target_format": "VARCHAR2(40)",
+      "indexes": null,
+      "comments": null,
+      "block_index": 1,
+      "source_row": 13
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_SPLIT_B_SRC",
+      "source_field": "SYN_S2",
+      "target_table": "SYN_SPLIT_B_DIM",
+      "target_attribute": "SYN_SPLIT_DT",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": null,
+      "target_format": "DATE",
+      "indexes": null,
+      "comments": null,
+      "block_index": 1,
+      "source_row": 14
+    }
+  ],
+  "regional_table_structures": {
+    "SYNR1 - LOB (S1001, S1002, S1003, S1004, S1005, S1006, S1007, S1008, S1009)": [
+      {
+        "column_name": "SYN_SPLIT_ID",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_SPLIT_NM",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_SPLIT_DT",
+        "data_type": "NUMBER(10),"
+      }
+    ],
+    "SYNR2 - LOB (S2001, S2002, S2003)": [
+      {
+        "column_name": "SYN_SPLIT_ID",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_SPLIT_NM",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_SPLIT_DT",
+        "data_type": "NUMBER(10),"
+      }
+    ],
+    "SYNR5 - LOB(S5001, S5002)": [
+      {
+        "column_name": "SYN_SPLIT_ID",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_SPLIT_NM",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_SPLIT_DT",
+        "data_type": "NUMBER(10),"
+      }
+    ],
+    "SYNR6 - LOB(S6001, S6002)": [
+      {
+        "column_name": "SYN_SPLIT_ID",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_SPLIT_NM",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_SPLIT_DT",
+        "data_type": "NUMBER(10),"
+      }
+    ],
+    "SYNR7 - LOB(S7001)": [
+      {
+        "column_name": "SYN_SPLIT_ID",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_SPLIT_NM",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_SPLIT_DT",
+        "data_type": "NUMBER(10),"
+      }
+    ],
+    "SYNMC1 - LOB(S1001, S1002, S1003, S1004, S1005, S1006, S1007, S1008, S1009, S1010)": [
+      {
+        "column_name": "SYN_SPLIT_ID",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_SPLIT_NM",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_SPLIT_DT",
+        "data_type": "NUMBER(10),"
+      }
+    ],
+    "SYNEX1 - LOB(S1001, S1002, S1003, S1004, S1005)": [
+      {
+        "column_name": "SYN_SPLIT_ID",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_SPLIT_NM",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_SPLIT_DT",
+        "data_type": "NUMBER(10),"
+      }
+    ]
+  },
+  "rules": null,
+  "summary": null,
+  "document_notes": [
+    {
+      "kind": "mixed_target",
+      "where": "sheet 1, rows 3-14",
+      "detail": "2 target tables",
+      "blocks": [
+        {
+          "block_index": 0,
+          "target_table": "SYN_SPLIT_A_DIM"
+        },
+        {
+          "block_index": 1,
+          "target_table": "SYN_SPLIT_B_DIM"
+        }
+      ]
+    },
+    {
+      "kind": "type_in_length_column",
+      "where": "file 1",
+      "detail": "6 rows"
+    }
+  ],
+  "extracted_at": "2026-10-20T00:00:00.000000+00:00"
+}

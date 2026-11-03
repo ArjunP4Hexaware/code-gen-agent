@@ -212,6 +212,17 @@
       "feed_index": 0,
       "labelled_rule": false
     },
+    "feeds[0].key_statement": {
+      "table": 4,
+      "row": 4,
+      "col": 0,
+      "value_col": 1,
+      "label": "Technical Metadata",
+      "section": "technical",
+      "inline_label": "Business Key",
+      "feed_index": 0,
+      "labelled_rule": false
+    },
     "feeds[0].phi_pii_notes": {
       "table": 4,
       "row": 4,
@@ -306,6 +317,7 @@
     "feeds[0].sub_domain": 1.0,
     "feeds[0].stage_target.load_strategy": 1.0,
     "feeds[0].standard_target.load_strategy": 1.0,
+    "feeds[0].key_statement": 1.0,
     "feeds[0].phi_pii_notes": 1.0,
     "feeds[0].source_system#fallback": 1.0,
     "feeds[0].recycle_rule": 1.0

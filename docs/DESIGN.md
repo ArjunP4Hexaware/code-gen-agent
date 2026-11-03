@@ -127,7 +127,7 @@ out/<feed_id>/
   tests/          pytest suite FOR THE GENERATED CODE (local SparkSession + delta-spark)
   tools/          make_fixtures.py — synthetic data from the contract's sample_value
   README.md       what was generated, from which contracts, verdict summary
-  framework/      [output.mode framework|both] Option B — the ACFC-framework
+  framework/      [output.mode framework, alone or with notebook] Option B — the ACFC-framework
                   addition: <slug>_stage/_standard_table_creation.txt
                   (deployment-team DDL, conformant to the client reference
                   goldens in fixtures/reference/), config_rows.xlsx (THE

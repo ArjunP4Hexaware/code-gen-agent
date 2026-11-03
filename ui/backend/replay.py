@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
@@ -89,7 +90,8 @@ def _rebuild_state(
     label: str,
     out_root,
     reports_root,
-    output_mode: str | None = None,
+    output_mode: str | list[str] | None = None,
+    iig_template: str | None = None,
 ) -> None:
     """Deterministic pipeline re-run with recorded candidates injected.
 
@@ -119,6 +121,7 @@ def _rebuild_state(
             reports_dir=reports_root,
             candidates_override=candidates,
             output_mode=output_mode,
+            iig_template=iig_template,
         )
     store.adopt(
         runs,
@@ -127,6 +130,7 @@ def _rebuild_state(
         label=label,
         out_root=out_root,
         reports_root=reports_root,
+        iig_template=iig_template,
     )
 
 
@@ -138,7 +142,7 @@ def load_replay_set(store: GenerationStore, name: str) -> None:
     if replay_set is None:
         raise FileNotFoundError(f"no replay set named {name!r} under fixtures/replay/")
 
-    out_root = REPO_ROOT / store.config.output.dir / f"replay_{name}"
+    out_root = _outputs_dir(store) / f"replay_{name}"
     _rebuild_state(
         store,
         _resolve_demo_specs(store),
@@ -174,8 +178,25 @@ def _run_timestamp(name: str) -> str | None:
     return f"{y}-{mo}-{d} {h}:{mi}:{s}"
 
 
+def _outputs_dir(store: GenerationStore, root=None) -> Path:
+    """The outputs role's local directory (``./out`` by default)."""
+    if root is not None:
+        return root
+    from ui.backend import stores
+
+    return stores.outputs_root(store.config)
+
+
 def list_past_live_runs(store: GenerationStore, root=None) -> list[PastLiveRun]:
-    out_dir = root if root is not None else REPO_ROOT / store.config.output.dir
+    out_dir = _outputs_dir(store, root)
+    if root is None:
+        # A remote outputs role outlives the container: bring down the runs
+        # this process has no working copy of, so they list and load.
+        from ui.backend import stores
+
+        for label in stores.remote_run_labels(store.config):
+            if not (out_dir / label).is_dir():
+                stores.pull_run(store.config, label)
     if not out_dir.is_dir():
         return []
     runs = []
@@ -217,7 +238,7 @@ def load_past_live_run(store: GenerationStore, name: str, root=None) -> None:
     served from the run's own directory.
     """
     _reject_traversal(name)
-    out_dir = root if root is not None else REPO_ROOT / store.config.output.dir
+    out_dir = _outputs_dir(store, root)
     run = next((r for r in list_past_live_runs(store, root=root) if r.name == name), None)
     if run is None:
         raise FileNotFoundError(f"no past live run named {name!r} under {out_dir.name}/")
@@ -232,22 +253,31 @@ def load_past_live_run(store: GenerationStore, name: str, root=None) -> None:
     run_frd = run_dir / "frd.contract.json"
     meta_path = run_dir / "run_meta.json"
     output_mode = None
+    iig_template = None
+    from codegen.output_modes import output_parts
+
     if meta_path.is_file():
         try:
-            output_mode = json.loads(meta_path.read_text(encoding="utf-8")).get(
-                "output_mode"
-            )
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            output_mode = meta.get("output_mode")
+            # IIG-first M2: the run's own IIG template (older runs: default).
+            recorded = meta.get("iig_template")
+            if recorded in store.config.metadata.templates or recorded == "iig_v1":
+                iig_template = recorded
         except ValueError:
             output_mode = None
+    if output_mode is not None:
+        # A run recorded under a retired mode (both / rfc / all) replays as
+        # Notebook + Framework artefacts, with a one-time notice.
+        output_mode = output_parts(output_mode, source=f"run_meta.json of {name}")
     if output_mode is None and run.feeds:
         first = run_dir / run.feeds[0]
         has_framework = (first / "framework").is_dir()
         has_pipeline = (first / "pipeline").is_dir()
         has_rfc = any(p.is_dir() and p.name.startswith("RFC") for p in first.iterdir())
-        output_mode = ("all" if has_rfc and has_pipeline
-                       else "rfc" if has_rfc
-                       else "both" if has_framework and has_pipeline
-                       else "framework" if has_framework else "notebook")
+        inferred = (["rfc"] if has_rfc
+                    else ["notebook"] * has_pipeline + ["framework"] * has_framework)
+        output_mode = output_parts(inferred or ["notebook"], source=f"past run {name}")
     _rebuild_state(
         store,
         _resolve_demo_specs(
@@ -261,4 +291,5 @@ def load_past_live_run(store: GenerationStore, name: str, root=None) -> None:
         out_root=run_dir,
         reports_root=run_dir / "reports",
         output_mode=output_mode,
+        iig_template=iig_template,
     )

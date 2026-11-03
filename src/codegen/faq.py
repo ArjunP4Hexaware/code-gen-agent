@@ -115,6 +115,47 @@ class LoadPatternFaq(BaseModel):
     # package is named after — a run input; unanswered = documented
     # placeholder + flag.
     rfc_number: FaqAnswer = FaqAnswer(value="unknown")
+    # 2026-10-14 (D1 post44 item 3): the schedule rows' ACTIVE_START_DATE — the
+    # per-RFC go-live date (owed_cells; `generate --answers` gaps
+    # feeds[<i>].active_start_date sets it for one run).
+    active_start_date: FaqAnswer = FaqAnswer(value="unknown")
+    # 2026-10-14 (D1 post45): owed cells written WITH a default (INPUT_NEEDED
+    # "with that default"): the schedule's APPLICATION_NAME (default the feed's
+    # SOURCE; it is {application} everywhere) and the email EMAIL_TO (default the
+    # corpus's dominant recipient). (The NullCheckRule / DeDuplicationRule
+    # INPUT_PARAM is derived since 2026-10-14: the target table's FQN.)
+    application_name: FaqAnswer = FaqAnswer(value="unknown")
+    email_to: FaqAnswer = FaqAnswer(value="unknown")
+    # 2026-10-14 (framework owner): the EMAIL_TEMPLATE_CONFIG status set — a
+    # run-level input (inputs.run: email_statuses), default all four statuses
+    email_statuses: FaqAnswer = FaqAnswer(value="unknown")
+    # 2026-10-14 (framework owner's rule 1): PIPELINE_NAME is BSA-assigned — one
+    # per flow row (owed_cells per_flow; inputs.feeds.<feed>: pipeline_name.<flow>)
+    pipeline_name_grand_master: FaqAnswer = FaqAnswer(value="unknown")
+    pipeline_name_master: FaqAnswer = FaqAnswer(value="unknown")
+    pipeline_name_file_to_stg: FaqAnswer = FaqAnswer(value="unknown")
+    pipeline_name_stg_to_std: FaqAnswer = FaqAnswer(value="unknown")
+    # post70: TGT_PRIMARY_KEY (codegen.primary_key) — an agent proposal from an
+    # explicit key signal, written only when chosen; or the BSA's typed columns
+    # (inputs.feeds.<feed>: primary_key)
+    primary_key: FaqAnswer = FaqAnswer(value="unknown")
+    # post61: profile defaults the BSA may change (codegen.input_choices,
+    # inputs.feeds.<feed>): the notebook NAME per leg and the ADLS SRC_FILE_NAME
+    # style (pattern | prefix_star | prefix_middle) — unanswered = the profile's
+    notebook_name_file_to_stg: FaqAnswer = FaqAnswer(value="unknown")
+    notebook_name_stg_to_std: FaqAnswer = FaqAnswer(value="unknown")
+    src_file_name_style: FaqAnswer = FaqAnswer(value="unknown")
+    # M7 companions (NOT questions): the engineer-assigned framework ids the
+    # DML variables block carries (METADATA_DB_SEMANTICS §2, §5) and the
+    # source connection's host. (They fed the retired config_inserts_<env>.sql
+    # variables block; metadata_inserts.sql leaves the ids as placeholders.)
+    pipeline_id: FaqAnswer = FaqAnswer(value="unknown")
+    parent_pipeline_id: FaqAnswer = FaqAnswer(value="unknown")
+    group_id: FaqAnswer = FaqAnswer(value="unknown")
+    object_id: FaqAnswer = FaqAnswer(value="unknown")
+    source_host: FaqAnswer = FaqAnswer(value="unknown")
+    # connection role -> existing CONNECTION_ID (identity values reused, §3)
+    connection_ids: dict[str, str] = Field(default_factory=dict)
     # Segmented-dialect declarations (NOT questions — banner/flag counts
     # untouched). The H/D/T record-type discriminator values are stated
     # nowhere in a segmented workbook: absent here, a segmented extraction
@@ -205,6 +246,22 @@ def faq_for_spec(
 ) -> LoadPatternFaq:
     """The one call sites use: file answers + contract prefills."""
     return apply_contract_prefills(load_faq(spec.feed_slug, config, base_dir), spec)
+
+
+def with_faq_answers(faq: LoadPatternFaq, answers: dict[str, str] | None) -> LoadPatternFaq:
+    """2026-10-14 (D1 post44): answers-file values for FAQ companions (gaps
+    ``feeds[<i>].<companion>``, e.g. active_start_date), source engineer; a
+    file answer already given is replaced (the run's answers file is the
+    newer statement). Unknown names are ignored."""
+    # post59: a FaqAnswer value is applied as given (codegen.input_choices: a
+    # chosen default / naming standard, or leave_blank's empty value)
+    updates = {name: value if isinstance(value, FaqAnswer) else
+               FaqAnswer(value=str(value), source="engineer", evidence="answers file (gaps)")
+               for name, value in (answers or {}).items()
+               if name in LoadPatternFaq.model_fields
+               and LoadPatternFaq.model_fields[name].annotation in (FaqAnswer, "FaqAnswer")
+               and (isinstance(value, FaqAnswer) or str(value).strip())}
+    return faq.model_copy(update=updates) if updates else faq
 
 
 def summarize(faq: LoadPatternFaq) -> dict[str, Any]:

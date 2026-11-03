@@ -1,0 +1,222 @@
+"""IIG-first M3: every framework run writes the BSA review copy and the clean
+copy of the IIG workbook.
+
+* Clean copy (``<feed>_IIG.xlsx``): exactly the iig_v2 template's sheets and
+  column order, values only — no fills, comments or summary sheet; on pair 1
+  its data cells equal the run's ``config_rows.xlsx``.
+* Review copy (``<feed>_IIG_REVIEW.xlsx``): the summary sheet first; its
+  counts per owner equal the 2026-10-02 inventory (IIG_FIRST_PLAN.md) —
+  pair 1: BSA 92, engineer 157, engineer-confirms 129, set-at-load 52;
+  pair 11 (three feeds): 132, 141, 84, 42. Every open cell is filled and
+  commented (reason, citation, owner).
+* Owners come from the ``iig_review`` config table: a sheet + column key
+  moves cells without a code change.
+"""
+
+from __future__ import annotations
+
+import collections
+from pathlib import Path
+
+import pytest
+from openpyxl import load_workbook
+
+from codegen import cli
+from codegen.config import IigReviewConfig, load_config
+from test_derivations import FRD_CATALOG, REPO, _pair11_specs, _scoped
+
+# Multi-table step 3 moved pair 1 by: 4 ADLS OBJECT_IDs from Engineer (framework-assigned
+# blank) to Engineer (confirm) (the cited 1..n convention), and the STGDELTA TGT_PRIMARY_KEY
+# 'NA' (no Primary Key cell in the Standard band) to Engineer (confirm) — the golden's value;
+# pair 11 likewise for its three feeds (3 OBJECT_IDs, 3 'NA'). Step 4: the DQ rows' OBJECT_IDs
+# (keyed per file) likewise move to Engineer (confirm) — pair 1: 8. Step 5: pair 11 has no
+# inventory overlay, so its schedule is the four structural rows per feed (was one) — 3 feeds
+# x 3 more rows of open cells (ids, dates, audit, convention names). Chunk A (2026-10-08):
+# pair 1's 4 ADLS TGT_PRIMARY_KEY cells are blank and open when no Primary Key cell states
+# one (BSA +4; the golden is blank there too) and its STGDELTA OBJECT_NAME is the family's
+# transcribed literal (Engineer (confirm) +1); pair 11's three ADLS TGT_PRIMARY_KEY cells
+# likewise (BSA +3). post120 (codeflow audit #30): pair 1's family-convention N in
+# RECYCL_ENBL_FLG (4 ADLS rows) is badged synthetic, no longer from_frd — Engineer
+# (confirm) +4.
+INVENTORY = {
+    "pair1": {"BSA": 96, "Engineer": 145, "Engineer (confirm)": 147, "Set at load (CI/CD)": 52},
+    # 2026-10-08 (first real-row scorecard): +3 Engineer (confirm) — the shipped
+    # family leaves RECYCL_* open (9 cells) instead of writing the NA constants
+    # (6 cells). (FREQUENCY = the run cadence since post22: pair 11's FRD states
+    # no run statement, so its cells carry no note.)
+    "pair11": {"BSA": 174, "Engineer": 153, "Engineer (confirm)": 156, "Set at load (CI/CD)": 60},
+}
+
+
+def _run(specs, config, tmp: Path) -> list[Path]:
+    for spec in specs:
+        cli._generate_feed(spec, _scoped(config, tmp), dry_run=True, skip_tests=True,
+                           output_mode="framework", conventions_profile="acfc_prx",
+                           iig_template="iig_v2")
+    return [tmp / "out" / spec.feed_slug / "framework" for spec in specs]
+
+
+@pytest.fixture(scope="module")
+def pair1_dirs(pair1_config, pair1_spec, tmp_path_factory):
+    return _run([pair1_spec], pair1_config, tmp_path_factory.mktemp("iig_pair1"))
+
+
+@pytest.fixture(scope="module")
+def pair11_dirs(tmp_path_factory):
+    tmp = tmp_path_factory.mktemp("iig_pair11")
+    config = load_config(REPO / "config" / "config.yaml")
+    (tmp / "contracts").mkdir()
+    specs, _ = _pair11_specs(FRD_CATALOG, tmp / "contracts", config)
+    return _run(specs, config, tmp)
+
+
+def _only(framework: Path, suffix: str) -> Path:
+    (path,) = [p for p in framework.glob("*.xlsx") if p.name.endswith(suffix)]
+    return path
+
+
+def _owner_totals(dirs: list[Path]) -> tuple[dict, int]:
+    totals: collections.Counter = collections.Counter()
+    groups = 0
+    for framework in dirs:
+        summary = load_workbook(_only(framework, "_IIG_REVIEW.xlsx"))["REVIEW_SUMMARY"]
+        for row in summary.iter_rows(min_row=2, values_only=True):
+            if row[2] == IigReviewConfig().empty_by_rule_label:
+                continue                    # post89: an empty sheet's row, not open cells
+            totals[row[3]] += row[4]
+            groups += 1
+    return dict(totals), groups
+
+
+def test_both_workbooks_are_written_with_the_configured_names(pair1_dirs, pair1_spec):
+    (framework,) = pair1_dirs
+    assert (framework / f"{pair1_spec.feed_slug}_IIG.xlsx").is_file()
+    assert (framework / f"{pair1_spec.feed_slug}_IIG_REVIEW.xlsx").is_file()
+    assert (framework / "config_rows.xlsx").is_file()            # unchanged, still written
+
+
+def test_clean_copy_matches_the_iig_v2_template_exactly(pair1_dirs, pair11_dirs, pair1_config):
+    template = pair1_config.metadata.templates["iig_v2"]
+    for framework in [*pair1_dirs, *pair11_dirs]:
+        clean = load_workbook(_only(framework, "_IIG.xlsx"))
+        assert clean.sheetnames == list(template.tabs)
+        for name, tab in template.tabs.items():
+            header = [c.value for c in clean[name][1]]
+            assert header == tab.headers, name
+        cells = [c for ws in clean for row in ws.iter_rows() for c in row]
+        assert not any(c.comment for c in cells)
+        assert not any(c.fill.fill_type for c in cells)
+
+
+def test_pair1_clean_data_cells_equal_config_rows(pair1_dirs):
+    (framework,) = pair1_dirs
+    clean = load_workbook(_only(framework, "_IIG.xlsx"))
+    rows = load_workbook(framework / "config_rows.xlsx")
+    for name in clean.sheetnames:
+        assert [list(r) for r in clean[name].iter_rows(values_only=True)] == \
+               [list(r) for r in rows[name].iter_rows(values_only=True)], name
+
+
+def test_review_summary_comes_first_and_counts_match_the_inventory(pair1_dirs, pair11_dirs):
+    review = load_workbook(_only(pair1_dirs[0], "_IIG_REVIEW.xlsx"))
+    assert review.sheetnames[0] == "REVIEW_SUMMARY"
+    assert [c.value for c in review["REVIEW_SUMMARY"][1]] == [
+        "Sheet", "Column", "Reason", "Owner", "Cells", "Example cell", "Example citation"]
+    assert _owner_totals(pair1_dirs)[0] == INVENTORY["pair1"]
+    assert _owner_totals(pair11_dirs)[0] == INVENTORY["pair11"]
+
+
+def test_every_open_cell_is_highlighted_and_commented(pair1_dirs):
+    (framework,) = pair1_dirs
+    review = load_workbook(_only(framework, "_IIG_REVIEW.xlsx"))
+    commented = [c for ws in review.worksheets[1:] for row in ws.iter_rows() for c in row
+                 if c.comment]
+    assert len(commented) == sum(INVENTORY["pair1"].values())
+    for cell in commented:
+        text = cell.comment.text
+        assert text.startswith("Reason: ") and "\nCitation: " in text and "\nOwner: " in text
+        assert cell.fill.fill_type == "solid"
+    # a cell an input states is neither commented nor filled
+    first_data = review.worksheets[1]
+    stated = [c for row in first_data.iter_rows(min_row=2) for c in row
+              if c.value not in (None, "") and not c.comment]
+    assert stated and not any(c.fill.fill_type for c in stated)
+
+
+def test_owner_reassignment_is_a_config_change(pair1_config, pair1_spec, tmp_path):
+    moved = "DATA_FACTORY_PIPELINE_SCHEDULE.ACTIVE_START_DATE"
+    owners = {**pair1_config.iig_review.owners, moved: "engineer"}
+    config = pair1_config.model_copy(update={
+        "iig_review": pair1_config.iig_review.model_copy(update={"owners": owners})})
+    totals, _ = _owner_totals(_run([pair1_spec], config, tmp_path))
+    assert totals["BSA"] == INVENTORY["pair1"]["BSA"] - 4          # 4 pipeline rows
+    assert totals["Engineer"] == INVENTORY["pair1"]["Engineer"] + 4
+
+
+def test_the_owner_table_is_validated():
+    with pytest.raises(ValueError, match="must be <SHEET>.<COLUMN>"):
+        IigReviewConfig(owners={"NO_DOT": "bsa"})
+    with pytest.raises(ValueError):
+        IigReviewConfig(owners={"S.C": "nobody"})
+    assert IigReviewConfig(owners={"*.C": "bsa"}).owner_for("ANY", "C", "template_constant") \
+        == "bsa"
+
+
+def test_addition_describes_the_artefacts_and_the_review_flow(pair1_dirs, pair1_spec):
+    """2026-10-16: ADDITION.md describes the presented set (DDL, IIG, IIG
+    review copy, itself), the review flow IIG -> BSA review -> CI/CD applies
+    the DDL, and the framework-assigned IDs left blank — never inserts or
+    config rows (those files are still written)."""
+    (framework,) = pair1_dirs
+    slug = pair1_spec.feed_slug
+    addition = (framework / "ADDITION.md").read_text(encoding="utf-8")
+    assert f"| `{slug}_IIG_REVIEW.xlsx` | The BSA's review copy" in addition
+    assert f"| `{slug}_IIG.xlsx` | The IIG: the template's sheets" in addition
+    assert "| `ADDITION.md` | This manifest. |" in addition
+    flow = addition.split("## Review flow", 1)[1].split("##", 1)[0]
+    steps = [line.split(" — ")[0] for line in flow.strip().splitlines()]
+    assert steps == ["1. **IIG**", "2. **BSA review**", "3. **CI/CD applies the DDL**"]
+    assert "The BSA-annotated IIG is the approval artefact." in flow
+    assert "## Framework-assigned IDs left blank" in addition
+    assert "- `PIPELINE_ID`" in addition
+    lowered = addition.lower()
+    for gone in ("insert", "config_rows", "config rows", "## switches", "## by target system"):
+        assert gone not in lowered, gone
+    # the files themselves are still written
+    assert (framework / "metadata_inserts.sql").is_file()
+    assert (framework / "config_rows.xlsx").is_file()
+
+
+def test_the_reference_profile_writes_no_iig_workbooks(pair1_config, pair1_spec, tmp_path):
+    """edo_sfmc ships emit_iig_review: false — its framework output is as before M3."""
+    assert pair1_config.conventions.profiles["edo_sfmc"].emit_iig_review is False
+    assert pair1_config.conventions.profiles["acfc_prx"].emit_iig_review is True
+    cli._generate_feed(pair1_spec, _scoped(pair1_config, tmp_path), dry_run=True,
+                       skip_tests=True, output_mode="framework", conventions_profile="edo_sfmc",
+                       iig_template="iig_v1")
+    framework = tmp_path / "out" / pair1_spec.feed_slug / "framework"
+    assert not [p for p in framework.iterdir() if p.name.endswith(("_IIG.xlsx",
+                                                                    "_IIG_REVIEW.xlsx"))]
+    addition = (framework / "ADDITION.md").read_text(encoding="utf-8")
+    assert "this profile writes no IIG workbook" in addition
+    assert "insert" not in addition.lower()
+
+
+def _assert_readable_xlsx(data: bytes) -> None:
+    """openpyxl reads it AND its core properties parse with namespace checks
+    on (expat, like lxml, refuses an undeclared ``xsi:`` prefix — openpyxl's
+    own reader only trips on it when lxml is installed)."""
+    import io
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    load_workbook(io.BytesIO(data))
+    ET.fromstring(zipfile.ZipFile(io.BytesIO(data)).read("docProps/core.xml"))
+
+
+def test_every_iig_workbook_round_trips_through_openpyxl(pair1_dirs, pair11_dirs):
+    written = [p for framework in [*pair1_dirs, *pair11_dirs]
+               for p in framework.glob("*.xlsx")]
+    assert len([p for p in written if p.name.endswith(("_IIG.xlsx", "_IIG_REVIEW.xlsx"))]) == 8
+    for path in written:
+        _assert_readable_xlsx(path.read_bytes())

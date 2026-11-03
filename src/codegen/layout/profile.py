@@ -15,10 +15,20 @@ shows them) so a profile is readable next to the workbook.
 
 from __future__ import annotations
 
-from enum import StrEnum
-from typing import Literal
+from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+try:
+    from enum import StrEnum
+except ImportError:  # Python 3.10 (the Databricks Apps floor): the same semantics by hand
+    class StrEnum(str, Enum):  # type: ignore[no-redef]
+        """A str-valued enum whose str() / format() are the VALUE."""
+
+        __str__ = str.__str__
+        __format__ = str.__format__
+import re
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -167,12 +177,44 @@ ROLE_DEFINITIONS: dict[Role, str] = {
     Role.HEADER_ROW: "VDD FILES: header-row flag",
 }
 
+# Chunk A (2026-10-09): what established a band's layer (``BandProfile.
+# layer_evidence``). "title" = the band title row; "header" = a word of the
+# band's own header texts; "catalog_value" / "schema_value" = the band's
+# Catalog / Schema VALUES (never trusted from a cache: re-derived on every
+# hit); "answer" = a person's answer to ``<sheet>/band[<n>]/layer``;
+# "elimination" (owner rule, 2026-10-09) = source for the ONE band with no
+# evidence left over when stage AND standard are each claimed by a band's own
+# evidence, it sits LEFT of both and source is unclaimed (a layout NOTE line
+# says so; never trusted from a cache).
+LayerEvidence = Literal["title", "header", "catalog_value", "schema_value", "answer",
+                        "elimination"]
+VALUE_EVIDENCE: tuple[str, ...] = ("catalog_value", "schema_value")
+# The open question for a band whose layer no evidence names: its layer slot
+# reads ``band[<n>]`` (n = the band's 1-based position among the sheet's
+# target-shaped bands), its role ``layer``; answered source | stage | standard.
+BAND_LAYER_ROLE = "layer"
+BAND_LAYER_CHOICES: tuple[str, ...] = ("source", "stage", "standard")
+BAND_REF_RE = re.compile(r"^band\[(\d+)\]$")
+BAND_LAYER_KEY_RE = re.compile(r"^(?P<sheet>.+)/band\[(?P<n>\d+)\]/layer$")
+
+
+def band_ref(index: int) -> str:
+    return f"band[{index}]"
+
+
+def is_band_layer_key(key: str) -> bool:
+    return BAND_LAYER_KEY_RE.match(str(key)) is not None
+
+
 # Roles a mapping sheet needs before any field can be emitted.
 REQUIRED_ROLES: dict[Layer, tuple[Role, ...]] = {
     "source": (Role.FIELD_NAME,),
     "rules": (),
-    "stage": (Role.TABLE, Role.COLUMN, Role.TARGET_TYPE),
-    "standard": (Role.TABLE, Role.COLUMN, Role.TARGET_TYPE),
+    # M9.1: the schema is REQUIRED in both target bands (a profile without it
+    # extracted an empty schema inside ACFC and nothing asked); the catalog
+    # stays optional — the catalog chain ends in a config default.
+    "stage": (Role.SCHEMA, Role.TABLE, Role.COLUMN, Role.TARGET_TYPE),
+    "standard": (Role.SCHEMA, Role.TABLE, Role.COLUMN, Role.TARGET_TYPE),
     "files": (Role.FILE_PATTERN,),
     "fields": (Role.FIELD_NAME, Role.DATA_TYPE, Role.LENGTH),
 }
@@ -187,6 +229,18 @@ class BandProfile(BaseModel):
     roles: dict[str, int] = Field(default_factory=dict)   # Role value -> column (1-based)
     # Band label text as seen on the band row (None on headerless-band sheets).
     label: str | None = None
+    # Chunk A: which evidence established ``layer`` for a band located by its
+    # label group. None = the band title row / header prefixes as read before
+    # 2026-10-09 (and then absent from the JSON, so every profile written
+    # before stays byte-identical).
+    layer_evidence: LayerEvidence | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_evidence(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and data.get("layer_evidence") is None:
+            data.pop("layer_evidence", None)
+        return data
 
     def column(self, role: Role | str) -> int | None:
         return self.roles.get(role.value if isinstance(role, Role) else role)
@@ -224,6 +278,9 @@ class SheetProfile(BaseModel):
         return None
 
 
+BandRef = Annotated[str, Field(pattern=r"^band\[\d+\]$")]
+
+
 class UnresolvedRole(BaseModel):
     """A role no strategy could place — carried into the report and, in
     M2.5, into the model prompt / the user dialog."""
@@ -231,7 +288,8 @@ class UnresolvedRole(BaseModel):
     model_config = _MODEL_CONFIG
 
     sheet: str
-    layer: Layer
+    # A layer, or ``band[<n>]`` for a band whose layer is the open question.
+    layer: Layer | BandRef
     role: str
     reason: str
     candidates: list[int] = Field(default_factory=list)   # candidate columns
@@ -254,6 +312,18 @@ class LayoutProfile(BaseModel):
     strategy: str
     unresolved: list[UnresolvedRole] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+    # post59: the BSA's answer to "which file feeds this sheet's table?" (the
+    # split step's tie), cached with the profile — sheet -> file as answered;
+    # the next run of the same workbook takes it without asking. Omitted from
+    # the dump while empty (cached profiles stay byte-identical).
+    file_choices: dict[str, str] = Field(default_factory=dict)
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_file_choices(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and not data.get("file_choices"):
+            data.pop("file_choices", None)
+        return data
 
     def sheet(self, name: str) -> SheetProfile | None:
         for sheet in self.sheets:
@@ -280,7 +350,44 @@ def confidence_key(sheet: str, layer: str, role: Role | str) -> str:
     return f"{sheet}/{layer}/{role.value if isinstance(role, Role) else role}"
 
 
+def is_required_role(layer: str, role: str) -> bool:
+    """A REQUIRED role of the layer (``REQUIRED_ROLES``); an ambiguous entry
+    ("a|b") is required when any of its roles is."""
+    if BAND_REF_RE.match(str(layer)) and role == BAND_LAYER_ROLE:
+        return True     # a band whose layer is open: nothing on it can be read
+    required = {r.value for r in REQUIRED_ROLES.get(layer, ())}  # type: ignore[call-overload]
+    return any(part in required for part in role.split("|"))
+
+
+def missing_required_roles(profile: LayoutProfile) -> list[str]:
+    """``"<sheet>/<layer>/<role>"`` for every REQUIRED role a role-bearing
+    sheet's band does not place (M9.1). Independent of ``profile.unresolved``
+    — a cached or model-made profile can omit a role AND the note that it is
+    missing; such a profile is never cached and never trusted from a cache."""
+    missing: list[str] = []
+    for sheet in profile.role_sheets:
+        placed = {b.layer for b in sheet.bands if b.roles}
+        for band in sheet.bands:
+            if not band.roles and band.layer in placed:
+                # post158 (live injection eval): an EMPTY band repeating a layer
+                # another band of the sheet places (a stray band-row cell that
+                # names the layer) carries nothing to read - it owes no roles
+                continue
+            for role in REQUIRED_ROLES.get(band.layer, ()):
+                if band.column(role) is None:
+                    missing.append(confidence_key(sheet.name, band.layer, role))
+    return missing
+
+
 __all__ = [
+    "BAND_LAYER_CHOICES",
+    "BAND_LAYER_KEY_RE",
+    "BAND_LAYER_ROLE",
+    "BAND_REF_RE",
+    "VALUE_EVIDENCE",
+    "LayerEvidence",
+    "band_ref",
+    "is_band_layer_key",
     "ROLE_BEARING_KINDS",
     "ROLE_DEFINITIONS",
     "REQUIRED_ROLES",
@@ -295,4 +402,5 @@ __all__ = [
     "SheetProfile",
     "UnresolvedRole",
     "confidence_key",
+    "missing_required_roles",
 ]

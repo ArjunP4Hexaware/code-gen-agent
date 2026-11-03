@@ -1,0 +1,45 @@
+# cold_4 (ch_rx_claims) - the CLI chain BEFORE answers, the way the ACFC harness
+# runs it (overlay on, mock layout + provider): per stage the exit code and,
+# in printed order, the label and answers.yaml key of every QUESTION /
+# UNRESOLVED line (reason text is not pinned). generate does not run: every
+# sheet is held back, extract-sttm writes no contract. Pinned by
+# tests/test_cold_pairs.py; answers.yaml beside this file settles every key
+# (and the questions those answers open) - the chain then exits 0.
+layout:
+  exit: 3
+  lines:
+    - [UNRESOLVED, "sheets[2]/source/field_name"]
+    - [UNRESOLVED, "sheets[2]/stage/table"]
+    - [UNRESOLVED, "sheets[2]/stage/column"]
+    - [UNRESOLVED, "sheets[2]/stage/target_type"]
+    - [UNRESOLVED, "sheets[2]/standard/table"]
+    - [UNRESOLVED, "sheets[2]/standard/column"]
+    - [UNRESOLVED, "sheets[2]/standard/target_type"]
+    - [UNRESOLVED, "sheets[3]/source/field_name"]
+    - [UNRESOLVED, "sheets[3]/stage/table"]
+    - [UNRESOLVED, "sheets[3]/stage/column"]
+    - [UNRESOLVED, "sheets[3]/stage/target_type"]
+    - [UNRESOLVED, "sheets[3]/standard/table"]
+    - [UNRESOLVED, "sheets[3]/standard/column"]
+    - [UNRESOLVED, "sheets[3]/standard/target_type"]
+extract_frd:
+  exit: 0
+  lines: []
+extract_sttm:
+  exit: 3
+  lines:
+    - [UNRESOLVED, "sheets[2]/source/field_name"]
+    - [UNRESOLVED, "sheets[2]/stage/table"]
+    - [UNRESOLVED, "sheets[2]/stage/column"]
+    - [UNRESOLVED, "sheets[2]/stage/target_type"]
+    - [UNRESOLVED, "sheets[2]/standard/table"]
+    - [UNRESOLVED, "sheets[2]/standard/column"]
+    - [UNRESOLVED, "sheets[2]/standard/target_type"]
+    - [UNRESOLVED, "sheets[3]/source/field_name"]
+    - [UNRESOLVED, "sheets[3]/stage/table"]
+    - [UNRESOLVED, "sheets[3]/stage/column"]
+    - [UNRESOLVED, "sheets[3]/stage/target_type"]
+    - [UNRESOLVED, "sheets[3]/standard/table"]
+    - [UNRESOLVED, "sheets[3]/standard/column"]
+    - [UNRESOLVED, "sheets[3]/standard/target_type"]
+generate: null

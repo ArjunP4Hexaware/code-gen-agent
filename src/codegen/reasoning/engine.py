@@ -1,21 +1,27 @@
 """Run Layer 2 over the rules Layer 1 could not map.
 
-For each ``unmapped`` outcome: build the context pack, ask the provider,
-grounding-check the citations. Provider failures become candidates with
-``response=None`` and a failure note — never a silent skip, and never an
+For each ``unmapped`` outcome: build the context pack, ask the provider
+(post76: one request per feed), grounding-check the citations. Provider
+failures become candidates with ``response=None`` and a failure note —
+never a silent skip, and never an
 exception that aborts generation of the deterministic modules.
 """
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from typing import TYPE_CHECKING
+
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.reasoning.context import build_context_pack
 from codegen.reasoning.grounding import grounding_failures
 from codegen.reasoning.providers import Provider
-from codegen.reasoning.schema import CandidateResponse
+from codegen.reasoning.schema import CandidateResponse, ContextPack, limits_context
 from codegen.rules.compiler import RuleOutcome
+
+if TYPE_CHECKING:
+    from codegen.config import ReasoningConfig
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -129,36 +135,111 @@ def run_reasoning(
     spec: ResolvedFeedSpec,
     outcomes: list[RuleOutcome],
     provider: Provider,
+    *,
+    reasoning: ReasoningConfig,
 ) -> list[RuleCandidate]:
     """Produce one candidate per unmapped outcome, in contract order."""
+    return reason_over_packs(unmapped_packs(spec, outcomes), provider, reasoning=reasoning)
+
+
+def unmapped_packs(spec: ResolvedFeedSpec, outcomes: list[RuleOutcome]) -> list[ContextPack]:
+    """The feed's unmapped rules as context packs, in contract order (post76:
+    what a deferred Layer-2 stage stores and later asks)."""
+    return [build_context_pack(spec, o) for o in outcomes if o.classification == "unmapped"]
+
+
+def reason_over_packs(packs: list[ContextPack], provider: Provider, *,
+                      reasoning: ReasoningConfig) -> list[RuleCandidate]:
+    """One candidate per pack (one feed's rules), in order.
+
+    post76: a provider with ``complete_batch`` gets the feed's rules in ONE
+    request (D1 post73 pair_11: one request per rule per feed); each answer is
+    grounding-checked against its own rule's pack (post159: under
+    ``reasoning.min_citation_words``). A provider without it is asked rule by
+    rule."""
+    if not packs:
+        return []
+    if hasattr(provider, "complete_batch"):
+        return _batch(packs, provider, reasoning)
     candidates: list[RuleCandidate] = []
-    for outcome in outcomes:
-        if outcome.classification != "unmapped":
-            continue
-        pack = build_context_pack(spec, outcome)
+    for pack in packs:
         try:
             response = provider.complete(pack)
         except Exception as exc:  # noqa: BLE001 — recorded, never silently dropped
-            candidates.append(
-                RuleCandidate(
-                    feed_id=spec.feed_id,
-                    rule_text=outcome.rule_text,
-                    provider=provider.name,
-                    response=None,
-                    grounded=False,
-                    failure_notes=[f"provider '{provider.name}' failed: {exc}"],
-                )
-            )
+            candidates.append(_failed(pack, provider, _failure_note(provider, exc)))
             continue
-        failures = grounding_failures(pack, response)
-        candidates.append(
-            RuleCandidate(
-                feed_id=spec.feed_id,
-                rule_text=outcome.rule_text,
-                provider=provider.name,
-                response=response,
-                grounded=not failures,
-                failure_notes=failures,
-            )
-        )
+        candidates.append(_answered(pack, provider, response, reasoning))
     return candidates
+
+
+def _batch(packs: list[ContextPack], provider: Provider,
+           reasoning: ReasoningConfig) -> list[RuleCandidate]:
+    """One request for the feed's rules; rule n = ``packs[n-1]``."""
+    try:
+        answers = provider.complete_batch(packs)       # type: ignore[attr-defined]
+    except Exception as exc:  # noqa: BLE001 — recorded, never silently dropped
+        if _content_filtered(exc) and len(packs) > 1 and hasattr(provider, "complete"):
+            # post158 (live injection eval): one rule whose text trips the
+            # endpoint's safety filter blanked every rule of the feed - ask
+            # rule by rule so only that rule fails, and it says why.
+            return [_one(pack, provider, reasoning) for pack in packs]
+        return [_failed(pack, provider, _failure_note(provider, exc)) for pack in packs]
+    candidates: list[RuleCandidate] = []
+    for number, pack in enumerate(packs, 1):
+        response = answers.get(number)
+        if response is None:
+            candidates.append(_failed(
+                pack, provider,
+                f"provider '{provider.name}' failed: the feed's batched response gave no "
+                f"candidate for rule {number} of {len(packs)}"))
+            continue
+        candidates.append(_answered(pack, provider, response, reasoning))
+    return candidates
+
+
+def _content_filtered(exc: BaseException) -> bool:
+    from codegen.databricks import ModelContentFilteredError
+
+    return isinstance(exc, ModelContentFilteredError)
+
+
+def _failure_note(provider: Provider, exc: BaseException) -> str:
+    if _content_filtered(exc):
+        return (f"provider '{provider.name}': the model's safety filter blocked this rule "
+                "- its text may carry instructions or code; read the rule before using it")
+    return f"provider '{provider.name}' failed: {exc}"
+
+
+def _one(pack: ContextPack, provider: Provider, reasoning: ReasoningConfig) -> RuleCandidate:
+    """One rule asked on its own (the batch fallback)."""
+    try:
+        response = provider.complete(pack)
+    except Exception as exc:  # noqa: BLE001 — recorded, never silently dropped
+        return _failed(pack, provider, _failure_note(provider, exc))
+    return _answered(pack, provider, response, reasoning)
+
+
+def _answered(pack: ContextPack, provider: Provider, response,
+              reasoning: ReasoningConfig) -> RuleCandidate:
+    # post159 (P2-2): every answer within reasoning.response_limits — the ask
+    # loop's providers checked it already; one built in code (the mock, a
+    # stub) is checked here, and over the limit it is a failed candidate
+    try:
+        response = CandidateResponse.model_validate(
+            response.model_dump(include=set(CandidateResponse.model_fields)),
+            context=limits_context(reasoning.response_limits))
+    except ValidationError as exc:
+        from codegen.reasoning.providers.ask import schema_reason
+
+        return _failed(pack, provider, f"provider '{provider.name}' failed: {schema_reason(exc)}")
+    failures = grounding_failures(pack, response,
+                                  min_citation_words=reasoning.min_citation_words)
+    return RuleCandidate(feed_id=pack.feed_id, rule_text=pack.rule_text,
+                         provider=provider.name, response=response,
+                         grounded=not failures, failure_notes=failures)
+
+
+def _failed(pack: ContextPack, provider: Provider, note: str) -> RuleCandidate:
+    return RuleCandidate(feed_id=pack.feed_id, rule_text=pack.rule_text,
+                         provider=provider.name, response=None, grounded=False,
+                         failure_notes=[note])

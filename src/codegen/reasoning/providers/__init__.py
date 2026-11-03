@@ -24,23 +24,34 @@ class Provider(Protocol):
 
     def complete(self, pack: ContextPack) -> CandidateResponse: ...
 
+    # post76 (optional): every unmapped rule of one feed in ONE request; the
+    # result maps rule n (= packs[n-1]) to its answer, a rule left out = failed.
+    # A provider without it is asked rule by rule (run_reasoning).
+    # def complete_batch(self, packs: list[ContextPack]) -> dict[int, CandidateResponse]
+
 
 def build_provider(config: Config, dry_run: bool) -> Provider:
     from codegen.reasoning.providers.mock import MockProvider
 
     if dry_run:
-        return MockProvider()
+        from codegen.reasoning.mode import dry_run_reason
+
+        return MockProvider(reason=dry_run_reason(config))
 
     # ONE decision for the transport (codegen.reasoning.transport): the mock
-    # lock, the Databricks runtime (Foundation Model endpoint required —
-    # overrides a yaml that still says anthropic), the configured provider,
-    # and the safe degrade to mock when the chosen transport cannot resolve.
+    # lock, the provider switch (codegen.reasoning.mode — mock by default),
+    # the configured provider. LIVE that cannot run RAISES (one line naming
+    # the unset setting) — never a quiet degrade to the mock (2026-10-13).
+    from codegen.reasoning.mode import ProviderConfigError, check_live_config
     from codegen.reasoning.transport import resolve_transport
 
     transport = resolve_transport(config)
+    if transport.kind == "mock":
+        raise ProviderConfigError(transport.reason)
     if transport.kind == "databricks_fmapi":
-        if not transport.config_resolves:
-            return MockProvider()
+        if not transport.config_resolves or transport.endpoint is None:
+            check_live_config(config)                       # raises the named line
+            raise ProviderConfigError(transport.reason)
         from codegen.reasoning.providers.databricks_provider import (
             DatabricksFmapiProvider,
         )
@@ -51,4 +62,12 @@ def build_provider(config: Config, dry_run: bool) -> Provider:
         from codegen.reasoning.providers.anthropic_provider import AnthropicProvider
 
         return AnthropicProvider(config)
-    return MockProvider()
+    return MockProvider(reason=mock_reason(transport))
+
+
+def mock_reason(transport) -> str:
+    """Why the resolved transport means a mock: the lock env var by name, or
+    the unreachable transport's own reason."""
+    if transport.kind == "mock_locked":
+        return transport.detected_by    # CODEGEN_FORCE_MOCK_PROVIDER | provider=mock (<source>)
+    return f"endpoint unreachable — {transport.reason or transport.label}"

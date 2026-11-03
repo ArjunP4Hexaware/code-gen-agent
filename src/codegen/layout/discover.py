@@ -31,20 +31,24 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from openpyxl import load_workbook
-
 from codegen.config import DiscoveryConfig, ExtractorConfig
+from codegen.layout.extent import load_document
 from codegen.layout.fingerprint import fingerprint
 from codegen.layout.profile import (
+    BAND_LAYER_CHOICES,
+    BAND_LAYER_ROLE,
     REQUIRED_ROLES,
+    VALUE_EVIDENCE,
     BandProfile,
     LayoutProfile,
     MetaRow,
     Role,
     SheetProfile,
     UnresolvedRole,
+    band_ref,
     confidence_key,
 )
+from codegen.run_errors import Coord, located
 
 # Synonym-table hits are exact normalized matches: full confidence.
 _SYNONYM_CONFIDENCE = 1.0
@@ -54,6 +58,12 @@ _AUX_SCAN_ROWS = 12
 _MIN_HEADER_CELLS = 3
 # A band row carries a few group labels, never a full header's worth.
 _MAX_BAND_LABELS = 5
+# The sheet note (and the layout NOTE line) of a band whose layer is source
+# by elimination: "<band[n]> (columns ..): source - layer by elimination (...)".
+ELIMINATION_NOTE = "layer by elimination"
+# Diagnostic prefix: the legacy MAPPING- reader refused the workbook and the
+# other strategies read it (parse_workbook re-raises the legacy text).
+MAPPING_PREFIX_REFUSED = "MAPPING- reader refused the workbook: "
 
 
 def normalize(value: object) -> str:
@@ -63,6 +73,20 @@ def normalize(value: object) -> str:
     if value is None:
         return ""
     return re.sub(r"[^a-z0-9]+", " ", str(value).lower()).strip()
+
+
+def is_blank_placeholder(value: object, blank_values: list[str]) -> bool:
+    """True for a meta VALUE that states nothing ("TBD", "N/A", "-"). Compared
+    as written, then in ``normalize`` form - but a value that normalizes to
+    nothing (a delimiter character: "," "|" "~") is a value, never the "-"
+    placeholder (Chunk B: the STTM's "File Delimiter: ," was read as blank)."""
+    raw = str(value).strip().lower() if value is not None else ""
+    if not raw:
+        return True
+    if raw in {str(b).strip().lower() for b in blank_values}:
+        return True
+    key = normalize(raw)
+    return bool(key) and key in {normalize(b) for b in blank_values if normalize(b)}
 
 
 def text(value: object) -> str | None:
@@ -80,6 +104,9 @@ class Discovery:
     profile: LayoutProfile
     workbook: object
     diagnostics: list[str] = field(default_factory=list)
+    # Chunk A: the legacy MAPPING- reader's refusal when another strategy read
+    # the workbook instead (the flat API re-raises it, type and text intact).
+    refused: Exception | None = None
 
 
 class NoLayoutError(ValueError):
@@ -94,7 +121,7 @@ def discover_vdd(path: Path, config: ExtractorConfig,
     from ``field_roles``), segments by a Segment column. One-sheet-per-table
     dictionaries are narrowed to the sheets whose names match the STTM's
     table names (normalized); everything else is logged and ignored."""
-    workbook = load_workbook(path, data_only=True)
+    workbook = load_document(path, config.used_range_empty_rows)
     digest = fingerprint(workbook)
     vcfg = config.vdd
     diagnostics: list[str] = []
@@ -157,8 +184,9 @@ def discover_vdd(path: Path, config: ExtractorConfig,
         else:
             diagnostics.append("no field sheet matches an STTM table name; all kept")
     if not any(s.kind in ("vdd_files", "vdd_fields") for s in sheets):
-        raise NoLayoutError(f"{path.name}: no FILES sheet and no field sheet signature found; "
-                            f"sheets present: {workbook.sheetnames}")
+        raise located(NoLayoutError(f"{path.name}: no FILES sheet and no field sheet signature "
+                                    f"found; sheets present: {workbook.sheetnames}"),
+                      Coord("VDD"), "vdd.layout")
     profile = LayoutProfile(fingerprint=digest, sheets=sheets, confidence=confidence,
                             source="synonyms", strategy="vdd", unresolved=unresolved,
                             notes=list(diagnostics))
@@ -206,19 +234,64 @@ def _resolve_flat_roles(sheet: str, layer: str, header: list, synonyms: dict[str
     return band
 
 
-def discover(path: Path, config: ExtractorConfig) -> Discovery:
-    workbook = load_workbook(path, data_only=True)
+def discover(path: Path, config: ExtractorConfig,
+             band_layers: dict[str, str] | None = None, *,
+             legacy_mapping: bool = False) -> Discovery:
+    """``band_layers`` (Chunk A): a person's answers to the band-layer
+    questions, ``{"<sheet>/band[<n>]": "source" | "stage" | "standard"}`` —
+    the only evidence that outranks a band title.
+
+    A workbook with ``MAPPING-`` sheets is read by the GENERAL reader first
+    (``_mapping_general_first``): the legacy MAPPING- reader is a fallback for
+    when the general reader finds nothing, and the reference its result is
+    proven equal to. ``legacy_mapping`` = the legacy reader only, its errors
+    raised as they are (the flat ``parse_workbook`` API)."""
+    from codegen.extract.workbook import WorkbookParseError
+
+    workbook = load_document(path, config.used_range_empty_rows)
     digest = fingerprint(workbook)
     diagnostics: list[str] = []
+    refused: WorkbookParseError | None = None
+    if not legacy_mapping and any(n.startswith(config.mapping_sheet_prefix)
+                                  for n in workbook.sheetnames):
+        unified = _mapping_general_first(workbook, config, path.name, digest, diagnostics,
+                                         band_layers or {})
+        if unified is not None:
+            profile, refused = unified
+            return Discovery(profile=profile, workbook=workbook, diagnostics=diagnostics,
+                             refused=refused)
     for strategy in (_mapping_prefix, _segmented_family, _content):
-        profile = strategy(workbook, config, path.name, digest, diagnostics)
+        try:
+            if strategy is _content:
+                profile = _content(workbook, config, path.name, digest, diagnostics,
+                                   band_layers=band_layers)
+            else:
+                profile = strategy(workbook, config, path.name, digest, diagnostics)
+        except WorkbookParseError as exc:
+            from codegen.extract.workbook import SegmentedWorkbookError
+
+            if (strategy is not _mapping_prefix or legacy_mapping
+                    or isinstance(exc, SegmentedWorkbookError)):
+                # The segmented dialect on a MAPPING- sheet keeps its explicit
+                # refusal ("segmented ... not supported by this extractor").
+                raise
+            # Chunk A: MAPPING- sheets whose band labels / headers the legacy
+            # reader refuses (another title wording, another band order, one
+            # unknown header) are read by content instead of stopping the run;
+            # the legacy error stands when nothing else reads the workbook.
+            refused = exc
+            diagnostics.append(f"{MAPPING_PREFIX_REFUSED}{exc}; routed to the other strategies")
+            continue
         if profile is not None:
-            return Discovery(profile=profile, workbook=workbook, diagnostics=diagnostics)
-    raise NoLayoutError(
+            return Discovery(profile=profile, workbook=workbook, diagnostics=diagnostics,
+                             refused=refused)
+    if refused is not None:
+        raise refused
+    raise located(NoLayoutError(
         f"{path.name}: no mapping sheets found — no discovery strategy applies "
         f"(prefix {config.mapping_sheet_prefix!r}, segmented family, content-driven); "
         f"sheets present: {workbook.sheetnames}; diagnostics: {diagnostics}"
-    )
+    ), Coord("STTM"), "sttm.layout")
 
 
 # ------------------------------------------------ strategy 1: MAPPING- prefix
@@ -294,6 +367,122 @@ def _mapping_prefix(workbook, config: ExtractorConfig, name: str, digest: str,
                          source="synonyms", strategy="mapping_prefix")
 
 
+# ------------------------- Chunk A addendum: MAPPING- sheets, general reader first
+
+# Per-row columns outside the stage / standard label groups; which band the
+# legacy reader hangs them on (the last band's span runs to max_column) is a
+# representation, not a reading — compared as (role, column) pairs per sheet.
+_TRAILING_ROLES = frozenset({Role.RECYCLE_FLAG.value, Role.DQ_MANDATORY.value})
+
+
+def _mapping_general_first(workbook, config: ExtractorConfig, name: str, digest: str,
+                           diagnostics: list[str], band_layers: dict[str, str]
+                           ) -> tuple[LayoutProfile, Exception | None] | None:
+    """The general reader reads a workbook's ``MAPPING-`` sheets first: band
+    location by band row / label groups, layers by evidence (the band question
+    included), family B's own source vocabulary on those sheets. When the
+    legacy reader also reads them and both agree on every role and column, the
+    profile is the legacy one exactly (byte-identical for every pinned
+    workbook — proven, not assumed: ``mapping_differences``). When they
+    disagree or the legacy reader refuses, the general reader's bands are used
+    and every difference is a diagnostic. ``None`` = the general reader finds
+    nothing (or a segment column: the segmented dialect keeps the legacy
+    reader's explicit refusal) — the legacy reader decides."""
+    from codegen.extract.workbook import SegmentedWorkbookError, WorkbookParseError
+
+    names = [n for n in workbook.sheetnames if n.startswith(config.mapping_sheet_prefix)]
+    general_notes: list[str] = []
+    general = _content(workbook, config, name, digest, general_notes, band_layers=band_layers)
+    found = [s for s in (general.sheets if general is not None else [])
+             if s.kind == "mapping" and s.name in names]
+    if general is None or not found:
+        diagnostics.append("MAPPING- sheets: the general reader finds no band on them; the "
+                           "legacy MAPPING- reader reads the workbook")
+        return None
+    if any(s.segment_column is not None or s.segment_strategy == "banner" for s in found):
+        return None
+    legacy_notes: list[str] = []
+    refused: Exception | None = None
+    try:
+        legacy = _mapping_prefix(workbook, config, name, digest, legacy_notes)
+    except SegmentedWorkbookError:
+        raise
+    except WorkbookParseError as exc:
+        legacy, refused = None, exc
+    if legacy is not None:
+        differences = mapping_differences(legacy, general, names)
+        if not differences:
+            diagnostics.extend(legacy_notes)
+            return legacy, None
+        diagnostics.extend(f"MAPPING- readers disagree (the general reader's bands are used): "
+                           f"{d}" for d in differences)
+    else:
+        diagnostics.append(f"{MAPPING_PREFIX_REFUSED}{refused}; the general reader's bands "
+                           "are used")
+    diagnostics.extend(general_notes)
+    strategy = "mapping_prefix" if legacy_readable(general, names) else "content"
+    return general.model_copy(update={"strategy": strategy}), refused
+
+
+def mapping_differences(legacy: LayoutProfile, general: LayoutProfile,
+                        names: list[str]) -> list[str]:
+    """Every difference between the legacy MAPPING- reader's profile and the
+    general reader's on ``names``: header / band rows, the source, stage and
+    standard roles (role -> column), the per-row trailing columns, and any
+    role the general reader leaves open. Empty = the same reading."""
+    out: list[str] = []
+    for n in names:
+        ls, gs = legacy.sheet(n), general.sheet(n)
+        if ls is None or ls.kind != "mapping":
+            continue
+        if gs is None or gs.kind != "mapping":
+            out.append(f"{n}: the general reader reads no mapping sheet")
+            continue
+        if (ls.header_row, ls.band_row) != (gs.header_row, gs.band_row):
+            out.append(f"{n}: header / band row legacy {(ls.header_row, ls.band_row)}, "
+                       f"general {(gs.header_row, gs.band_row)}")
+        for layer in ("source", "stage", "standard"):
+            lb, gb = ls.band(layer), gs.band(layer)  # type: ignore[arg-type]
+            lr = {r: c for r, c in (lb.roles if lb else {}).items() if r not in _TRAILING_ROLES}
+            gr = {r: c for r, c in (gb.roles if gb else {}).items() if r not in _TRAILING_ROLES}
+            if lr != gr:
+                out.append(f"{n}/{layer}: legacy {lr}, general {gr}")
+        lt = sorted((r, c) for b in ls.bands for r, c in b.roles.items() if r in _TRAILING_ROLES)
+        gt = sorted((r, c) for b in gs.bands for r, c in b.roles.items() if r in _TRAILING_ROLES)
+        if lt != gt:
+            out.append(f"{n}: per-row columns legacy {lt}, general {gt}")
+        open_roles = [f"{u.layer}/{u.role}" for u in general.unresolved_for(n)]
+        if open_roles:
+            out.append(f"{n}: the general reader leaves {open_roles} open")
+    return out
+
+
+def legacy_readable(profile: LayoutProfile, names: list[str]) -> bool:
+    """The legacy MAPPING- extractor can read through ``profile``: every
+    MAPPING- mapping sheet places the source roles it requires and the four
+    target roles per band, and nothing is open (a band question holds the
+    workbook on the generic extractor, which holds the sheet back)."""
+    from codegen.extract.workbook import (
+        LEGACY_REQUIRED_SOURCE,
+        LEGACY_SOURCE_ROLES,
+        LEGACY_TABLE_ROLES,
+    )
+
+    source_roles = {LEGACY_SOURCE_ROLES[k].value for k in LEGACY_REQUIRED_SOURCE}
+    table_roles = {r.value for r in LEGACY_TABLE_ROLES.values()}
+    sheets = [s for s in profile.mapping_sheets if s.name in names]
+    if not sheets or profile.unresolved:
+        return False
+    for sp in sheets:
+        source, stage = sp.band("source"), sp.band("stage")
+        if source is None or stage is None or not source_roles <= set(source.roles):
+            return False
+        for band in (stage, sp.band("standard")):
+            if band is not None and not table_roles <= set(band.roles):
+                return False
+    return True
+
+
 # ------------------------------------------ strategy 2: segmented (CAQH) family
 
 # Segmented logical names (codegen.extract.segmented) -> roles.
@@ -359,6 +548,15 @@ def _segmented_family(workbook, config: ExtractorConfig, name: str, digest: str,
             band_starts["stage"] = index
         elif value == _norm(labels.standard):
             band_starts["standard"] = index
+    missing = [layer for layer in ("source", "stage") if layer not in band_starts]
+    if missing:
+        # The band row shares SOME of the family's labels (e.g. "Stage Layer"
+        # under a plain "Source" band) — not this family; content-driven
+        # discovery reads it (multi-table, 2026-10-07).
+        diagnostics.append(
+            f"sheet {ws.title!r}: segmented family band labels incomplete (no "
+            f"{' / '.join(missing)} band); routed to content-driven discovery")
+        return None
     try:
         facts = legacy._parse_metadata_block(rows, band_index, seg, ws.title)
         max_col = max(len(r) for r in rows) - 1
@@ -431,33 +629,126 @@ def _has_token(cells: list[str], tokens: list[str]) -> bool:
 
 
 def _content(workbook, config: ExtractorConfig, name: str, digest: str,
-             diagnostics: list[str]) -> LayoutProfile | None:
+             diagnostics: list[str], band_layers: dict[str, str] | None = None
+             ) -> LayoutProfile | None:
     disc = config.discovery
     if not disc.roles or not disc.band_tokens:
         diagnostics.append("content-driven discovery: extractor.discovery vocabulary is empty")
         return None
-    sheets: list[SheetProfile] = []
-    confidence: dict[str, float] = {}
-    unresolved: list[UnresolvedRole] = []
-    for sheet_name in workbook.sheetnames:
-        ws = workbook[sheet_name]
-        mapping = _discover_mapping_sheet(ws, disc, config, confidence, unresolved, diagnostics)
-        if mapping is not None:
-            sheets.append(mapping)
-            continue
-        sheets.append(_classify_auxiliary(ws, disc, diagnostics))
+    # Pass 1: mapping sheets found by a band row naming stage AND standard (or
+    # layer prefixes in the header texts) — the reading of every workbook
+    # before 2026-10-09. Pass 2 (Chunk A), only when pass 1 finds NO mapping
+    # sheet: a header row carrying a target-shaped label group makes a mapping
+    # sheet (one band only, other title wording, no title row). A workbook
+    # with mapping sheets keeps exactly its pass-1 set — a reference sheet
+    # beside them ("STG - Dest 1 | STD - Dest2") is never read as a feed; a
+    # sheet pass 2 would have taken is named in the diagnostics.
+    for fallback in (False, True):
+        sheets: list[SheetProfile] = []
+        confidence: dict[str, float] = {}
+        unresolved: list[UnresolvedRole] = []
+        notes: list[str] = []
+        for sheet_name in workbook.sheetnames:
+            ws = workbook[sheet_name]
+            mapping = _discover_mapping_sheet(ws, disc, config, confidence, unresolved, notes,
+                                              band_layers=band_layers or {},
+                                              group_fallback=fallback)
+            if mapping is not None:
+                sheets.append(mapping)
+                continue
+            sheets.append(_classify_auxiliary(ws, disc, notes))
+        if any(s.kind == "mapping" for s in sheets):
+            break
+    if not any(s.kind == "mapping" for s in sheets):
+        # Pass 3 (Chunk B, cold drill): still no mapping sheet - a sheet whose
+        # wide header row sits under a band title row, or carries runs of
+        # headers sharing a qualifier word, is a CANDIDATE mapping sheet: its
+        # bands are located by that structure, their layers by evidence only,
+        # and every role no synonym places is a question (the answers file /
+        # the layout model), instead of "no mapping sheets found".
+        candidates: list[SheetProfile] = []
+        candidate_confidence: dict[str, float] = {}
+        candidate_unresolved: list[UnresolvedRole] = []
+        candidate_notes: list[str] = []
+        for sheet_name in workbook.sheetnames:
+            ws = workbook[sheet_name]
+            mapping = _discover_candidate_sheet(ws, disc, candidate_confidence,
+                                                candidate_unresolved, candidate_notes,
+                                                band_layers or {})
+            candidates.append(mapping if mapping is not None
+                              else _classify_auxiliary(ws, disc, candidate_notes))
+        if any(s.kind == "mapping" for s in candidates):
+            sheets, confidence, unresolved = (candidates, candidate_confidence,
+                                              candidate_unresolved)
+            notes = [*notes, *candidate_notes]
+    sheets, confidence, unresolved = _metadata_sheets(workbook, sheets, confidence, unresolved,
+                                                      disc, notes)
     mapping_sheets = [s for s in sheets if s.kind == "mapping"]
     if not mapping_sheets:
+        diagnostics.extend(notes)
         return None
+    if not fallback:
+        for sp in sheets:
+            if sp.kind != "mapping" and _group_header_row(workbook[sp.name], disc) is not None:
+                notes.append(f"sheet {sp.name!r}: a header row carries target-shaped columns but "
+                             "no band row names stage and standard; not read as a mapping sheet "
+                             f"(the workbook's mapping sheets: {[s.name for s in mapping_sheets]})")
+    diagnostics.extend(notes)
     sheets = _apply_sheet_segments(sheets, disc)
     return LayoutProfile(fingerprint=digest, sheets=sheets, confidence=confidence,
                          source="synonyms", strategy="content", unresolved=unresolved,
                          notes=list(diagnostics))
 
 
+def _metadata_sheets(workbook, sheets: list[SheetProfile], confidence: dict[str, float],
+                     unresolved: list[UnresolvedRole], disc: DiscoveryConfig, notes: list[str]
+                     ) -> tuple[list[SheetProfile], dict[str, float], list[UnresolvedRole]]:
+    """2026-10-13 (D1 pair_11): the workbook's metadata sheet is never a feed.
+    A "Table_Details" sheet whose short "Stage Table | Standard Table" header
+    row reads as a band row became a sixth feed with nine UNRESOLVED roles.
+    A mapping-read sheet is metadata (kind ``table_details``) when its name is
+    one of ``extractor.discovery.metadata_sheet_names``, or when NO role
+    resolves on it while another mapping sheet of the workbook maps fields;
+    its open roles go with it. The last mapping sheet is never taken."""
+    names = {normalize(n) for n in disc.metadata_sheet_names}
+    mapping = [s for s in sheets if s.kind == "mapping"]
+    mapping_fields = [s for s in mapping
+                      if any(Role.FIELD_NAME.value in b.roles or Role.COLUMN.value in b.roles
+                             for b in s.bands)]
+    out: list[SheetProfile] = []
+    dropped: set[str] = set()
+    for sp in sheets:
+        if sp.kind != "mapping" or len(mapping) - len(dropped) <= 1:
+            out.append(sp)
+            continue
+        by_name = normalize(sp.name) in names
+        empty = (not any(b.roles for b in sp.bands)
+                 and any(other.name != sp.name for other in mapping_fields))
+        if not (by_name or empty):
+            out.append(sp)
+            continue
+        dropped.add(sp.name)
+        why = ("its name is a metadata sheet name (extractor.discovery.metadata_sheet_names)"
+               if by_name else "no role resolves on it while the workbook's other sheets map "
+                               "fields")
+        notes.append(f"sheet {sp.name!r}: metadata (table details), never a feed - {why}; "
+                     f"its {sum(1 for u in unresolved if u.sheet == sp.name)} open role(s) "
+                     "dropped with it")
+        ws = workbook[sp.name]
+        header_row = sp.band_row or sp.header_row
+        row = next(ws.iter_rows(min_row=header_row, max_row=header_row, values_only=True), ())
+        out.append(SheetProfile(name=sp.name, kind="table_details", header_row=header_row,
+                                headers=[str(text(c)) for c in row if text(c) is not None]))
+    if not dropped:
+        return sheets, confidence, unresolved
+    return (out, {k: v for k, v in confidence.items() if k.split("/")[0] not in dropped},
+            [u for u in unresolved if u.sheet not in dropped])
+
+
 def _discover_mapping_sheet(ws, disc: DiscoveryConfig, config: ExtractorConfig,
                             confidence: dict[str, float], unresolved: list[UnresolvedRole],
-                            diagnostics: list[str]) -> SheetProfile | None:
+                            diagnostics: list[str], band_layers: dict[str, str] | None = None,
+                            group_fallback: bool = False) -> SheetProfile | None:
     rows = [list(r) for _, r in zip(range(disc.scan_rows),
                                     ws.iter_rows(values_only=True), strict=False)]
     band_index: int | None = None
@@ -485,19 +776,55 @@ def _discover_mapping_sheet(ws, disc: DiscoveryConfig, config: ExtractorConfig,
                 and sum(1 for c in below_cells if c) >= _MIN_HEADER_CELLS):
             band_index, header_index = index, index + 1
             break
+    legacy_found = header_index is not None
     if header_index is None:
-        return None
+        # Chunk A: no row carries both a stage and a standard token — the
+        # sheet is still a mapping sheet when a header row carries a
+        # target-shaped label group (one band only, another title wording,
+        # no title row at all).
+        header_index = _group_header_row(ws, disc, rows) if group_fallback else None
+        if header_index is None:
+            return None
+        if header_index > 0 and _is_title_row(rows[header_index - 1],
+                                              label_groups(rows[header_index], disc), disc):
+            band_index = header_index - 1
     header = rows[header_index]
     last_col = max((i + 1 for i, c in enumerate(header) if text(c) is not None), default=0)
-    if band_index is not None:
-        bands = _bands_from_band_row(ws, rows[band_index], band_index + 1, last_col, disc)
-    else:
-        bands = _bands_from_header_prefixes(header, last_col, disc)
+    groups = label_groups(header, disc)
+    titles = (_title_spans(ws, rows[band_index], band_index + 1, last_col)
+              if band_index is not None else [])
+    _assign_layers(ws, groups, titles, header, header_index + 1, disc, band_layers or {})
+    legacy: list[BandProfile] | None = None
+    if legacy_found:
+        legacy = (_bands_from_band_row(ws, rows[band_index], band_index + 1, last_col, disc)
+                  if band_index is not None
+                  else _bands_from_header_prefixes(header, last_col, disc))
     notes: list[str] = []
-    if band_index is not None:
-        notes.append(f"band row {band_index + 1}, header row {header_index + 1}")
+    if legacy is not None and _legacy_consistent(legacy, groups):
+        # The band row / header prefixes and the label groups agree: the
+        # profile is exactly the one read before 2026-10-09.
+        bands = legacy
+        if band_index is not None:
+            notes.append(f"band row {band_index + 1}, header row {header_index + 1}")
+        else:
+            notes.append(f"no band row; layer prefixes in header row {header_index + 1}")
     else:
-        notes.append(f"no band row; layer prefixes in header row {header_index + 1}")
+        bands = _bands_from_groups(header, last_col, groups, titles, disc)
+        if not any(b.layer in ("stage", "standard") for b in bands) and not any(
+                g.layer is None for g in groups):
+            return None
+        notes.append((f"band row {band_index + 1}, header row {header_index + 1}"
+                       if band_index is not None else f"no band row; header row {header_index + 1}")
+                     + "; bands located by their label groups (Chunk A)")
+        for g in groups:
+            if g.evidence != "elimination":
+                notes.append(f"{band_ref(g.index)} {_span_text(g.start, g.end)}: "
+                             + (f"{g.layer} ({g.evidence})" if g.layer else "layer unresolved"))
+    # Whichever reading is kept, a source by elimination is said (layout NOTE).
+    notes.extend(f"{band_ref(g.index)} {_span_text(g.start, g.end)}: source - "
+                 f"{ELIMINATION_NOTE} (stage and standard are each named by another band's "
+                 "own evidence; it is the one band left, left of both)"
+                 for g in groups if g.evidence == "elimination")
     if not _has_token([normalize(c) for c in header],
                       disc.roles.get("source", {}).get(Role.FIELD_NAME.value, [])):
         notes.append("header row carries no field-name synonym; field_name unresolved")
@@ -505,7 +832,8 @@ def _discover_mapping_sheet(ws, disc: DiscoveryConfig, config: ExtractorConfig,
     for band in bands:
         resolved_bands.append(_resolve_band_roles(ws.title, band, header, disc, confidence,
                                                   unresolved, diagnostics,
-                                                  bands_before=list(resolved_bands)))
+                                                  bands_before=list(resolved_bands),
+                                                  extractor=config))
     meta_rows = _meta_rows(rows[: (band_index if band_index is not None else header_index)], disc,
                            ws.title, diagnostics)
     source = next((b for b in resolved_bands if b.layer == "source"), None)
@@ -530,6 +858,12 @@ def _discover_mapping_sheet(ws, disc: DiscoveryConfig, config: ExtractorConfig,
                     reason="required role has no header matching its synonyms",
                     candidates=[c for c in range(band.col_start, band.col_end + 1)
                                 if c not in band.roles.values()]))
+    if bands is not legacy:
+        for g in groups:
+            if g.layer is None:
+                unresolved.append(UnresolvedRole(
+                    sheet=ws.title, layer=band_ref(g.index), role=BAND_LAYER_ROLE,
+                    reason=_band_reason(g, header), candidates=list(range(g.start, g.end + 1))))
     for entry in notes:
         diagnostics.append(f"sheet {ws.title!r}: {entry}")
     return SheetProfile(name=ws.title, kind="mapping", header_row=header_index + 1,
@@ -591,6 +925,738 @@ def _bands_from_header_prefixes(header: list, last_col: int,
     return bands
 
 
+# ------------------------- Chunk A (2026-10-09): label groups + layer evidence
+
+# A target band's location roles, in the order a band states them (workspace
+# before catalog …): a role ranked BELOW the previous one, once the run holds
+# two location roles, starts the next band ("… ColumnName | DataType |
+# Catalog | Schema …" is two bands, never one).
+_LOCATION_RANK = {Role.WORKSPACE.value: -1, Role.CATALOG.value: 0, Role.SCHEMA.value: 1,
+                  Role.TABLE.value: 2, Role.COLUMN.value: 3, Role.TARGET_TYPE.value: 4}
+_LOCATION_ROLES = (Role.CATALOG.value, Role.SCHEMA.value, Role.TABLE.value, Role.COLUMN.value,
+                   Role.TARGET_TYPE.value)
+_NAMED_LAYERS = ("source", "stage", "standard")
+
+
+@dataclass
+class LabelGroup:
+    """A target-shaped run of header cells — one band's label group
+    (Catalog / Schema / TableName / ColumnName / DataType / Mandatory / Primary
+    Key …, the ``roles.target`` synonyms), wherever it sits in the header row."""
+
+    index: int                     # 1-based among the sheet's label groups
+    start: int
+    end: int
+    roles: dict[str, int]          # target role -> column (1-based)
+    layer: str | None = None       # source | rules | stage | standard; None = open
+    evidence: str | None = None    # profile.LayerEvidence
+    seen: list[str] = field(default_factory=list)
+    # Its own evidence named a target layer another band also claims (the
+    # conflict left it open): never "left over" for elimination - it is asked.
+    contested: bool = False
+
+    @property
+    def location_columns(self) -> list[int]:
+        return [c for r, c in self.roles.items() if r in _LOCATION_ROLES]
+
+
+def _words(value: object) -> set[str]:
+    return set(normalize(value).split())
+
+
+def _span_text(start: int, end: int) -> str:
+    from openpyxl.utils import get_column_letter
+
+    first, last = get_column_letter(start), get_column_letter(end)
+    return f"(column {first})" if start == end else f"(columns {first}–{last})"
+
+
+def label_groups(header: list, disc: DiscoveryConfig) -> list[LabelGroup]:
+    """Every target-shaped band of a header row: a run of ``roles.target``
+    headers placing at least ``group_min_location_roles`` of catalog / schema
+    / table / column / data type, column or data type among them (a Table
+    Details sheet's Catalog | Schema | Table Name is not a band). Order inside
+    a band is free ("TableName | ColumnName | Schema | DataType" is one band);
+    a run closes after more than ``group_max_gap`` other header cells, and a
+    REPEATED role splits it — at the location-rank drop between the two
+    occurrences that restarts lowest ("Data Type | Schema | TableName |
+    ColumnName | DataType": the source's type is not the stage band's), else
+    just before the repeat. A piece's leading non-location roles (a rules
+    band's Primary Key beside the stage band) are not its own."""
+    ev = disc.layer_evidence
+    table = {role: {normalize(s) for s in spellings}
+             for role, spellings in disc.roles.get("target", {}).items()}
+    last_col = max((i + 1 for i, c in enumerate(header) if text(c) is not None), default=0)
+    runs: list[list[tuple[int, str]]] = []
+    current: list[tuple[int, str]] = []
+    gap = 0
+    for col in range(1, last_col + 1):
+        value = normalize(header[col - 1]) if col - 1 < len(header) else ""
+        matches = [role for role, spellings in table.items() if value and value in spellings]
+        if len(matches) != 1:
+            if current:
+                gap += 1
+                if gap > ev.group_max_gap:
+                    runs.append(current)
+                    current, gap = [], 0
+            continue
+        gap = 0
+        current.append((col, matches[0]))
+    if current:
+        runs.append(current)
+    pieces: list[list[tuple[int, str]]] = []
+    for run in runs:
+        start = 0
+        seen: dict[str, int] = {}
+        for i, (_col, role) in enumerate(run):
+            if role in seen:
+                split = _split_point(run, seen[role], i)
+                pieces.append(run[start:split])
+                start = split
+                seen = {r: k for k, (_c, r) in enumerate(run[start:i], start=start)}
+            seen[role] = i
+        pieces.append(run[start:])
+    groups: list[LabelGroup] = []
+    for piece in pieces:
+        located = [c for c, r in piece if r in _LOCATION_RANK]
+        if not located:
+            continue
+        kept = {r: c for c, r in piece if c >= min(located)}
+        if (sum(1 for r in kept if r in _LOCATION_ROLES) >= ev.group_min_location_roles
+                and {Role.COLUMN.value, Role.TARGET_TYPE.value} & set(kept)):
+            groups.append(LabelGroup(index=len(groups) + 1, start=min(kept.values()),
+                                     end=max(kept.values()), roles=kept))
+    return groups
+
+
+def _split_point(run: list[tuple[int, str]], first: int, repeat: int) -> int:
+    """Where the next band starts in ``run`` (first < k <= repeat): the
+    location-rank drop whose restarting rank is lowest (the latest on a tie),
+    else the repeated cell itself."""
+    best: tuple[int, int] | None = None
+    previous: int | None = None
+    for k in range(first, repeat + 1):
+        rank = _LOCATION_RANK.get(run[k][1])
+        if rank is None:
+            continue
+        if previous is not None and rank < previous and k > first and (
+                best is None or rank <= best[1]):
+            best = (k, rank)
+        previous = rank
+    return best[0] if best is not None else repeat
+
+
+def _group_header_row(ws, disc: DiscoveryConfig, rows: list[list] | None = None) -> int | None:
+    """0-based index of the first scanned row that reads as a mapping header
+    by its label groups: two or more groups, or one group plus a field-name
+    header outside it (an auxiliary sheet with one table-shaped group — Table
+    Details, a dictionary — is not a mapping sheet)."""
+    if rows is None:
+        rows = [list(r) for _, r in zip(range(disc.scan_rows),
+                                        ws.iter_rows(values_only=True), strict=False)]
+    fields = {normalize(s) for s in disc.roles.get("source", {}).get(Role.FIELD_NAME.value, [])}
+    for i, row in enumerate(rows):
+        groups = label_groups(row, disc)
+        if len(groups) >= 2:
+            return i
+        if groups and any(normalize(cell) in fields for col, cell in enumerate(row, start=1)
+                          if not any(g.start <= col <= g.end for g in groups)):
+            return i
+    return None
+
+
+def _title_spans(ws, band_row: list, band_row_number: int, last_col: int
+                 ) -> list[tuple[int, int, str]]:
+    """(start, end, label) per band title — a merged range, else up to the
+    next title (the reading ``_bands_from_band_row`` uses)."""
+    labels = [(i + 1, text(c)) for i, c in enumerate(band_row) if text(c) is not None]
+    merged = {r.min_col: r.max_col for r in ws.merged_cells.ranges
+              if r.min_row == band_row_number and r.max_row == band_row_number}
+    spans = []
+    for position, (col, label) in enumerate(labels):
+        if col in merged:
+            end = merged[col]
+        elif position + 1 < len(labels):
+            end = labels[position + 1][0] - 1
+        else:
+            end = max(last_col, col)
+        spans.append((col, end, str(label)))
+    return spans
+
+
+def _title_layer(label: str, disc: DiscoveryConfig) -> str | None:
+    """The one layer a band title names (``layer_evidence.titles`` words, or
+    a ``band_tokens`` token as the band row reads it); None = none / several."""
+    words = _words(label)
+    norm = normalize(label)
+    layers = {layer for layer, tokens in disc.layer_evidence.titles.items()
+              if words & {normalize(t) for t in tokens}}
+    layers |= {layer for layer, tokens in disc.band_tokens.items()
+               if any(normalize(t) and normalize(t) in norm for t in tokens)}
+    named = layers & set(_NAMED_LAYERS)
+    if len(named) == 1:
+        return named.pop()
+    if not named and "rules" in layers:
+        return "rules"
+    return None
+
+
+def _is_title_row(row: list, groups: list[LabelGroup], disc: DiscoveryConfig) -> bool:
+    """The row above a group-located header is its band title row when it
+    is sparse and a cell names a layer or sits over a label group."""
+    cells = [(i + 1, text(c)) for i, c in enumerate(row) if text(c) is not None]
+    if not cells or len(cells) > _MAX_BAND_LABELS + len(groups):
+        return False
+    # A label:value meta row ("Notes | standard tables reload nightly") is
+    # never a title row, nor is a row of prose.
+    meta = {normalize(s) for spellings in disc.meta_synonyms.values() for s in spellings}
+    if normalize(cells[0][1]) in meta or any(len(str(label).split()) > 6 for _, label in cells):
+        return False
+    if any(_title_layer(str(label), disc) for _, label in cells):
+        return True
+    return any(g.start <= col <= g.end for col, _ in cells for g in groups)
+
+
+def _column_values(ws, header_row: int, col: int, limit: int) -> list[str]:
+    values = []
+    for row in ws.iter_rows(min_row=header_row + 1, max_row=header_row + limit,
+                            min_col=col, max_col=col, values_only=True):
+        value = text(row[0]) if row else None
+        if value is not None:
+            values.append(value)
+    return values
+
+
+def value_layers(value: str, kind: str, disc: DiscoveryConfig) -> set[str]:
+    """The layers ONE Catalog (``catalog_value``: a ``catalog_words`` word) or
+    Schema (``schema_value``: a ``schema_prefixes`` prefix) value names."""
+    ev = disc.layer_evidence
+    if kind == "catalog_value":
+        words = _words(value)
+        return {layer for layer, tokens in ev.catalog_words.items()
+                if words & {normalize(t) for t in tokens}}
+    lowered = value.strip().lower()
+    return {layer for layer, prefixes in ev.schema_prefixes.items()
+            if any(lowered.startswith(p.lower()) for p in prefixes if p)}
+
+
+def _value_layers(ws, header_row: int, col: int, kind: str, disc: DiscoveryConfig) -> set[str]:
+    """The layers a band's Catalog (``catalog_value``) / Schema
+    (``schema_value``) VALUES name — word / prefix matches."""
+    layers: set[str] = set()
+    for value in _column_values(ws, header_row, col, disc.layer_evidence.value_scan_rows):
+        layers |= value_layers(value, kind, disc)
+    return layers
+
+
+def _assign_layers(ws, groups: list[LabelGroup], titles: list[tuple[int, int, str]],
+                   header: list, header_row: int, disc: DiscoveryConfig,
+                   band_layers: dict[str, str]) -> None:
+    """Each group's layer from EVIDENCE only — an answer, the band title over
+    its location columns, a word of its headers, its Catalog values, its
+    Schema values (first that names exactly one layer wins). Two bands
+    naming the same target layer both stay open (unless one was answered).
+    Column order is never evidence of a layer. Elimination (owner rule,
+    2026-10-09) makes ONE band the source only when stage and standard are
+    each claimed by a band's own evidence, it is the only band left over
+    (no evidence at all - not one whose claim lost a conflict), it sits left
+    of both target bands, and source is not already claimed (a band, a
+    "Source" title elsewhere, a field-name column outside the bands)."""
+    words_by_layer = {layer: {normalize(t) for t in tokens}
+                      for layer, tokens in disc.layer_evidence.header_words.items()}
+    for g in groups:
+        answer = band_layers.get(f"{ws.title}/{band_ref(g.index)}")
+        if answer in BAND_LAYER_CHOICES:
+            g.layer, g.evidence = answer, "answer"
+            continue
+        # 1. the band title row
+        over = [(s, e, label) for s, e, label in titles
+                if any(s <= c <= e for c in g.location_columns)]
+        named = {_title_layer(label, disc) for _, _, label in over} - {None}
+        if len(named) == 1:
+            g.layer, g.evidence = named.pop(), "title"
+            continue
+        g.seen.append("no band title over it" if not over else
+                      "band title(s) " + ", ".join(repr(label) for _, _, label in over)
+                      + (" name no layer" if not named else f" name {sorted(named)}"))
+        # 2. a word of its own header texts
+        words = set().union(*(_words(header[c - 1]) for c in g.roles.values()))
+        named = {layer for layer, tokens in words_by_layer.items() if words & tokens}
+        if len(named) == 1:
+            g.layer, g.evidence = named.pop(), "header"
+            continue
+        g.seen.append("no layer word in its headers" if not named
+                      else f"its headers name {sorted(named)}")
+        # 3. / 4. its Catalog values, its Schema values
+        decided = False
+        for kind, role, what in (("catalog_value", Role.CATALOG.value, "Catalog"),
+                                 ("schema_value", Role.SCHEMA.value, "Schema")):
+            col = g.roles.get(role)
+            if col is None:
+                g.seen.append(f"no {what} column")
+                continue
+            named = _value_layers(ws, header_row, col, kind, disc)
+            if len(named) == 1:
+                g.layer, g.evidence = named.pop(), kind
+                decided = True
+                break
+            g.seen.append(f"its {what} values {_span_text(col, col)} carry no layer "
+                          + ("pattern" if kind == "catalog_value" else "prefix")
+                          if not named else f"its {what} values name {sorted(named)}")
+        if not decided:
+            g.layer = g.evidence = None
+    for layer in ("stage", "standard"):
+        claimants = [g for g in groups if g.layer == layer]
+        if len(claimants) < 2:
+            continue
+        answered = [g for g in claimants if g.evidence == "answer"]
+        keep = answered[0] if len(answered) == 1 else None
+        refs = " and ".join(band_ref(g.index) for g in claimants)
+        kinds = ", ".join(f"{band_ref(o.index)}: {o.evidence}" for o in claimants)
+        answered_note = f"; {band_ref(keep.index)} was answered {layer}" if keep else ""
+        for g in claimants:
+            if g is keep:
+                continue
+            g.seen.append(f"{refs} each read as {layer} ({kinds}){answered_note}")
+            g.layer = g.evidence = None
+            g.contested = True
+    # Elimination (owner rule, 2026-10-09): a layer is claimed once, so with
+    # stage AND standard each held by a band with its OWN evidence, exactly
+    # one band left over, and that band LEFT of both target bands (the source
+    # precedes the targets in every real layout), it is the source - said in a
+    # NOTE line. Any other leftover (right of a target band, or more than one)
+    # stays the band question.
+    open_groups = [g for g in groups if g.layer is None]
+    targets = [g for g in groups if g.layer in ("stage", "standard")]
+    if open_groups and {g.layer for g in targets} == {"stage", "standard"}:
+        first_target = min(g.start for g in targets)
+        claimed = _source_claimed(groups, open_groups, titles, header, disc)
+        why = ("its own evidence named a target layer another band also claims"
+               if open_groups[0].contested
+               else f"{len(open_groups)} bands are left over" if len(open_groups) > 1
+               else "it sits right of a target band" if open_groups[0].end >= first_target
+               else f"source is already claimed ({claimed})" if claimed else "")
+        if not why:
+            open_groups[0].layer, open_groups[0].evidence = "source", "elimination"
+        else:
+            for g in open_groups:
+                g.seen.append(f"stage and standard are named by other bands, but {why} - "
+                              "elimination applies only to ONE band with no evidence, left of "
+                              "both, while source is unclaimed")
+
+
+def _source_claimed(groups: list[LabelGroup], open_groups: list[LabelGroup],
+                    titles: list[tuple[int, int, str]], header: list,
+                    disc: DiscoveryConfig) -> str:
+    """What already claims the source layer ('' = nothing): another band, a
+    band title naming source over other columns, a field-name header outside
+    every band's label group."""
+    owned = next((g for g in groups if g.layer == "source"), None)
+    if owned is not None:
+        return f"{band_ref(owned.index)} reads as source ({owned.evidence})"
+    leftover = open_groups[0]
+    for start, end, label in titles:
+        if _title_layer(label, disc) == "source" and not any(
+                start <= c <= end for c in leftover.location_columns):
+            return f"the band title {label!r} names source over other columns"
+    fields = {normalize(s) for s in disc.roles.get("source", {}).get(Role.FIELD_NAME.value, [])}
+    for col, cell in enumerate(header, start=1):
+        if normalize(cell) in fields and not any(g.start <= col <= g.end for g in groups):
+            return f"the field-name column {_span_text(col, col)} sits outside the bands"
+    return ""
+
+
+def _band_reason(g: LabelGroup, header: list) -> str:
+    headers = " | ".join(str(text(header[c - 1])) for c in range(g.start, g.end + 1)
+                         if c - 1 < len(header) and text(header[c - 1]) is not None)
+    seen = "; ".join(s for s in g.seen if s) or "no layer evidence"
+    return (f"{band_ref(g.index)} {_span_text(g.start, g.end)}: {headers} — {seen}; "
+            f"answer under answers: with {' | '.join(BAND_LAYER_CHOICES)}")
+
+
+def _legacy_consistent(bands: list[BandProfile], groups: list[LabelGroup]) -> bool:
+    """True when the band row / header-prefix reading and the evidence agree:
+    every label group's location columns sit in exactly one band of the
+    layer its evidence names, and no target band holds two groups."""
+    for g in groups:
+        if g.layer is None:
+            return False
+        holders = [b for b in bands
+                   if all(b.col_start <= c <= b.col_end for c in g.location_columns)]
+        if len(holders) != 1 or holders[0].layer != g.layer:
+            return False
+    for b in bands:
+        if b.layer in ("stage", "standard") and sum(
+                1 for g in groups
+                if all(b.col_start <= c <= b.col_end for c in g.location_columns)) > 1:
+            return False
+    return True
+
+
+def _bands_from_groups(header: list, last_col: int, groups: list[LabelGroup],
+                       titles: list[tuple[int, int, str]], disc: DiscoveryConfig
+                       ) -> list[BandProfile]:
+    """Bands built from the label groups: a group with a layer is that band
+    (``layer_evidence`` records what named it), an open group belongs to no
+    band; a titled stage / standard band whose headers form no group keeps
+    its title's columns; the remaining columns are the source band (the run
+    holding the field-name header, else beside a source group, else the
+    leftmost run — the source band is located by content, it is never a
+    layer question) and rules bands."""
+    owner: dict[int, str] = {}
+    evidence: dict[str, str | None] = {}
+    for g in groups:
+        for c in range(g.start, g.end + 1):
+            owner[c] = g.layer if g.layer is not None else "?"
+        if g.layer in _NAMED_LAYERS:
+            evidence.setdefault(g.layer, g.evidence)
+    taken = {g.layer for g in groups if g.layer in ("stage", "standard")}
+    for start, end, label in titles:
+        layer = _title_layer(label, disc)
+        if layer is None or (layer in ("stage", "standard") and layer in taken):
+            continue
+        if layer in ("stage", "standard"):
+            taken.add(layer)
+            evidence.setdefault(layer, "title")
+        for c in range(start, min(end, last_col) + 1):
+            owner.setdefault(c, layer)
+
+    def named(c: int) -> bool:
+        return c - 1 < len(header) and text(header[c - 1]) is not None
+
+    # Maximal runs of unowned columns (blank header cells inside a run kept,
+    # trimmed at its ends), with the owners on either side of the run.
+    runs: list[tuple[list[int], str | None, str | None]] = []
+    current: list[int] = []
+    for c in range(1, last_col + 2):
+        if c <= last_col and c not in owner:
+            current.append(c)
+            continue
+        cells = [x for x in current if named(x)]
+        if cells:
+            runs.append((list(range(cells[0], cells[-1] + 1)),
+                         owner.get(current[0] - 1), owner.get(current[-1] + 1)))
+        current = []
+    fields = {normalize(s) for s in disc.roles.get("source", {}).get(Role.FIELD_NAME.value, [])}
+    chosen: list[int] | None = None
+    if "source" not in owner.values():
+        chosen = next((r for r, _, _ in runs
+                       if any(normalize(header[c - 1]) in fields for c in r if named(c))),
+                      runs[0][0] if runs else None)
+    for run, left, right in runs:
+        layer = "source" if run is chosen or "source" in (left, right) else "rules"
+        for c in run:
+            owner[c] = layer
+    bands: list[BandProfile] = []
+    col = 1
+    while col <= last_col:
+        layer = owner.get(col)
+        if layer is None or layer == "?":
+            col += 1
+            continue
+        start = col
+        while col + 1 <= last_col and owner.get(col + 1) == layer:
+            col += 1
+        label = next((lab for s, e, lab in titles if s <= start <= e),
+                     next((lab for s, e, lab in titles if s <= col and e >= start), None))
+        bands.append(BandProfile(layer=layer, col_start=start, col_end=col,  # type: ignore[arg-type]
+                                 label=label, layer_evidence=evidence.get(layer)))
+        col += 1
+    return bands
+
+
+def value_layer(ws, header_row: int, band: BandProfile, disc: DiscoveryConfig
+                ) -> tuple[str | None, str | None]:
+    """(layer, evidence kind) the band's VALUES name, in evidence order:
+    its Catalog values, then its Schema values; (None, None) when neither
+    names exactly one layer."""
+    for kind, role in (("catalog_value", Role.CATALOG), ("schema_value", Role.SCHEMA)):
+        col = band.column(role)
+        if col is None:
+            continue
+        layers = _value_layers(ws, header_row, col, kind, disc)
+        if len(layers) == 1:
+            return layers.pop(), kind
+    return None, None
+
+
+# ---------------- Chunk B (2026-10-09): candidate mapping sheets (pass 3)
+
+# The first note of a pass-3 sheet: the classifier reads it (a CANDIDATE is
+# never classified an STTM on its own - an IIG / dictionary sheet has the
+# same shape; only a person who picks it as the STTM reads it as one).
+CANDIDATE_SHEET_NOTE = "no mapping sheet by band row or label group"
+
+def _first_word(value: object) -> str:
+    words = normalize(value).split()
+    return words[0] if words else ""
+
+
+def _candidate_header_row(rows: list[list], min_cells: int) -> int | None:
+    """0-based index of the first scanned row carrying at least ``min_cells``
+    text cells with a filled row beneath it (a header over data)."""
+    for index, row in enumerate(rows):
+        if sum(1 for c in row if text(c) is not None) < min_cells:
+            continue
+        below = rows[index + 1] if index + 1 < len(rows) else []
+        if sum(1 for c in below if text(c) is not None) >= _MIN_HEADER_CELLS:
+            return index
+    return None
+
+
+def _qualifier_runs(header: list, last_col: int, min_run: int) -> list[tuple[int, int, str]]:
+    """(start, end, word) for every maximal run of at least ``min_run``
+    adjacent header cells sharing their first word ("Landing Catalog |
+    Landing Schema | Landing Table …") — one band named by that word."""
+    runs: list[tuple[int, int, str]] = []
+    col = 1
+    while col <= last_col:
+        word = _first_word(header[col - 1]) if col - 1 < len(header) else ""
+        if not word:
+            col += 1
+            continue
+        end = col
+        while end + 1 <= last_col and end < len(header) and _first_word(header[end]) == word:
+            end += 1
+        if end - col + 1 >= min_run:
+            runs.append((col, end, word))
+        col = end + 1
+    return runs
+
+
+def _target_role(value: str, qualifier: str | None, table: dict[str, set[str]]) -> list[str]:
+    """Target roles a header names — as written, else without the band's
+    qualifier word ("Landing Schema" -> "schema"): the qualifier names the
+    band, the rest names the role."""
+    matches = [role for role, spellings in table.items() if value in spellings]
+    if not matches and qualifier and value.startswith(qualifier + " "):
+        rest = value[len(qualifier) + 1:]
+        matches = [role for role, spellings in table.items() if rest in spellings]
+    return matches
+
+
+def _discover_candidate_sheet(ws, disc: DiscoveryConfig, confidence: dict[str, float],
+                              unresolved: list[UnresolvedRole], diagnostics: list[str],
+                              band_layers: dict[str, str]) -> SheetProfile | None:
+    """Pass 3 (Chunk B), only when no sheet of the workbook is a mapping sheet
+    by passes 1 and 2: a sheet whose header row is wide enough and whose
+    target bands are marked by STRUCTURE - a band title row of two or more
+    spans over it, else runs of headers sharing a qualifier word - is a
+    CANDIDATE mapping sheet. Its bands get their layer from evidence only
+    (an answer, a title / qualifier word, Catalog / Schema values); every
+    role no synonym places is listed unresolved, so a person (answers file)
+    or the layout model can place it. Column order is never evidence."""
+    ev = disc.layer_evidence
+    rows = [list(r) for _, r in zip(range(disc.scan_rows), ws.iter_rows(values_only=True),
+                                    strict=False)]
+    header_index = _candidate_header_row(rows, ev.candidate_min_header_cells)
+    if header_index is None:
+        return None
+    header = rows[header_index]
+    last_col = max((i + 1 for i, c in enumerate(header) if text(c) is not None), default=0)
+    band_index: int | None = None
+    # (start, end, label, qualifier) per candidate band, left to right.
+    spans: list[tuple[int, int, str | None, str | None]] = []
+    titled: list[tuple[int, int, str]] = []
+    if header_index > 0:
+        titled = _title_spans(ws, rows[header_index - 1], header_index, last_col)
+    if len(titled) >= 2:
+        band_index = header_index - 1
+        spans = [(s, e, label, None) for s, e, label in titled]
+    else:
+        spans = [(s, e, None, word)
+                 for s, e, word in _qualifier_runs(header, last_col, ev.candidate_min_run)]
+    if not spans:
+        return None
+    table = {role: {normalize(s) for s in spellings}
+             for role, spellings in disc.roles.get("target", {}).items()}
+    words_by_layer = {layer: {normalize(t) for t in tokens}
+                      for layer, tokens in ev.header_words.items()}
+    fixed: list[tuple[int, int, str, str | None]] = []     # source / rules spans
+    targets: list[dict] = []
+    for start, end, label, qualifier in spans:
+        titled_layer = _title_layer(label, disc) if label else None
+        if titled_layer in ("source", "rules"):
+            fixed.append((start, end, titled_layer, label))
+            continue
+        targets.append({"start": start, "end": end, "label": label, "qualifier": qualifier,
+                        "layer": None, "evidence": None, "seen": [], "roles": {}})
+    if not targets:
+        return None
+    for n, band in enumerate(targets, start=1):
+        roles: dict[str, int] = {}
+        for c in range(band["start"], band["end"] + 1):
+            value = normalize(header[c - 1]) if c - 1 < len(header) else ""
+            matches = _target_role(value, band["qualifier"], table) if value else []
+            if len(matches) == 1 and matches[0] not in roles:
+                roles[matches[0]] = c
+        band["roles"] = roles
+        answer = band_layers.get(f"{ws.title}/{band_ref(n)}")
+        if answer in BAND_LAYER_CHOICES:
+            band["layer"], band["evidence"] = answer, "answer"
+            continue
+        named = {_title_layer(band["label"], disc)} - {None} if band["label"] else set()
+        if len(named) == 1:
+            band["layer"], band["evidence"] = named.pop(), "title"
+            continue
+        band["seen"].append(f"band title {band['label']!r} names no layer" if band["label"]
+                            else "no band title over it")
+        words = ({band["qualifier"]} if band["qualifier"] else set()).union(
+            *(_words(header[c - 1]) for c in range(band["start"], band["end"] + 1)
+              if c - 1 < len(header)))
+        named = {layer for layer, tokens in words_by_layer.items() if words & tokens}
+        if len(named) == 1:
+            band["layer"], band["evidence"] = named.pop(), "header"
+            continue
+        band["seen"].append("no layer word in its headers" if not named
+                            else f"its headers name {sorted(named)}")
+        for kind, role, what in (("catalog_value", Role.CATALOG.value, "Catalog"),
+                                 ("schema_value", Role.SCHEMA.value, "Schema")):
+            col = roles.get(role)
+            if col is None:
+                band["seen"].append(f"no {what} column")
+                continue
+            named = _value_layers(ws, header_index + 1, col, kind, disc)
+            if len(named) == 1:
+                band["layer"], band["evidence"] = named.pop(), kind
+                break
+            band["seen"].append(f"its {what} values {_span_text(col, col)} carry no layer "
+                                + ("pattern" if kind == "catalog_value" else "prefix")
+                                if not named else f"its {what} values name {sorted(named)}")
+    for layer in ("stage", "standard"):
+        claimants = [b for b in targets if b["layer"] == layer]
+        if len(claimants) > 1 and not any(b["evidence"] == "answer" for b in claimants):
+            for b in claimants:
+                b["seen"].append(f"{len(claimants)} bands each read as {layer}")
+                b["layer"] = b["evidence"] = None
+    notes = [f"{CANDIDATE_SHEET_NOTE}: header row {header_index + 1} read "
+             "as a CANDIDATE mapping sheet, bands by "
+             + ("its band title row" if band_index is not None else "shared qualifier words")
+             + " (Chunk B pass 3)"]
+    bands: list[BandProfile] = []
+    first_target = min(b["start"] for b in targets)
+    source_span = next(((s, e, label) for s, e, layer, label in fixed if layer == "source"),
+                       (1, first_target - 1, None) if first_target > 1 else None)
+    if source_span is not None:
+        bands.append(BandProfile(layer="source", col_start=source_span[0],
+                                 col_end=source_span[1], label=source_span[2]))
+    for n, band in enumerate(targets, start=1):
+        if band["layer"] is None:
+            headers = " | ".join(str(text(header[c - 1])) for c in
+                                 range(band["start"], band["end"] + 1)
+                                 if c - 1 < len(header) and text(header[c - 1]) is not None)
+            unresolved.append(UnresolvedRole(
+                sheet=ws.title, layer=band_ref(n), role=BAND_LAYER_ROLE,
+                reason=(f"{band_ref(n)} {_span_text(band['start'], band['end'])}: {headers} — "
+                        f"{'; '.join(band['seen'])}; answer under answers: with "
+                        f"{' | '.join(BAND_LAYER_CHOICES)}"),
+                candidates=list(range(band["start"], band["end"] + 1))))
+            notes.append(f"{band_ref(n)} {_span_text(band['start'], band['end'])}: layer "
+                         "unresolved")
+            continue
+        notes.append(f"{band_ref(n)} {_span_text(band['start'], band['end'])}: {band['layer']} "
+                     f"({band['evidence']})")
+        if band["layer"] == "source":
+            continue
+        bands.append(BandProfile(layer=band["layer"], col_start=band["start"],  # type: ignore[arg-type]
+                                 col_end=band["end"], label=band["label"],
+                                 roles=dict(band["roles"]),
+                                 layer_evidence=band["evidence"]))
+        for role in band["roles"]:
+            confidence[confidence_key(ws.title, band["layer"], role)] = _SYNONYM_CONFIDENCE
+    covered = {c for b in targets for c in range(b["start"], b["end"] + 1)}
+    if source_span is not None:
+        covered |= set(range(source_span[0], source_span[1] + 1))
+    col = 1
+    while col <= last_col:
+        if col in covered:
+            col += 1
+            continue
+        start = col
+        while col + 1 <= last_col and col + 1 not in covered:
+            col += 1
+        label = next((lab for s, e, layer, lab in fixed if layer == "rules" and s <= start <= e),
+                     None)
+        bands.append(BandProfile(layer="rules", col_start=start, col_end=col, label=label))
+        col += 1
+    bands.sort(key=lambda b: b.col_start)
+    resolved: list[BandProfile] = []
+    for band in bands:
+        if band.layer in ("stage", "standard"):
+            resolved.append(band)       # target roles placed above (qualifier-aware)
+            continue
+        placed = _resolve_band_roles(ws.title, band, header, disc, confidence, unresolved,
+                                     diagnostics, bands_before=list(resolved))
+        if band.layer == "rules" and any(b.layer in ("stage", "standard") for b in resolved):
+            # A candidate's rules columns may sit AFTER the target bands ("PII |
+            # Primary Key | Load Rules"): the data-rules synonyms place them too
+            # (the trailing group's own wording wins where both match).
+            rules = _resolve_band_roles(ws.title, band, header, disc, confidence, unresolved,
+                                        diagnostics, bands_before=[])
+            taken = set(placed.roles.values())
+            merged = {**{r: c for r, c in rules.roles.items() if c not in taken
+                         and r not in placed.roles}, **placed.roles}
+            placed = placed.model_copy(update={"roles": merged})
+        resolved.append(placed)
+    meta_rows = _meta_rows(rows[: (band_index if band_index is not None else header_index)],
+                           disc, ws.title, diagnostics)
+    source = next((b for b in resolved if b.layer == "source"), None)
+    segment_column = source.column(Role.SEGMENT) if source is not None else None
+    if segment_column is not None:
+        strategy = "column"
+    elif _has_banner_rows(ws, header_index + 1, resolved, disc):
+        strategy = "banner"
+    else:
+        strategy = "none"
+    for layer, required in REQUIRED_ROLES.items():
+        band = next((b for b in resolved if b.layer == layer), None)
+        if band is None:
+            continue
+        for role in required:
+            if band.column(role) is None:
+                unresolved.append(UnresolvedRole(
+                    sheet=ws.title, layer=layer, role=role.value,
+                    reason="required role has no header matching its synonyms",
+                    candidates=[c for c in range(band.col_start, band.col_end + 1)
+                                if c not in band.roles.values()]))
+    for entry in notes:
+        diagnostics.append(f"sheet {ws.title!r}: {entry}")
+    return SheetProfile(name=ws.title, kind="mapping", header_row=header_index + 1,
+                        band_row=None if band_index is None else band_index + 1,
+                        bands=resolved, meta_rows=meta_rows, segment_strategy=strategy,
+                        segment_column=segment_column, notes=notes)
+
+
+def stale_value_evidence(profile: LayoutProfile, workbook, config: ExtractorConfig
+                         ) -> str | None:
+    """Value-derived layer evidence is never trusted from a cache (Chunk A):
+    re-derive every ``catalog_value`` / ``schema_value`` band layer from the
+    workbook in hand through the SAME value chain discovery uses (Catalog
+    values first, then Schema values). A layer by ELIMINATION is never
+    trusted from a cache either (the rule is code, not config - a profile an
+    older rule wrote must not outlive it): any such band re-resolves. A
+    reason string when the cached profile must re-resolve, else None."""
+    disc = config.discovery
+    for sp in profile.sheets:
+        if any(b.layer_evidence == "elimination" for b in sp.bands) or any(
+                "elimination" in note for note in sp.notes):
+            return (f"cached profile of sheet {sp.name!r} carries a layer by elimination; "
+                    "re-derived on every hit")
+    for sp in profile.sheets:
+        for band in sp.bands:
+            if band.layer_evidence not in VALUE_EVIDENCE:
+                continue
+            if sp.name not in workbook.sheetnames or sp.header_row is None:
+                return (f"cached {band.layer} band of sheet {sp.name!r} took its layer from "
+                        "values that cannot be re-read")
+            layer, kind = value_layer(workbook[sp.name], sp.header_row, band, disc)
+            if (layer, kind) != (band.layer, band.layer_evidence):
+                return (f"cached {band.layer} band of sheet {sp.name!r} took its layer from "
+                        f"{band.layer_evidence}; re-derived from this workbook the values name "
+                        f"{layer or 'no layer'} ({kind or 'no value evidence'})")
+    return None
+
+
 def _roles_group(band: BandProfile, bands_before: list[BandProfile]) -> str:
     if band.layer in ("stage", "standard"):
         return "target"
@@ -601,18 +1667,49 @@ def _roles_group(band: BandProfile, bands_before: list[BandProfile]) -> str:
     return "trailing" if any(b.layer in ("stage", "standard") for b in bands_before) else "rules"
 
 
+def _mapping_source_vocabulary(table: dict[str, set[str]], extractor: ExtractorConfig
+                               ) -> dict[str, set[str]]:
+    """A ``MAPPING-`` sheet's source band speaks family B's vocabulary
+    (``extractor.header_synonyms``, the legacy reader's table): its spellings
+    name the legacy role and no other ("Mandatory" is ``mandatory`` there,
+    ``required`` on the content families)."""
+    from codegen.extract.workbook import LEGACY_SOURCE_ROLES
+
+    out = {role: set(spellings) for role, spellings in table.items()}
+    for logical, spellings in extractor.header_synonyms.items():
+        role = LEGACY_SOURCE_ROLES.get(logical)
+        if role is None:
+            continue
+        for spelling in (normalize(s) for s in spellings):
+            for others in out.values():
+                others.discard(spelling)
+            out.setdefault(role.value, set()).add(spelling)
+    return out
+
+
 def _resolve_band_roles(sheet: str, band: BandProfile, header: list, disc: DiscoveryConfig,
                         confidence: dict[str, float], unresolved: list[UnresolvedRole],
-                        diagnostics: list[str], bands_before: list[BandProfile] | None = None
-                        ) -> BandProfile:
+                        diagnostics: list[str], bands_before: list[BandProfile] | None = None,
+                        extractor: ExtractorConfig | None = None) -> BandProfile:
     group = _roles_group(band, bands_before or [])
     table = {role: {normalize(s) for s in spellings}
              for role, spellings in disc.roles.get(group, {}).items()}
+    if (extractor is not None and group == "source"
+            and sheet.startswith(extractor.mapping_sheet_prefix)):
+        table = _mapping_source_vocabulary(table, extractor)
+    # The per-row recycle column: its header STARTS with the prefix ("Recycle
+    # Flag ( Enabled for 7 Days)") — the legacy reader's rule, wherever it sits.
+    recycle = normalize(extractor.recycle_header_prefix) if extractor is not None else ""
     roles: dict[str, int] = {}
     for col in range(band.col_start, band.col_end + 1):
         raw = header[col - 1] if col - 1 < len(header) else None
         value = normalize(raw)
         if not value:
+            continue
+        if recycle and value.startswith(recycle) and Role.RECYCLE_FLAG.value not in roles \
+                and not any(value in spellings for spellings in table.values()):
+            roles[Role.RECYCLE_FLAG.value] = col
+            confidence[confidence_key(sheet, band.layer, Role.RECYCLE_FLAG)] = _SYNONYM_CONFIDENCE
             continue
         matches = [role for role, spellings in table.items() if value in spellings]
         if len(matches) == 1:
@@ -702,13 +1799,22 @@ def _classify_auxiliary(ws, disc: DiscoveryConfig, diagnostics: list[str]) -> Sh
 
 
 __all__ = [
+    "CANDIDATE_SHEET_NOTE",
+    "ELIMINATION_NOTE",
+    "MAPPING_PREFIX_REFUSED",
     "Discovery",
+    "LabelGroup",
     "NoLayoutError",
     "discover_vdd",
     "SEGMENTED_FAMILY_NOTE",
     "SEGMENTED_SOURCE_ROLES",
     "SEGMENTED_TABLE_ROLES",
     "discover",
+    "label_groups",
+    "legacy_readable",
+    "mapping_differences",
     "normalize",
+    "stale_value_evidence",
     "text",
+    "value_layer",
 ]

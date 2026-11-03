@@ -18,6 +18,8 @@ export interface GateCheck {
 }
 
 export interface FeedSummary {
+  /* post91: on the feed detail response — what the App offers */
+  app_options?: string[];
   feed_slug: string;
   feed_id: string;
   feed_name: string;
@@ -35,11 +37,25 @@ export interface FeedSummary {
   candidate_count: number;
   candidates_pending: number;
   files_written: number;
+  // post81: the written notebook relative to the feed dir (v2: notebook/<slug>.ipynb);
+  // null when none was written
+  notebook?: string | null;
   framework: FrameworkSummary | null;
+  // post76: the Layer-2 stage (after the outcome); review_candidates "pending"
+  // until the review panel asks (POST /api/demo/layer2)
+  layer2?: Layer2State | null;
+}
+
+export interface Layer2State {
+  mode: "now" | "defer" | "skip" | null;
+  review_candidates: "pending" | "done" | "skipped" | "none";
+  rules: number;
 }
 
 export interface FrameworkSummary {
   files: string[];
+  // M7 §4: file names grouped by the system they run against
+  groups?: Record<string, string[]>;
   row_counts: Record<string, number>;
   coverage: {
     derived: number;
@@ -48,10 +64,30 @@ export interface FrameworkSummary {
     total: number;
   };
   flagged_blank_columns: string[];
+  // post66: IIG sheets left empty by rule, with their reason (MFT / delimited)
+  empty_by_rule?: { sheet: string; label: string; reason: string }[];
+  // post66: the open lines this feed's IIG review faces (its own + run-level)
+  open?: { open: number; blocking: number };
 }
 
-export type OutputMode = "notebook" | "framework" | "both" | "rfc" | "all";
-export type OutputPart = "notebook" | "framework" | "rfc" | "all";
+// The outputs a run can produce — exactly these (GET /api/demo/output-options).
+export type OutputPart = "notebook" | "framework";
+
+// What a run actually did with a model, per stage (codegen.reasoning.usage).
+// ``label`` is the one user-facing wording; render it, never compose one.
+export interface StageUsage {
+  stage: "layout" | "layer2" | string;
+  provider: string;
+  endpoint: string | null;
+  model: string | null;
+  calls: number;
+  requests: number;
+  failed: number;
+  mock_reason: string | null;
+  recorded_provider: string | null;
+  label: string;
+  forced_mock: boolean;
+}
 
 export interface GenerationOptionGroup {
   options: string[];
@@ -65,6 +101,50 @@ export interface GenerationOptions {
   playbook_template: GenerationOptionGroup;
 }
 
+// The run's environment (2026-10-14, GET/POST /api/demo/environment): the
+// overlay's environments block, one marked default; "custom" = the values the
+// person typed under "Other".
+// 2026-10-15: each option is a PROFILE — its values prefilled (the
+// codegen-state profile file over the overlay block, `origin` says which), the
+// required keys and the ones it leaves missing; `banner` is the run banner.
+export interface EnvironmentOption {
+  name: string;
+  default: boolean;
+  description: string;
+  values: Record<string, string>;
+  origin?: string;
+  // post56: per field, where its value comes from (codegen.environments.resolve)
+  sources?: Record<string, string>;
+  missing_required?: string[];
+  // post99: per field, where this environment's value came from and why
+  provenance?: Record<string, string>;
+}
+
+export interface EnvironmentOptions {
+  options: EnvironmentOption[];
+  default: string | null;
+  selected: string | null;
+  source: "default" | "selected" | "custom" | null;
+  custom: Record<string, string> | null;
+  fields: string[];
+  required?: string[];
+  missing_required?: string[];
+  origin?: string | null;
+  // post56: the run's per-field sources; the folder profiles are read from
+  sources?: Record<string, string>;
+  profiles_dir?: string;
+  banner?: string | null;
+  edited?: Record<string, string> | null;
+}
+
+export interface EnvironmentChoice {
+  name: string | null;
+  custom: Record<string, string> | null;
+  custom_name: string | null;
+  // 2026-10-15: the named profile's fields as edited on the form
+  overrides?: Record<string, string> | null;
+}
+
 export type RunMode = "mock" | "live" | "replay";
 
 export interface FeedsResponse {
@@ -72,6 +152,23 @@ export interface FeedsResponse {
   failures: { label: string; error: string }[];
   mode: RunMode;
   label: string | null;
+  model_usage?: StageUsage[];
+  /* post136: the provider the next run uses / the one the served run used */
+  provider?: "live" | "mock" | null;
+  run_provider?: "live" | "mock" | null;
+  /* post91: the run's combined framework artefacts, one set per STTM */
+  combined?: CombinedSet[];
+  /* post91: what the App offers (output.app_options) */
+  app_options?: string[];
+  /* post98: which framework files the App lists (output.app_files) */
+  app_files?: string[];
+  /* post101: the blank IDs the panel names, column -> hint ({} / absent = all) */
+  assign_ids?: Record<string, string>;
+}
+
+export interface CombinedSet {
+  sttm: string | null;
+  files: string[];
 }
 
 export interface ReplaySet {
@@ -85,44 +182,223 @@ export interface DemoStage {
   stage: string;
   detail: string;
   at: number;
+  // post146: a feed's own steps: which feed of how many
+  feed?: { n: number; of: number };
 }
 
 export interface LayoutQuestion {
-  document: "sttm" | "frd" | "vdd";
+  // post80: "run" = a required environment value asked before generating
+  document: "sttm" | "frd" | "vdd" | "run";
   key: string;
   sheet: string | null;
   layer: string | null;
   role: string;
   reason: string;
   header: string[];
-  candidates: { col?: number; header?: string; table?: number; row?: number; label?: string }[];
+  candidates: {
+    col?: number;
+    header?: string;
+    table?: number;
+    row?: number;
+    label?: string;
+    // kind "choice" / "layer" candidates
+    value?: string;
+    source?: string;
+    cell?: string;
+    layer?: "stage" | "standard" | "both";
+  }[];
+  // "text" (M9.1b): a value no document states — typed by the person (gaps).
+  // "files" (post47): ONE value per file (the LOB lookup's question) — every
+  // file a key, the candidates' values its dropdown; posted as gaps
+  // "<file>=<value>; ..." (what an answers file's files: block reads as).
+  kind?: "role" | "choice" | "layer" | "text" | "files";
+  files?: string[];
+  // Plain-language help: what is asked, where it usually sits, the
+  // pre-selected candidate index (or null).
+  title?: string;
+  hint?: string;
+  suggested?: number | null;
+  suggested_reason?: string;
+}
+
+export type PairRule =
+  | "override" | "pairing_map" | "content" | "ticket" | "name_key" | "name_fuzzy" | "same_folder";
+
+/** How the chip names the rule that paired a document (2026-10-13). */
+export function pairRuleLabel(rule: string | null | undefined): string {
+  switch (rule) {
+    case "override": return "the pairs override file";
+    case "pairing_map": return "the config pairing map";
+    case "content": return "the documents' content";
+    case "ticket": return "a shared ticket number";
+    case "name_key": return "the same document name key";
+    case "name_fuzzy": return "a close document name (see the note)";
+    case "same_folder": return "the only one in the STTM's folder";
+    default: return "a matching document name";
+  }
+}
+
+// One file of the selected STTM's folder: its role and the rule that assigned it.
+export interface FolderRole { name: string; role: string; rule: string }
+// One document of the kind in the input roots, candidate or not.
+export interface ConsideredDoc { name: string; folder: string; name_score: number | null; status: string }
+
+// One answer a held-back feed needs (status.needs_answers): the answers-file
+// key, its label as the CLI prints it, how the answer is posted
+// (band_layer: sttm layer string · column: sttm / vdd column · frd_cell: an
+// FRD table cell · gap: gaps {value, layer?}) and the question itself, in the
+// layout dialog's shape — rendered with the same controls.
+export interface NeedsAnswerItem {
+  key: string;
+  label: "QUESTION" | "UNRESOLVED";
+  section: "gaps" | "answers";
+  answer_as: "band_layer" | "column" | "frd_cell" | "gap";
+  feed_name: string | null;
+  sheet: string | null;
+  reason: string;
+  question: LayoutQuestion;
+}
+
+// The readable form of an error (ui/backend/errors.py): the API's unhandled-
+// exception response ("error") and a crashed run's status.error_detail.
+export interface ErrorDetail {
+  type: string;
+  message: string;
+  // the traceback's innermost frame: "file:line in function"
+  where: string;
+  cause?: string | null;
+  health?: Record<string, unknown>;
+  // version · codegen source · overlays · startup error
+  health_line?: string;
+  // "GET /api/demo/status" — set by the API handler
+  request?: string;
+}
+
+export interface ValueRange {
+  low: number;
+  high: number;
+}
+
+/** post67: ranges over the last COMPLETED live runs (PASS /
+ * PASS_WITH_OPEN_INPUTS; the fastest / slowest one left out from five runs on);
+ * null while fewer than ``min_runs`` are recorded. ``stopped``: the runs that
+ * stopped (NEEDS_ANSWERS / GATE_FAIL), null when there are none. Cost comes only from runs whose
+ * tokens were measured and priced (``cost_runs`` of ``runs``), at one basis:
+ * ``workspace`` (the workspace's FM API rate) or ``list`` (Anthropic list price;
+ * ``billed_in_dbus`` when those runs went through the FM API endpoint). */
+export interface LiveHistory {
+  profile: string;
+  runs: number;
+  min_runs: number;
+  stopped: { runs: number; wall_seconds: ValueRange | null } | null;
+  wall_seconds: ValueRange | null;
+  model_seconds: ValueRange | null;
+  calls: ValueRange | null;
+  cost_usd: ValueRange | null;
+  cost_runs: number;
+  cost_basis: "workspace" | "list" | null;
+  price_source: string | null;
+  billed_in_dbus: boolean;
+  // post145: what a pair the agent has not mapped before costs (its first run's
+  // layout calls), in DBUs: measured from recorded runs, else the configured
+  // estimate (measured_runs 0); null = neither
+  new_pair?: {
+    measured_runs: number;
+    calls: ValueRange | null;
+    dbu: ValueRange;
+    source: string;
+  } | null;
 }
 
 export interface DemoStatus {
-  state: "idle" | "running" | "needs_layout" | "done" | "failed";
+  // needs_answers: EVERY feed of the last run is held back — the list below
+  // is the outcome (answered inline and re-run), never a generic failure.
+  state: "idle" | "running" | "needs_layout" | "done" | "failed" | "needs_answers";
   stages: DemoStage[];
   error: string | null;
+  error_detail?: ErrorDetail | null;
+  // what the last run's held-back feeds need (state needs_answers: all of
+  // them; done: some; failed: the questions "Proceed" left open) and the
+  // documents those keys belong to
+  needs_answers?: NeedsAnswerItem[];
+  needs_answers_inputs?: { sttm: string; frd: string } | null;
+  // true once other documents are selected: the list names that run's sheets
+  // and a re-run is refused (the page hides its controls)
+  needs_answers_stale?: boolean;
+  // 2026-10-14: values the last run's IIG workbooks were written WITHOUT
+  // (INPUT_NEEDED, e.g. ACTIVE_START_DATE) — never blocking, a banner only
+  inputs_needed?: InputNeededItem[];
+  // post59: the input choices the BSA confirmed — key -> {choice, standard}
+  input_choices?: Record<string, ConfirmedChoice>;
+  // post60: the run's generate outcome (CODEGEN_STAGES.json): PASS |
+  // PASS_WITH_OPEN_INPUTS | NEEDS_ANSWERS | GATE_FAIL | CRASHED | FAIL
+  outcome?: string | null;
+  // post80: every blocking line the last run left open — some (the landing path)
+  // are listed nowhere else on the page
+  blocking?: { key: string; scope: "run" | "feed"; feed?: string | null }[];
+  // post80: "layout" (before any value is read) | "before_generate" (the run's
+  // blocking questions, asked once, then one generate)
+  pause_kind?: "layout" | "before_generate";
   last_run_label: string | null;
+  // feeds the last run set aside (no file for the table, question left unanswered)
+  set_aside?: { label: string; error: string }[];
   // M2.5: the questions a paused run (state "needs_layout") waits on, and
   // the layout report (sources per role, rejections, cross-checks).
   layout_questions?: LayoutQuestion[];
   layout_report?: Record<string, unknown> | null;
+  layout_advice?: {
+    provider: string;
+    usage?: StageUsage;
+    advice: Record<string, { index: number | null; rationale: string }>;
+  } | null;
+  // FRD fields taken from another document (or the person's choice) while
+  // resolving the layout — shown as "Taken from other documents".
+  layout_fills?: { field: string; title: string; value: string; source: string; cell: string }[];
+  // M9.1 "re-resolve layout": armed for the next run (one shot) — every cached
+  // layout profile is bypassed and the runtime cache entries are overwritten.
+  layout_refresh?: boolean;
+  // M9.3: the last selection that FAILED (download / pairing / recording it) —
+  // the STTM stays unselected and a run is refused until it is chosen again.
+  selection_error?: { kind: string; name: string; message: string } | null;
+  pairing?: { frd?: PairingOutcome; vdd?: PairingOutcome };
+  // M9.3 addendum: THE record of what is selected (names; null = not chosen) —
+  // the one source the chooser reads — and the selection job in flight / last.
+  selection?: { sttm: string | null; frd: string | null; vdd: string | null };
+  selection_job?: SelectionJob | null;
   vdd_name?: string | null;
   mode: RunMode;
   label: string | null;
-  estimates: { calls: number; cost_usd: number; seconds: number };
+  // post67: the last live runs for the run's conventions profile — the
+  // confirm dialog's ranges (ui/backend/run_history.py); runs 0 = no history
+  live_history?: LiveHistory;
   sttm_workbook?: string;
   sttm_chosen?: boolean;
-  output_mode?: OutputMode | null;
+  output_mode?: OutputPart[] | null;
   output_parts?: OutputPart[];
+  // Retired output values (both / rfc / all) met in config or saved state,
+  // each mapped to Notebook + Framework artefacts and announced once.
+  output_notices?: string[];
+  // The current / last run's per-stage model record.
+  model_usage?: StageUsage[];
   conventions_profile?: string;
+  // post69: the profile's notebook (v2 = rendered from the IIG rows)
+  notebook_version?: "v1" | "v2";
   iig_template?: string;
   playbook_template?: string;
-  frd_name?: string;
+  // 2026-10-16: null = none chosen (the demo contract is never preselected);
+  // frd_paired = chosen automatically for the STTM from the pair index
+  frd_name?: string | null;
   frd_chosen?: boolean;
-  frd_auto_paired?: { frd: string; rule: "pairing_map" | "ticket" | "name_stem" } | null;
-  vdd_auto_paired?: { vdd: string; rule: "pairing_map" | "ticket" | "name_stem" } | null;
-  frd_warning?: boolean;
+  frd_paired?: boolean;
+  frd_auto_paired?: { frd: string; rule: PairRule } | null;
+  vdd_auto_paired?: { vdd: string; rule: PairRule } | null;
+  // M8.2: pairings the content scoring could not decide (asked in the layout
+  // dialog when the run starts), and input roots whose listing failed.
+  pair_candidates?: Record<string, {
+    reason: string;
+    candidates: { name: string; score: number; signals: string }[];
+  }>;
+  input_errors?: Record<string, string>;
   error_hint?: {
     sttm: string;
     frd_used: string;
@@ -140,19 +416,81 @@ export interface FrdChoice {
   suggested: boolean;
 }
 
+// M9.3 addendum: choosing a document is a background job — each step has a
+// timeout; a late step is "timed_out" and the job "failed" with the reason.
+export interface SelectionJob {
+  id: number;
+  kind: "sttm" | "restore" | "frd_upstream";
+  name: string;
+  state: "running" | "done" | "failed";
+  // seconds: how long the step took (M15.6) — null while it is still running.
+  steps: { step: string; state: "running" | "done" | "failed" | "timed_out" | "warning";
+           detail: string; seconds: number | null }[];
+  error: { code: "not_found" | "timeout" | "failed" | "superseded"; message: string } | null;
+  pairing: { frd?: PairingOutcome; vdd?: PairingOutcome };
+  // steps that did not succeed but never discard the choice (pairing, and
+  // recording it in the state role)
+  warnings?: string[];
+  // M15.2: the job is done (STTM applied, Generate enabled) as soon as the
+  // workbook is classified; these pairs are still on their way.
+  pairing_pending?: ("frd" | "vdd")[];
+}
+
 export interface FrdChoicesResponse {
   sttm: string;
-  current: { label: string; chosen: boolean };
+  // label null = none chosen; paired = chosen automatically for the STTM
+  current: { label: string | null; chosen: boolean; paired?: boolean };
   upstream: FrdChoice[];
   upstream_error: string | null;
+  // upstream contract lookups are OFF by default; on, they refresh in the
+  // background ("loading") and this list never waits for them.
+  upstream_enabled?: boolean;
+  upstream_state?: "disabled" | "loading" | "ready" | "failed";
   local: string[];
   no_contract: string[];
+}
+
+// M9.3: what choosing an STTM paired (or asks), per kind — returned by the
+// select call itself and kept on the status.
+export interface PairingOutcome {
+  chosen: string | null;
+  rule: string | null;
+  reason: string;
+  scope: "same_folder" | "all";
+  folder: string | null;
+  // score: null when the payload carried none (rendered "—", never formatted raw)
+  candidates: { name: string; score: number | null; signals: string }[];
+  question: LayoutQuestion | null;
+  // candidates scored on their NAME alone (unreadable / not read in time)
+  unread?: string[];
+  // VDD candidates the background index has not reached yet (name-only for
+  // now; the pairing is re-scored and the chip updated when they are)
+  not_indexed?: string[];
+  // set when a re-scoring replaced the earlier automatic pick (or the likely name)
+  upgraded_from?: string | null;
+  // M15e: the name-only match SHOWN while the index decides — never applied
+  likely?: string | null;
+  // 2026-10-13: every file of the STTM's folder with its role + rule
+  folder_roles?: FolderRole[];
+  considered?: ConsideredDoc[];
+  // "VDD by content: <file>", a fuzzy name pair's reason
+  notes?: string[];
 }
 
 export interface SttmWorkbook {
   name: string;
   source: string;
+  // derived from the same record as DemoStatus.selection (display only — the
+  // chooser reads the status)
   selected: boolean;
+  selected_as?: "sttm" | "vdd" | null;
+  // M9.3: listing metadata only — the list never opens a workbook. `kind` is
+  // the background index's verdict by CONTENT; "classifying" until it exists,
+  // "unreadable" (with the reason) for a file that failed or timed out.
+  size?: number | null;
+  modified?: number | null;
+  kind?: "sttm" | "vdd" | "unclassified" | "classifying" | "unreadable";
+  kind_reason?: string;
 }
 
 export interface InputDocumentScan {
@@ -167,46 +505,10 @@ export interface InputDocumentScan {
   missing?: string[];
 }
 
-export interface SourceFileValue {
-  value: string;
-  synthetic: boolean;
-}
-
-export interface SourceFileFeed {
-  feed_name: string;
-  landing_root: SourceFileValue;
-  file_name_patterns: string[];
-  file_format: string | null;
-  delimiter: string | null;
-  frequency: string | null;
-  stage_target: string | null;
-  standard_target: string | null;
-  load_strategy: { stage: string; standard: string; synthetic: boolean };
-}
-
-export interface ConventionCheck {
-  source: string;
-  adls_location?: string;
-  target_schema?: string;
-  load_strategy_stg?: string;
-  load_strategy_std?: string;
-  object_format?: string;
-}
-
-export interface SourceFilesResponse {
-  frd_contract: string;
-  feeds: SourceFileFeed[];
-  shell_listing: string[];
-  shell_mode: "live" | "synthetic";
-  shell_reason: string | null;
-  shell_source: string | null;
-  shell_listed_at: string | null;
-  convention_check: ConventionCheck | null;
-}
-
 export interface DatabricksDocument {
   name: string;
-  size: number;
+  // null when the listing gave no size (rendered "— KB")
+  size: number | null;
   volume: string;
   // Server-side dedupe against the local input dirs:
   state: "fetchable" | "fetched" | "differs";
@@ -217,23 +519,11 @@ export interface DatabricksDocument {
   paired?: boolean;
 }
 
-export interface DatabricksPublishTarget {
-  available: boolean;
-  reason: string;
-  catalog?: string;
-  schema?: string;
-  volume?: string;
-  writable_prefix: string;
-}
-
-export interface DatabricksPublishResult {
-  published: boolean;
-  volume: string;
-  volume_created: boolean;
-  artifacts: { name: string; path: string; size_bytes: number }[];
-}
-
 export interface DatabricksDocumentsResponse {
+  // false when the volumes seam is not configured (M15b.5): 200 with empty
+  // lists and a reason; the UI hides the panel. Never an error.
+  configured?: boolean;
+  reason?: string;
   catalog: string;
   schema: string;
   documents: { frd: DatabricksDocument[]; sttm: DatabricksDocument[] };
@@ -277,39 +567,6 @@ export interface GovernanceChecksResponse {
   checks: GovernanceCheck[];
   summary: Record<GovernanceStatus, number>;
   absent_decks: string[];
-}
-
-export type ProvenanceBadge =
-  | "from_sttm"
-  | "from_sttm_unmapped"
-  | "from_frd"
-  | "from_faq"
-  | "from_standards"
-  | "synthetic"
-  | "needs_template";
-
-export interface MetadataSheetRow {
-  values: Record<string, string | number>;
-  badges: Record<string, { badge: ProvenanceBadge; tooltip?: string }>;
-  feed_slug?: string;
-}
-
-export interface MetadataSheetTab {
-  headers: string[];
-  rows: MetadataSheetRow[];
-  state?: string;
-}
-
-export interface MetadataSheetResponse {
-  layout_note: string;
-  run_label: string | null;
-  tabs: Record<string, MetadataSheetTab>;
-  coverage: {
-    derived: number;
-    synthetic: number;
-    needs_template: number;
-    total: number;
-  };
 }
 
 export interface PastLiveRun {
@@ -384,23 +641,288 @@ export interface FeedDetail extends FeedSummary {
 // A failed call carries its HTTP status: callers tell "not configured" (503,
 // render nothing) from "the workspace refused" (502, say so) — the two used
 // to collapse into one silent absence on the Databricks App.
+// ``detail``: the backend's readable error (an unhandled exception's JSON);
+// ``request``: "METHOD /path" of the call that failed — the card's "where" for
+// an HTTP error that carries no traceback.
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  detail: ErrorDetail | null;
+  request: string | null;
+  constructor(message: string, status: number, detail: ErrorDetail | null = null,
+              request: string | null = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.detail = detail;
+    this.request = request;
   }
 }
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// The message of a failed response: FastAPI's ``detail`` string, a 422's
+// validation list condensed to "field: msg" lines, else the status line.
+function errorMessage(body: any, res: Response): string {
+  const detail = body?.detail;
+  if (typeof detail === "string" && detail) return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d: any) => `${Array.isArray(d?.loc) ? d.loc.join(".") : "request"}: ${d?.msg ?? ""}`)
+      .join("; ");
+  }
+  return `${res.status} ${res.statusText || "error"}`.trim();
+}
+
+export function errorDetail(raw: any): ErrorDetail | null {
+  if (!raw || typeof raw !== "object" || typeof raw.type !== "string") return null;
+  return {
+    type: raw.type,
+    message: typeof raw.message === "string" ? raw.message : "",
+    where: typeof raw.where === "string" ? raw.where : "",
+    cause: typeof raw.cause === "string" ? raw.cause : null,
+    health: raw.health && typeof raw.health === "object" ? raw.health : undefined,
+    health_line: typeof raw.health_line === "string" ? raw.health_line : undefined,
+    request: typeof raw.request === "string" ? raw.request : undefined,
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+// GET /api/health (2026-10-07): every storage root the App reads, probed live.
+export type StorageRootState =
+  | "readable"
+  | "empty"
+  | "not_shared"
+  | "unset"
+  | "invalid"
+  | "error"
+  | "timeout";
+
+export interface StorageRoot {
+  env: string;
+  role: string;
+  value: string | null;
+  state: StorageRootState;
+  detail: string;
+}
+
+export interface HealthResponse {
+  status: "ok" | "degraded";
+  startup_error: string | null;
+  principal: string;
+  roots: StorageRoot[];
+}
+
+// Every failed call is an ApiError carrying what the error card shows: the
+// message, the backend's readable error when it sent one, and the request.
+// A response that is not JSON (a proxy's HTML page) still becomes one.
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const where = `${(init?.method ?? "GET").toUpperCase()} ${path.split("?")[0]}`;
   const res = await fetch(path, init);
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new ApiError(body?.detail ?? `${res.status} ${res.statusText}`, res.status);
+    throw new ApiError(errorMessage(body, res), res.status, errorDetail(body?.error), where);
   }
   return res.json();
 }
+
+// -- the status payload, normalized ONCE (M15b.2) --------------------------------
+// Consumers read the normalized shape only: optional pairing fields null-safe,
+// pairing_pending always an array, step seconds number | null, candidate
+// scores number | null. A field the backend leaves out or nulls can never
+// reach a render as ``undefined.toFixed``.
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function normalizeOutcome(raw: any): PairingOutcome {
+  const candidates = Array.isArray(raw?.candidates) ? raw.candidates : [];
+  return {
+    chosen: raw?.chosen ?? null,
+    rule: raw?.rule ?? null,
+    reason: typeof raw?.reason === "string" ? raw.reason : "",
+    scope: raw?.scope === "same_folder" ? "same_folder" : "all",
+    folder: raw?.folder ?? null,
+    candidates: candidates.map((c: any) => ({
+      name: String(c?.name ?? ""),
+      score: typeof c?.score === "number" && Number.isFinite(c.score) ? c.score : null,
+      signals: typeof c?.signals === "string" ? c.signals : "",
+    })),
+    question: raw?.question ?? null,
+    unread: Array.isArray(raw?.unread) ? raw.unread : [],
+    not_indexed: Array.isArray(raw?.not_indexed) ? raw.not_indexed : [],
+    upgraded_from: raw?.upgraded_from ?? null,
+    likely: typeof raw?.likely === "string" ? raw.likely : null,
+    folder_roles: Array.isArray(raw?.folder_roles)
+      ? raw.folder_roles.map((r: any) => ({
+          name: String(r?.name ?? ""), role: String(r?.role ?? ""), rule: String(r?.rule ?? ""),
+        }))
+      : [],
+    considered: Array.isArray(raw?.considered)
+      ? raw.considered.map((c: any) => ({
+          name: String(c?.name ?? ""),
+          folder: String(c?.folder ?? ""),
+          name_score: typeof c?.name_score === "number" && Number.isFinite(c.name_score)
+            ? c.name_score : null,
+          status: String(c?.status ?? ""),
+        }))
+      : [],
+    notes: Array.isArray(raw?.notes) ? raw.notes.map((n: any) => String(n)) : [],
+  };
+}
+
+function normalizePairing(raw: any): { frd?: PairingOutcome; vdd?: PairingOutcome } {
+  const out: { frd?: PairingOutcome; vdd?: PairingOutcome } = {};
+  if (raw?.frd) out.frd = normalizeOutcome(raw.frd);
+  if (raw?.vdd) out.vdd = normalizeOutcome(raw.vdd);
+  return out;
+}
+
+function normalizeJob(raw: any): SelectionJob | null {
+  if (!raw || typeof raw !== "object") return null;
+  const steps = Array.isArray(raw.steps) ? raw.steps : [];
+  return {
+    ...raw,
+    steps: steps.map((s: any) => ({
+      step: String(s?.step ?? ""),
+      state: s?.state ?? "running",
+      detail: typeof s?.detail === "string" ? s.detail : "",
+      seconds: typeof s?.seconds === "number" && Number.isFinite(s.seconds) ? s.seconds : null,
+    })),
+    error: raw.error ?? null,
+    pairing: normalizePairing(raw.pairing),
+    warnings: Array.isArray(raw.warnings) ? raw.warnings : [],
+    pairing_pending: Array.isArray(raw.pairing_pending) ? raw.pairing_pending : [],
+  };
+}
+
+function normalizeQuestion(raw: any): LayoutQuestion {
+  return {
+    ...raw,
+    key: String(raw?.key ?? ""),
+    reason: typeof raw?.reason === "string" ? raw.reason : "",
+    header: Array.isArray(raw?.header) ? raw.header : [],
+    candidates: Array.isArray(raw?.candidates) ? raw.candidates : [],
+    ...(Array.isArray(raw?.files) ? { files: raw.files.map(String) } : {}),
+  };
+}
+
+// One non-blocking owed value (status.inputs_needed): the answers file's
+// inputs: key, the question, and the feed whose workbook left the cell empty.
+export interface InputNeededItem {
+  key: string;
+  question: string;
+  feed: string;
+  // post47: "run" = once for the whole run (inputs.run), "feed" = inputs.feeds.<feed>
+  scope: "run" | "feed";
+  // 2026-10-15: a required environment value — blocking (exit 3 on the CLI)
+  required?: boolean;
+  // post59: a defaulted input's three-way choice (use_default / naming_standard /
+  // leave_blank), its proposal (shown, never applied until confirmed) and the
+  // template it was rendered from; the placeholder values for the live preview;
+  // "no naming standard loaded — placeholder" when the template is a SYN_ one
+  options?: InputChoice[];
+  proposed?: string;
+  template?: string;
+  tokens?: Record<string, string>;
+  placeholder?: string;
+  // post61: "profile_default" = the profile's / overlay's value, written when
+  // unanswered (`applied`) — shown as changeable, not an open input;
+  // "agent_proposal" = rendered by the agent, never applied until confirmed
+  kind?: "profile_default" | "agent_proposal";
+  applied?: string;
+}
+
+export type InputChoice = "use_default" | "naming_standard" | "leave_blank";
+
+// post59: a choice the BSA confirmed (status.input_choices) — applied by the next Generate
+export interface ConfirmedChoice {
+  choice: InputChoice;
+  standard?: string;
+}
+
+// The same rendering as codegen.input_choices.render: {placeholders} filled,
+// then (a name) every run of characters outside [A-Za-z0-9_] -> "_", upper case.
+export function renderTemplate(template: string, tokens: Record<string, string>,
+                               name = true): string {
+  const filled = template.replace(/\{([^{}]*)\}/g, (_m, key: string) =>
+    String(tokens[key] ?? "").trim());
+  if (!name) return filled.trim();
+  return filled.replace(/[^A-Za-z0-9_]+/g, "_").replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "").toUpperCase();
+}
+
+const CHOICES: InputChoice[] = ["use_default", "naming_standard", "leave_blank"];
+
+export function normalizeInputsNeeded(raw: any): InputNeededItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item: any) => item && typeof item.key === "string")
+    .map((item: any) => ({
+      key: item.key,
+      question: typeof item.question === "string" ? item.question : "",
+      feed: typeof item.feed === "string" ? item.feed : "",
+      scope: (item.scope === "run" ? "run" : "feed") as "run" | "feed",
+      required: item.required === true,
+      ...(Array.isArray(item.options) ? {
+        options: item.options.filter((o: any) => CHOICES.includes(o)) as InputChoice[],
+        proposed: typeof item.proposed === "string" ? item.proposed : "",
+        template: typeof item.template === "string" ? item.template : "",
+        tokens: item.tokens && typeof item.tokens === "object" ? item.tokens : {},
+        placeholder: typeof item.placeholder === "string" ? item.placeholder : "",
+      } : {}),
+      ...(item.kind === "profile_default" || item.kind === "agent_proposal"
+        ? { kind: item.kind } : {}),
+      ...(typeof item.applied === "string" && item.applied ? { applied: item.applied } : {}),
+    }));
+}
+
+function normalizeNeedsAnswers(raw: any): NeedsAnswerItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item: any) => item && typeof item.key === "string")
+    .map((item: any) => ({
+      key: item.key,
+      label: item.label === "QUESTION" ? "QUESTION" : "UNRESOLVED",
+      section: item.section === "gaps" ? "gaps" : "answers",
+      answer_as: ["band_layer", "column", "frd_cell", "gap"].includes(item.answer_as)
+        ? item.answer_as : "gap",
+      feed_name: item.feed_name ?? null,
+      sheet: item.sheet ?? null,
+      reason: typeof item.reason === "string" ? item.reason : "",
+      question: normalizeQuestion({ key: item.key, document: "frd", kind: "text",
+                                    ...(item.question ?? {}) }),
+    }));
+}
+
+export function normalizeStatus(raw: DemoStatus): DemoStatus {
+  const r: any = raw ?? {};
+  const pairCandidates: Record<string, { reason: string; candidates: { name: string; score: number | null; signals: string }[] }> = {};
+  for (const [kind, pending] of Object.entries(r.pair_candidates ?? {})) {
+    const p: any = pending;
+    pairCandidates[kind] = {
+      reason: typeof p?.reason === "string" ? p.reason : "",
+      candidates: normalizeOutcome({ candidates: p?.candidates }).candidates,
+    };
+  }
+  return {
+    ...r,
+    stages: Array.isArray(r.stages) ? r.stages : [],
+    selection: r.selection ?? { sttm: null, frd: null, vdd: null },
+    selection_job: normalizeJob(r.selection_job),
+    pairing: normalizePairing(r.pairing),
+    pair_candidates: pairCandidates,
+    input_errors: r.input_errors ?? {},
+    layout_questions: Array.isArray(r.layout_questions)
+      ? r.layout_questions.map(normalizeQuestion) : [],
+    needs_answers: normalizeNeedsAnswers(r.needs_answers),
+    needs_answers_inputs: r.needs_answers_inputs ?? null,
+    needs_answers_stale: r.needs_answers_stale === true,
+    inputs_needed: normalizeInputsNeeded(r.inputs_needed),
+    input_choices: r.input_choices && typeof r.input_choices === "object" ? r.input_choices : {},
+    error_detail: errorDetail(r.error_detail),
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+const statusRequest = (path: string, init?: RequestInit): Promise<DemoStatus> =>
+  request<DemoStatus>(path, init).then(normalizeStatus);
 
 export interface Layer2Transport {
   kind: "mock_locked" | "databricks_fmapi" | "anthropic" | "mock";
@@ -423,7 +945,16 @@ export interface LiveAvailability {
   transport?: Layer2Transport | null;
 }
 
+/** A generated file of a feed as an attachment (contained to the feed dir). */
+export const downloadHref = (slug: string, path: string) =>
+  `/api/feeds/${slug}/download?path=${encodeURIComponent(path)}`;
+
 export const api = {
+  health: () => request<HealthResponse>("/api/health"),
+  // The static half of /api/health (no storage probe) + the one-line form.
+  healthFacts: () => request<{ health_line: string }>("/api/health/facts"),
+  // post144: whether the state root carries the header logo (never in the repo)
+  branding: () => request<{ logo: boolean }>("/api/branding"),
   feeds: () => request<FeedsResponse>("/api/feeds"),
   feed: (slug: string) => request<FeedDetail>(`/api/feeds/${slug}`),
   generate: (feedSlug?: string) =>
@@ -437,6 +968,16 @@ export const api = {
       `/api/feeds/${slug}/file?path=${encodeURIComponent(path)}`,
     ),
   report: (slug: string) => request<{ markdown: string }>(`/api/feeds/${slug}/report`),
+  // post76: the deferred Layer 2, asked now (one model request per feed)
+  layer2: () =>
+    request<FeedsResponse & { asked: { feeds: number; rules: number; calls: number } }>(
+      "/api/demo/layer2",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      },
+    ),
   decide: (slug: string, index: number, decision: Decision, note?: string) =>
     request<{ review: { decision: Decision; note: string | null } }>(
       `/api/feeds/${slug}/candidates/${index}/decision`,
@@ -466,33 +1007,63 @@ export const api = {
     );
   },
   demoWorkbooks: () => request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbooks"),
+  reclassifyWorkbook: (name: string) =>
+    request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbook/reclassify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name }),
+    }),
+  // 202 + the job at once; progress and outcome are on /api/demo/status.
   selectWorkbook: (name: string) =>
-    request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbook", {
+    request<{ job: SelectionJob }>("/api/demo/workbook", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name }),
     }),
   clearWorkbook: () =>
     request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbook", { method: "DELETE" }),
+  // post141: Choose documents - the selection Cancel goes back to
+  beginChoosing: () => request<{ ok: boolean }>("/api/demo/choosing", { method: "POST" }),
+  cancelChoosing: () =>
+    request<{ restored: boolean }>("/api/demo/choosing/cancel", { method: "POST" }),
+  endChoosing: () => request<{ ok: boolean }>("/api/demo/choosing/done", { method: "POST" }),
   frdChoices: () => request<FrdChoicesResponse>("/api/demo/frd-choices"),
+  // local: selected on return; upstream: 202 + a job (like the STTM).
   selectFrd: (kind: "upstream" | "local", id: string) =>
-    request<{ selected: string; feeds: unknown }>("/api/demo/frd", {
+    request<{ selected?: string; feeds?: unknown; job?: SelectionJob }>("/api/demo/frd", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ kind, id }),
     }),
   clearFrd: () => request<{ selected: null }>("/api/demo/frd", { method: "DELETE" }),
-  setOutputMode: (mode: OutputMode | null) =>
-    request<DemoStatus>("/api/demo/output-mode", {
+  outputOptions: () => request<OutputPart[]>("/api/demo/output-options"),
+  // Past run folders (demo_<timestamp>) in the outputs role, and deleting them.
+  pastRuns: () => request<{ runs: string[] }>("/api/demo/runs"),
+  clearRuns: () =>
+    request<{ deleted: string[]; unloaded_current: boolean }>("/api/demo/runs/clear", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode }),
+      body: JSON.stringify({ confirm: true }),
+    }),
+  // post59: Confirm on the inputs panel — recorded, applied by the next Generate
+  confirmInputChoices: (choices: Record<string, ConfirmedChoice | null>) =>
+    statusRequest("/api/demo/input-choices", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ choices }),
     }),
   setOutputParts: (parts: OutputPart[]) =>
-    request<DemoStatus>("/api/demo/output-parts", {
+    statusRequest("/api/demo/output-parts", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ parts }),
+    }),
+  environment: () => request<EnvironmentOptions>("/api/demo/environment"),
+  setEnvironment: (body: EnvironmentChoice) =>
+    request<EnvironmentOptions>("/api/demo/environment", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
     }),
   generationOptions: () => request<GenerationOptions>("/api/demo/generation-options"),
   setGenerationOptions: (body: {
@@ -514,27 +1085,12 @@ export const api = {
   clearVdd: () => request<{ selected: null }>("/api/demo/vdd", { method: "DELETE" }),
   inputDocuments: () =>
     request<{ documents: InputDocumentScan[] }>("/api/demo/input-documents"),
-  sourceFiles: () => request<SourceFilesResponse>("/api/demo/source-files"),
-  metadataSheet: () => request<MetadataSheetResponse>("/api/demo/metadata-sheet"),
   inputRequirements: () =>
     request<InputRequirementsResponse>("/api/demo/input-requirements"),
   governanceChecks: () =>
     request<GovernanceChecksResponse>("/api/demo/governance-checks"),
   databricksDocuments: () =>
     request<DatabricksDocumentsResponse>("/api/databricks/documents"),
-  databricksPublishTarget: () =>
-    request<DatabricksPublishTarget>("/api/databricks/publish-target"),
-  databricksPublish: (body: {
-    feed_slug: string;
-    catalog: string;
-    schema_name: string;
-    volume: string;
-  }) =>
-    request<DatabricksPublishResult>("/api/databricks/publish", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...body, confirm: true }),
-    }),
   databricksFetch: (volume: string, name: string) =>
     request<{ fetched: string; dest: string }>("/api/databricks/fetch", {
       method: "POST",
@@ -542,17 +1098,42 @@ export const api = {
       body: JSON.stringify({ volume, name }),
     }),
   runLive: () =>
-    request<DemoStatus>("/api/demo/run-live", {
+    statusRequest("/api/demo/run-live", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ confirm: true }),
     }),
-  demoStatus: () => request<DemoStatus>("/api/demo/status"),
-  layoutAnswers: (body: { answers: Record<string, unknown>; proceed?: boolean; cancel?: boolean }) =>
-    request<DemoStatus>("/api/demo/layout-answers", {
+  demoStatus: () => statusRequest("/api/demo/status"),
+  // Cancel run: stop a run waiting on its questions, or drop the questions a
+  // stopped run left on the page — the page goes back to idle.
+  cancelRun: () => statusRequest("/api/demo/cancel", { method: "POST" }),
+  layoutAnswers: (body: {
+    answers: Record<string, unknown>; proceed?: boolean; cancel?: boolean; refresh?: boolean;
+  }) =>
+    statusRequest("/api/demo/layout-answers", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+    }),
+  // Re-run the last run's documents with the answers its held-back feeds
+  // need (status.needs_answers) — the layout-answers payload shape.
+  rerunWithAnswers: (answers: Record<string, unknown>) =>
+    statusRequest("/api/demo/rerun-with-answers", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ answers, confirm: true }),
+    }),
+  layoutRefresh: (enabled: boolean) =>
+    statusRequest("/api/demo/layout-refresh", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    }),
+  layoutAdvice: () =>
+    statusRequest("/api/demo/layout-advice", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm: true }),
     }),
   liveRuns: () => request<{ runs: PastLiveRun[] }>("/api/demo/live-runs"),
   loadLiveRun: (run: string) =>

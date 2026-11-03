@@ -1,0 +1,96 @@
+# Pair-4 environment overlay (multi-table fixture, 2026-10-07). SYNTHETIC
+# values only — the shape of config/overlays/acfc_env.yaml, none of its
+# values except the landing container, which the STTM's own File Location
+# names (mftlanding/inbound/…), the d1 catalog names the catalog_map
+# targets (d1_dlk / d1_std, as the brief states them) and the family's
+# SCHEMA_DRIFT_FLAG Y, which both real sheets carry (fixtures/acfc_shapes/README.md).
+# Tests load it with
+# load_config(path, overlays=[this file]); the suite runs with
+# CODEGEN_SKIP_ENV_OVERLAY=1, so nothing else is merged underneath.
+#
+# Owner map (docs/acfc/MULTI_TABLE_DESIGN.md §5): everything below is an
+# ENVIRONMENT value (the catalog map, connection ids, containers) or a CONVENTION
+# (path shapes, SRC_COLUMNS style) — never a per-feed fact.
+conventions:
+  # The STTM bands state LOGICAL catalogs (PR_DLK / PR_STD); this environment
+  # (d1) maps them. Applied to every emitted catalog, cited in the tooltip.
+  catalog_map: {PR_DLK: d1_dlk, PR_STD: d1_std}
+  profiles:
+    acfc_prx:
+      # The fallback for a band whose Catalog is blank — NOT used by pair 4
+      # (both bands state a catalog); deliberately different from the mapped
+      # values so the golden proves the band + catalog_map win.
+      default_catalog: {stage: syn_fallback_dlk, standard: syn_fallback_std}
+metadata:
+  templates:
+    iig_v2:
+      constants:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_CONNECTION_ID: "91"
+          METADATA_CONNECTION_ID: "92"
+          TGT_CONNECTION_ID: "93"
+          SRC_CONTAINER_NAME: mftlanding
+          TGT_CONTAINER_NAME: syn-dlk-stage-01
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_ADLS_CONNECTION_ID: "94"
+          METADATA_CONNECTION_ID: "92"
+          TGT_CONNECTION_ID: "93"
+          SRC_CONTAINER_NAME: syn-dlk-stage-01
+          TGT_CONTAINER_NAME: syn-dlk-std-01
+      constant_citations:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_CONNECTION_ID: &env "pair-4 environment overlay (fixtures/acfc_shapes/pair_4/config_overlay.yaml)"
+          METADATA_CONNECTION_ID: *env
+          TGT_CONNECTION_ID: *env
+          SRC_CONTAINER_NAME: *env
+          TGT_CONTAINER_NAME: *env
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_ADLS_CONNECTION_ID: *env
+          METADATA_CONNECTION_ID: *env
+          TGT_CONNECTION_ID: *env
+          SRC_CONTAINER_NAME: *env
+          TGT_CONTAINER_NAME: *env
+      # The CAQH-style family's conventions (2026-10-08): LOB codes, an unknown
+      # STGDELTA primary key blank (open), the generalized file pattern.
+      family_conventions:
+        lob: codes
+        stgdelta_unknown_primary_key: ""
+        stgdelta_object_name: generalized_file_pattern
+        schema_drift_flag: "Y"      # both real sheets say Y: the SD file-to-stage row (IIG test cells.xlsx, ADLS_DELTA_INGESTION_DETAILS) and the CAQH IIG
+        recycle_unstated: "N"       # the hand-written golden: N / NA / NA (no recycle stated)
+        citation: "CAQH-style family convention (pair-4 overlay)"
+      # A header-less pipe file: SRC_COLUMNS is positional (col<N>:<stage column>).
+      src_columns_style: positional
+      # {landing} = /mftlanding/inbound/membership/cob/northwind_benefits/,
+      # {landing_rel} = the same minus /mftlanding, {domain_path} = minus inbound/.
+      path_patterns:
+        FILE_ADLS_INGESTION_DETAILS:
+          TGT_ADLS_PATH: "{landing_rel}"
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_PATH: "{landing_rel}"
+          SRC_ADLS_ARCHVL_PATH: "/archive/{domain_path}"
+          TGT_ADLS_PATH: "/{domain_path}{stage_table}"
+          TGT_RJT_ADLS_PATH: "/{domain_path}reject/{reject_table}"
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_ADLS_PATH: "/{domain_path}"
+          SRC_ADLS_ARCHVL_PATH: "/archive/{domain_path}"
+          TGT_ADLS_PATH: "/{domain_path}{stage_table}"
+          TGT_RJT_ADLS_PATH: "/{domain_path}reject/{reject_table}"
+      path_citations:
+        FILE_ADLS_INGESTION_DETAILS:
+          TGT_ADLS_PATH: *env
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_PATH: *env
+          SRC_ADLS_ARCHVL_PATH: *env
+          TGT_ADLS_PATH: *env
+          TGT_RJT_ADLS_PATH: *env
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_ADLS_PATH: *env
+          SRC_ADLS_ARCHVL_PATH: *env
+          TGT_ADLS_PATH: *env
+          TGT_RJT_ADLS_PATH: *env
+      # The connection / container columns are environment values here, so
+      # they leave always_blank (lists REPLACE on merge — the full list).
+      always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, SRC_CONNECTION_ID,
+        TGT_STORAGE_ACCOUNT_NAME, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET,
+        DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID, TEMPLATE_ID, CREATED_DATE, UPDATED_DATE]

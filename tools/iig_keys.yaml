@@ -1,0 +1,295 @@
+# Natural keys for tools/iig_diff.py — how a golden IIG row finds its agent row.
+#
+# Per sheet: the columns whose (normalized) values identify a row. A sheet not
+# listed here is NOT paired (2026-10-12: key pairing only; --pair-mode position
+# is explicit and bannered). A key
+# that is not unique on either side is flagged; duplicates then pair in sheet
+# order (first golden occurrence with the first agent occurrence, ...).
+#
+# Sheet names match caselessly on their first 31 characters (Excel's limit), so
+# a framework table name (stgdelta_stddelta_ingestion_details) finds its IIG
+# sheet (STGDELTA_STDDELTA_INGESTION_DET).
+#
+# An OBJECT_ID in a key is replaced by the TABLE that row's object resolves to
+# in its own workbook (object_tables below) — ids are assigned, so a golden and
+# an agent run never share them. A row whose OBJECT_ID does not resolve is
+# not paired, listed in score.json (unresolved_object_ids).
+#
+# Checked against the iig_v2 headers (fixtures/acfc_shapes/pair_1/golden/) and
+# the iig_v1 SFMC reference (fixtures/reference/SFMC_IIG.xlsx) on 2026-10-11.
+# The brief's guesses RULE_NAME and NOTEBOOK_NAME are not IIG columns: the DQ
+# key uses RULE_CLASS (+ SOURCE_COLUMN), the notebook key
+# DATABRICKS_NOTEBOOK_NAME.
+sheets:
+  DATA_FACTORY_PIPELINE_SCHEDULE: [PIPELINE_NAME]
+  FILE_ADLS_INGESTION_DETAILS: [SRC_ROOT_DIR, TGT_ADLS_PATH]
+  ADLS_DELTA_INGESTION_DETAILS: [OBJECT_NAME, TGT_TABLE_NAME]
+  STGDELTA_STDDELTA_INGESTION_DET: [OBJECT_NAME, TGT_TABLE_NAME]
+  ADLS_FIXED_WIDTH_HANDLER: [SEGMENT, TGT_TABLE]
+  DATABRICKS_NOTEBOOK_DETAILS: [DATABRICKS_NOTEBOOK_NAME]
+  # OBJECT_ID -> its table. Several files loading ONE table (pair 1: four
+  # files, one table) make this key non-unique — flagged, paired in order.
+  DATA_QUALITY_RULES: [OBJECT_ID, RULE_CLASS, SOURCE_COLUMN]
+  EMAIL_TEMPLATE_CONFIG: [TEMPLATE_NAME, STATUS]
+  ALL_FILES_STATIC_INFORMATION: [FILE_NAME]
+
+# Where an OBJECT_ID's table comes from: per sheet, the column(s) naming the
+# table (first non-blank wins). A row resolves by (GROUP_ID, OBJECT_ID) — one
+# feed's ADLS group and STGDELTA group both number an object 1 — then by
+# OBJECT_ID alone when every source row carrying it names the same table.
+object_tables:
+  id_column: OBJECT_ID
+  group_column: GROUP_ID
+  sources:
+    ADLS_DELTA_INGESTION_DETAILS: [TGT_TABLE_NAME]
+    STGDELTA_STDDELTA_INGESTION_DET: [TGT_TABLE_NAME]
+    # Column set not seen yet (no RDBMS IIG in the repo): first present wins.
+    RDBMS_ADLS_INGESTION_DETAILS: [TGT_TABLE_NAME, SRC_TABLE_NAME, OBJECT_NAME]
+  # 2026-10-14 (D1 post44 item 5): a DATA_QUALITY_RULES row's OBJECT_ID resolves
+  # on its leg's sheet first - STDDelta rules on the stage -> standard objects, every
+  # other type on the file objects (the agent leaves GROUP_ID blank, and one feed's
+  # ADLS and STGDELTA objects both number 1); unresolved there, as before.
+  rule_type_column: RULE_TYPE
+  by_rule_type: {STDDelta: STGDELTA_STDDELTA_INGESTION_DET, "*": ADLS_DELTA_INGESTION_DETAILS}
+
+# THE IGNORED SET (agreed 2026-10-12 for the Venu validation; printed in every
+# report header): columns never scored, reported as needs_assignment — ids the
+# framework / engineer assigns, and the audit stamps. Case-insensitive globs.
+# CONNECTION_ID covers the IIG's SRC_ADLS_ / METADATA_ / TGT_CONNECTION_ID;
+# CRETAED_* is iig_v1's spelling of CREATED_*. Every OTHER *_ID column (e.g.
+# PARENT_PIPELINE_ID, CLAIM_TYPE_ID) IS scored.
+needs_assignment: [INVENTORY_ID, OBJECT_ID, PIPELINE_ID, GROUP_ID, CONNECTION_ID,
+                   "*_CONNECTION_ID", CREATED_BY, UPDATED_BY, CREATED_DATE, UPDATED_DATE,
+                   CRETAED_BY, CRETAED_DATE]
+
+# Columns whose values are never written to diff.xlsx (real user ids).
+withhold_values: [CREATED_BY, UPDATED_BY, CRETAED_BY]
+
+# Sheets never compared (besides any sheet whose name starts with "_").
+ignore_sheets: [REVIEW_SUMMARY]
+
+# ENVIRONMENT TOKENS (2026-10-13, round 6 class D, scorer-side): the agent runs
+# under the D1 environment overlay (config/overlays/acfc_env.yaml), the golden
+# is a PROD export. Every value listed for a token — any environment's — is
+# replaced by the token on BOTH sides of a cell before comparing; equal then
+# counts "normalized", never "exact". A value is a literal, a
+# `scrub_class:<name>` (that pattern of scripts/scrub_check.py, which already
+# names the prod storage prefix) or a `local:<name>`, read from the gitignored
+# codegen-state/env_tokens.yaml (prod catalog names never enter git). No prod
+# overlay exists in the repo, so the two catalogs are PLACEHOLDERS: until the
+# owner fills them, score.json / RUN.md list them "unresolved: local:<name>".
+environment_tokens:
+  # acfc_env.yaml ADLS_DELTA TGT_CONTAINER_NAME z-use-d1-dlk-stage-01
+  "<CLIENT_STORAGE_PREFIX>": [z-use-d1-dlk, "scrub_class:client_storage_prefix"]
+  # acfc_env.yaml catalog_map PR_DLK / default_catalog.stage
+  "<STAGE_CATALOG>": [d1_dlk, "local:stage_catalog"]
+  # acfc_env.yaml catalog_map PR_STD / default_catalog.standard
+  "<STANDARD_CATALOG>": [d1_std, "local:standard_catalog"]
+
+# ROW IDENTITY (2026-10-13, D1 pair_2: zero rows paired — the prod goldens name
+# pipelines / notebooks in the legacy convention, the agent in the EDO standard;
+# a NAME says how a thing is called, not what it is). The default pairing
+# (--pair-mode identity) pairs a golden row with the agent row that describes the
+# SAME THING: per sheet, the components below, every value normalized (case,
+# separators; a TABLE column also drops its schema prefix: stg_cm.x -> x).
+#   @feed  the feed a row belongs to. Agent: its workbook (one IIG per feed).
+#          Golden: its GROUP_ID / PIPELINE_ID / _source_group_ids looked up in
+#          group_index below (matched_table), matched to the agent feed whose
+#          workbook name or TGT_TABLE_NAME it is; else the one agent feed the
+#          row's file / table cells name.
+#   @flow  file_to_stg / stg_to_std (the index's flow_type). Golden: the index;
+#          else the sheet's fixed flow; else the flow rules. Agent: the sheet's
+#          fixed flow, else the flow rules (LAYER_NAME / PIPELINE_DESCRIPTION /
+#          PROCESS_NAME — semantic columns, never a generated name).
+#   @table OBJECT_ID -> its table (object_tables above), in its own workbook.
+#   @file  the row's FILE: the first of the sheet's file_columns (below) the row
+#          fills, normalized as a file name (file_name_tokens). Used ONLY to tell
+#          apart rows the other components leave equal (2026-10-14, D1 pair_12:
+#          18 CAQH ADLS rows, one per LOB file, share feed x flow x table) — a
+#          key unique without it pairs without it, so a file-naming difference
+#          never unpairs a row its table already identifies.
+# A component that EVERY row of one side leaves empty is dropped from that
+# sheet's identity (said in a warning) — e.g. the agent's iig_v2 notebook row
+# states no flow, the agent's ids are blank so @table never resolves there. A
+# row whose identity is still incomplete is left UNPAIRED and counted.
+# Derived from the template headers (config/config.yaml iig_v1 tabs + iig_v2
+# metadata.templates.iig_v2.tabs) and the real pair_2 golden's structure
+# (acfc-results round7/pair_2/golden_structure.md: one GROUP_ID = one feed x
+# one flow; schedule and EMAIL_TEMPLATE_CONFIG rows grouped by PIPELINE_ID,
+# notebook / DQ / ingestion rows by GROUP_ID; two email rows per pipeline). The
+# schedule sheet carries no file or table column: a pipeline IS its feed x flow
+# (one stage table per feed — group_index matched_table). The 199-IIG corpus is
+# on D1: tools/iig_identity_check.py reports, per sheet, how many golden rows
+# each identity resolves and how many repeat — run it there before trusting a
+# new sheet's identity.
+identity:
+  DATA_FACTORY_PIPELINE_SCHEDULE: ["@feed", "@flow"]
+  FILE_ADLS_INGESTION_DETAILS: ["@feed", "@flow"]
+  ADLS_DELTA_INGESTION_DETAILS: ["@feed", "@flow", TGT_TABLE_NAME, "@file"]
+  STGDELTA_STDDELTA_INGESTION_DET: ["@feed", "@flow", TGT_TABLE_NAME, "@file"]
+  ADLS_FIXED_WIDTH_HANDLER: ["@feed", TGT_TABLE, SEGMENT, COL]
+  DATA_QUALITY_RULES: ["@feed", "@table", SOURCE_COLUMN, RULE_CLASS]
+  DATABRICKS_NOTEBOOK_DETAILS: ["@feed", "@flow"]
+  EMAIL_TEMPLATE_CONFIG: ["@feed", "@flow", STATUS]
+  ALL_FILES_STATIC_INFORMATION: [FILE_NAME]
+
+# The columns naming a row's file, per sheet (identity @file; first non-blank).
+file_columns:
+  ADLS_DELTA_INGESTION_DETAILS: [SRC_FILE_NAME, OBJECT_NAME]
+  STGDELTA_STDDELTA_INGESTION_DET: [OBJECT_NAME, SRC_FILE_NAME]
+
+# A row's flow without the group index. `sheets`: every row of the sheet is
+# that flow. `rules`: the first rule whose column matches (case-insensitive
+# regex) decides. The values are the agent builders' own semantic cells:
+# iig_v1 LAYER_NAME (STAGE / STANDARD) and the notebook PROCESS_NAME
+# ("Stage Load for ..."), iig_v2 PIPELINE_DESCRIPTION (config.yaml
+# pipeline_roles: "File to Stage", "Stage to Standard", "Master", "Grand master").
+flow:
+  sheets:
+    ADLS_DELTA_INGESTION_DETAILS: file_to_stg
+    FILE_ADLS_INGESTION_DETAILS: file_to_stg
+    STGDELTA_STDDELTA_INGESTION_DET: stg_to_std
+  rules:
+    - {column: LAYER_NAME, match: "^stag", flow: file_to_stg}
+    - {column: LAYER_NAME, match: "^standard", flow: stg_to_std}
+    - {column: PIPELINE_DESCRIPTION, match: "file to stage", flow: file_to_stg}
+    - {column: PIPELINE_DESCRIPTION, match: "stage to standard", flow: stg_to_std}
+    - {column: PIPELINE_DESCRIPTION, match: "^grand master$", flow: grand_master}
+    - {column: PIPELINE_DESCRIPTION, match: "^master$", flow: master}
+    - {column: PROCESS_NAME, match: "^stage load", flow: file_to_stg}
+    - {column: PROCESS_NAME, match: "^standard load", flow: stg_to_std}
+    # 2026-10-15 (D1 post50): the corpus PROCESS_NAME shapes the agent writes since
+    # post45 ('<application>  Raw to stage load' / '<application>  stage to std load') -
+    # without them both notebook rows had no flow, one identity, and a single-feed
+    # workbook read as ONE notebook row (pair_12: stg_to_std "dropped").
+    - {column: PROCESS_NAME, match: 'raw to stag', flow: file_to_stg}
+    - {column: PROCESS_NAME, match: 'stage to (std|standard)', flow: stg_to_std}
+    # 2026-10-14 (D1 post44 items 3 / 4): a grand master / master row by its
+    # description anywhere in the text (the corpus: '<process> Grand Master
+    # Pipeline'), else by its name's role token (PL_GMSTR_ / PL_Gmstr_, PL_MSTR_):
+    # the agent's description is open until the D1 overlay sets it, and the
+    # rebuilt goldens carry the masters (tools/build_goldens.py).
+    - {column: PIPELINE_DESCRIPTION, match: 'grand\s*[-_ ]?\s*master', flow: grand_master}
+    - {column: PIPELINE_DESCRIPTION, match: '(?<![a-z])master(?![a-z])', flow: master}
+    - {column: PIPELINE_NAME, match: '(^|_)g(rand)?_?ma?st(e)?r(_|$)', flow: grand_master}
+    - {column: PIPELINE_NAME, match: '(^|_)ma?st(e)?r(_|$)', flow: master}
+
+# GROUP-LEVEL flows (2026-10-14, D1 post43 item 5): the agent writes a grand
+# master and a master pipeline per feed (6 schedule rows on pair_2); the golden
+# GROUP_ID workbooks carry none. An unpaired agent row of these flows, on a sheet
+# whose golden has no row of that flow, is "group-level rows: N (not scored)" -
+# never extra - until the corpus count (tools/iig_fill_rate.py --patterns,
+# masters per GROUP_ID) says whether prod keeps them per group or per domain.
+group_level_flows: [grand_master, master]
+
+# RULE DIAGNOSTICS (2026-10-14, D1 post43 item 6 - diagnostic only): the
+# DATA_QUALITY_RULES rows per RULE_TYPE x RULE_CLASS on each side and every row's
+# identity (console + score.json, D1 only; sheets.md the scrubbed class table),
+# and for every sheet the identity components' overlap (distinct values per
+# side, shared) - which component keeps rows apart.
+rule_diagnostics:
+  DATA_QUALITY_RULES: [RULE_TYPE, RULE_CLASS]
+
+# CONVENTION columns: values generated under a naming convention — the agent's
+# from config.yaml (engineering_standards job_name_pattern WF_... /
+# notebook_name_pattern NB_..., pipeline_roles PL_..., reject_table_suffix,
+# the email template named after the feed), the prod goldens' legacy names. Never
+# used to pair, never scored: status "convention", reported as their own count
+# (and how many differ) — expected to differ against legacy goldens.
+convention_columns: [DATABRICKS_NOTEBOOK_NAME, DELETE_DATABRICKS_NOTEBOOK_NAME,
+                     TEMPLATE_NAME, TGT_RJT_TABLE_NAME]
+
+# STATUS rows (2026-10-14, the framework owner): the email status set varies per
+# pipeline in the corpus (4 / 2 / 1 statuses) and the agent writes all four by default
+# (a run-level input the BSA trims) - an unpaired agent row whose STATUS the golden
+# does not use is "status not in golden", never extra.
+status_columns: {EMAIL_TEMPLATE_CONFIG: STATUS}
+
+# BSA-OWNED columns (2026-10-14, the framework owner's rule): the BSA assigns the
+# value; the agent leaves it blank (INPUT_NEEDED feeds.<feed>.pipeline_name.<flow>).
+# Never used to pair, never scored, never missing: status "bsa-owned", counted on
+# its own (cells, and how many the golden fills).
+bsa_columns: [PIPELINE_NAME]
+
+# post57 (D1 post55 pair_01): identity components that NAME a row. When one of
+# them differs and both sides are ONE feed and ONE flow, the rows the identity
+# leaves unpaired pair by feed + flow + row order ("order"): the name is one
+# mismatch cell, never a missing row plus an extra one.
+name_components: [TGT_TABLE_NAME, TGT_TABLE, "@file"]
+
+# post57: record-segment columns compare through the conventions profile's
+# segment_codes (config/config.yaml conventions.profiles.<profile>.segment_codes:
+# hddr / det / trlr <-> header / details / trailer), before pairing and scoring.
+segment_columns: {ADLS_FIXED_WIDTH_HANDLER: [SEGMENT]}
+segment_codes_profile: acfc_prx
+
+# Golden GROUP_ID / PIPELINE_ID -> flow_type + matched_table (repo-relative;
+# the files missing are skipped). --group-index replaces the list.
+group_index: [docs/acfc/iig_goldens/01_pair_group_index.csv,
+              docs/acfc/iig_goldens_round2/01_pair_group_index_addendum.csv]
+
+# CROSS-TEMPLATE SHEETS (2026-10-13): a golden sheet the agent's template does
+# not have, compared with the agent sheet that holds the same facts. Applies
+# only when the golden lacks the agent sheet AND the agent lacks the golden
+# one (an iig_v1 golden against an iig_v2 run). Reported as
+# "<golden sheet> → <agent sheet>" with paired-by counts like every other sheet.
+#   golden_files / agent_files  the columns naming a row's FILE (first non-blank
+#       wins). agent_files_from: when the agent sheet names no file itself, the
+#       files of the row's FEED (its workbook) as another agent sheet names them.
+#   columns  golden header -> agent header: ONLY the headers both templates
+#       have (header normalization: case, separators). Every other column is
+#       "not comparable" — reported per side, never missing / extra.
+# ALL_FILES_STATIC_INFORMATION (iig_v1, one row per FILE of the inventory) vs
+# FILE_ADLS_INGESTION_DETAILS (iig_v2, one row per FEED — the pair_1 golden: one
+# row for a four-file feed; it states no file name). A golden file row pairs
+# with the FILE_ADLS row of the agent feed whose ADLS_DELTA_INGESTION_DETAILS
+# SRC_FILE_NAME is that file (several golden files can pair with one feed row).
+# Scoped like every sheet (FeedScope): a golden file no agent feed names, that
+# names another feed of the golden, is out of scope.
+# Mapping derived from the two templates' headers (config/config.yaml
+# demo.metadata_sheet.tabs = iig_v1 ALL_FILES_STATIC_INFORMATION, metadata.templates.iig_v2.tabs
+# FILE_ADLS_INGESTION_DETAILS); pinned by tests/test_iig_diff_sheet_alias.py.
+# OBJECT_ID / CREATED_DATE / UPDATED_DATE are shared too but in the ignored set.
+sheet_aliases:
+  ALL_FILES_STATIC_INFORMATION:
+    agent_sheet: FILE_ADLS_INGESTION_DETAILS
+    golden_files: [FILE_NAME]
+    agent_files: [FILE_NAME, FILE_NAME_PATTERN, SRC_FILE_NAME]
+    agent_files_from: {sheet: ADLS_DELTA_INGESTION_DETAILS, columns: [SRC_FILE_NAME]}
+    columns:
+      OBJECT_ID: OBJECT_ID
+      domain: DOMAIN
+      subdomain: SUBDOMAIN
+      CREATED_DATE: CREATED_DATE
+      UPDATED_DATE: UPDATED_DATE
+
+# MFT-landed feeds (2026-10-14, the framework owner's rule 3): FILE_ADLS is empty
+# by rule. An agent workbook whose ADLS_DELTA rows name a marker as a path segment
+# in these columns is MFT: the golden's ALL_FILES file rows pair with the agent's
+# ADLS_DELTA rows (alias retargeted, on the file identity), and an empty agent
+# FILE_ADLS sheet reports "empty by rule (MFT)" - never missing, no score.
+mft:
+  markers: [mftlanding]
+  detect: {ADLS_DELTA_INGESTION_DETAILS: [SRC_CONTAINER_NAME, SRC_ADLS_PATH, TGT_ADLS_PATH]}
+  empty_sheet: FILE_ADLS_INGESTION_DETAILS
+  alias_golden_sheet: ALL_FILES_STATIC_INFORMATION
+  alias_agent_sheet: ADLS_DELTA_INGESTION_DETAILS
+  alias_agent_files: [SRC_FILE_NAME]
+
+# A file name as an identity: lowercased, directory and extension dropped, each
+# match of these (case-insensitive) regexes dropped wherever it sits (start,
+# middle, end), then separators dropped — so CCYY_MM = YYYY_MM = *, and
+# SD_X_CCYYMMDD.csv = SD_X_*.csv = SD_X* (the agent's wildcarded / prefix_star
+# SRC_FILE_NAME), and a CAQH-style YYYYMMDD_<n>_<n>_X_*_P_I_1_T.txt =
+# <n>_<n>_X_P_I_1_T* (pair_12, 2026-10-13: a date first, a wildcard inside).
+# The LOB / plan segment suffix (2026-10-14, D1 pair_12: ADLS 18 rows and
+# ALL_FILES -> FILE_ADLS 16 golden / 1 agent, 0 paired): the golden writes a
+# CAQH file <n>_<n>_X* (the suffix collapsed into its wildcard), the agent
+# <n>_<n>_X_P_I_1_T* — a trailing run of two or more one-character segments
+# (after the wildcard, so it runs last) is dropped on both sides: both are
+# <n><n>x. A one-letter segment alone (SD_X_CCYYMMDD) is kept.
+file_name_tokens:
+  - '(?<![a-z0-9])(?:ccyy|yyyy|yy|mm|dd|hh24|hh|mi|ss)(?:[_-]?(?:ccyy|yyyy|yy|mm|dd|hh24|hh|mi|ss))*(?![a-z0-9])'
+  - '(?<!\d)\d{6,8}(?!\d)'
+  - '[*?]+'
+  - '(?:[_-][a-z0-9]){2,}(?=[#_-]*$)'

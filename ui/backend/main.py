@@ -13,30 +13,35 @@ Two run modes (see ui/README.md):
 
 from __future__ import annotations
 
+import io
 import os
+import zipfile
 from collections import Counter
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 
 from codegen.config import load_dotenv
-from codegen.demo_sources import scan_reference_documents, source_files_payload
+from codegen.demo_sources import scan_reference_documents
 from codegen.governance_checks import RunFacts, governance_checks_payload
 from codegen.input_requirements import input_requirements_payload
-from codegen.metadata_sheet import (
-    metadata_sheet_payload,
-    workbook_bytes,
-    workbook_filename,
-)
+from codegen.storage import StorageError
 from ui.backend import databricks_routes, sharepoint_routes
-from ui.backend.demo import DemoRunner, LiveRunInProgress
+from ui.backend import errors as ui_errors
+from ui.backend.demo import (
+    DemoRunner,
+    LiveRunInProgress,
+    SelectionFailed,
+    SelectionInProgress,
+)
 from ui.backend.replay import (
     list_past_live_runs,
     list_replay_sets,
@@ -49,6 +54,7 @@ from ui.backend.service import (
     FeedRun,
     GenerationStore,
     NothingToGenerateError,
+    provider_of,
 )
 
 # Same .env resolution as the CLI. Inert while the UI hardwires dry_run=True
@@ -56,6 +62,59 @@ from ui.backend.service import (
 load_dotenv()
 
 CONFIG_PATH = "config/config.yaml"
+
+
+def _config_overlays() -> list[str]:
+    """The overlays load_config applies to CONFIG_PATH, in order."""
+    from codegen.config import overlay_paths
+
+    return [str(p) for p in overlay_paths(CONFIG_PATH)]
+
+
+def _app_version() -> str | None:
+    """The tree's pyproject version when ``codegen`` is imported from the
+    deployed tree's src/ (ui/backend/__init__.py puts it first), else the
+    installed distribution's — a stale wheel's metadata would lie about the
+    tree."""
+    import re
+    from importlib.metadata import PackageNotFoundError, version
+
+    import codegen
+    from ui.backend import REPO_ROOT, TREE_SRC, _from_tree
+
+    if REPO_ROOT is not None and TREE_SRC is not None and _from_tree(codegen.__file__, TREE_SRC):
+        match = re.search(r'^version\s*=\s*"([^"]+)"',
+                          (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"), re.M)
+        if match:
+            return match.group(1)
+    try:
+        return version("codegen-data-engineer-agent")
+    except PackageNotFoundError:
+        return None
+
+
+def _codegen_source_line() -> str:
+    """Which ``codegen`` this process runs and whether it knows the sections
+    the tree's config.yaml carries — the first thing to read when the App
+    fails at startup."""
+    import codegen
+    from codegen.build_info import build_text
+    from codegen.config import Config
+
+    supported = "iig_review" in Config.model_fields
+    return (f"codegen source: {codegen.__file__} version {_app_version() or 'unknown'} · "
+            f"{build_text()} · iig_review supported: {supported} · config: {CONFIG_PATH}")
+
+
+CODEGEN_SOURCE = _codegen_source_line()
+print(CODEGEN_SOURCE, flush=True)
+
+# post72: a CODEGEN_STATE_DIR on a UC volume is copied (Files API, read-only)
+# BEFORE the config loads, so the volume's overlays/<profile>.yaml applies;
+# the state line in lifespan names the volume and the copy.
+from codegen import state_mirror  # noqa: E402
+
+state_mirror.refresh()
 
 # An Apps deployment may start without config/fixtures in place — come up
 # with empty state and a clear message instead of crashing at import.
@@ -65,8 +124,35 @@ try:
     store = GenerationStore(CONFIG_PATH)
 except Exception as exc:  # noqa: BLE001 — surfaced via /api/feeds, never hidden
     store = None
-    startup_error = f"{type(exc).__name__}: {exc}"
+    startup_error = f"{type(exc).__name__}: {exc} [{CODEGEN_SOURCE}]"
 
+# 2026-10-13: the provider switch (codegen.reasoning.mode) — mock unless the
+# deployment SAYS live (CODEGEN_PROVIDER in app.yaml). Live that cannot run is
+# a startup error naming the unset setting; the App never quietly mocks.
+PROVIDER: str | None = None
+if store is not None:
+    from codegen.reasoning.mode import ProviderConfigError, check_live_config, provider_mode
+
+    try:
+        PROVIDER = provider_mode(store.config).text()
+        check_live_config(store.config)
+    except ProviderConfigError as exc:
+        store = None
+        startup_error = f"ProviderConfigError: {exc} [{CODEGEN_SOURCE}]"
+print(f"provider: {PROVIDER or 'unknown (no config)'}", flush=True)
+
+
+def _health_facts() -> dict:
+    """What this process runs with — the static part of GET /api/health and
+    the health line of every error card (ui/backend/errors.py)."""
+    from codegen.build_info import build_identity
+
+    return {"version": _app_version(), "build": build_identity(),
+            "codegen_source": CODEGEN_SOURCE, "provider": PROVIDER,
+            "config_overlays": _config_overlays(), "startup_error": startup_error}
+
+
+ui_errors.set_health_provider(_health_facts)
 
 runner: DemoRunner | None = DemoRunner(store) if store is not None else None
 
@@ -83,22 +169,85 @@ def _require_runner() -> DemoRunner:
     return runner
 
 
+def _refresh_state() -> None:
+    """post72: re-copy a volume CODEGEN_STATE_DIR before a generate request;
+    when its content changed, reload the config (the volume's overlay) so the
+    edit shows without a redeploy. A failed refresh keeps the previous copy."""
+    result = state_mirror.refresh()
+    if result is None:
+        return
+    if result.error:
+        print(f"state refresh failed, previous copy kept: {result.error}", flush=True)
+    elif result.changed and store is not None:
+        from codegen.config import load_config
+
+        store.config = load_config(CONFIG_PATH)
+        print("state changed on the volume — config reloaded; "
+              + state_mirror.describe(), flush=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Generate on startup so the dashboard is populated on first load.
     # Dry-run + skip-tests: mock Layer-2 provider, no Spark needed — the
     # same fast path the CLI's --dry-run --skip-tests takes.
+    overlays = _config_overlays()
+    print(f"UI starting — version {_app_version() or 'unknown'}; config overlays (in order): "
+          f"{' -> '.join(overlays) if overlays else '(none)'}")
+    # post56: where the environment profiles / ACFC overlay are read from (the
+    # App runs a staged copy; set CODEGEN_STATE_DIR when it is not the checkout)
+    from codegen.environments import state_dirs_line
+
+    print(state_dirs_line(), flush=True)
     if store is None:
         print(f"UI starting with EMPTY STATE — {startup_error}")
     else:
         try:
-            store.generate(dry_run=True, skip_tests=True)
+            store.generate(dry_run=True, skip_tests=True,
+                           output_mode=_app_default_parts(store.config))
         except Exception as exc:  # noqa: BLE001 — startup must not crash the app
             print(f"Startup generation failed — UI starts empty; POST /api/generate retries: {exc}")
     yield
 
 
 app = FastAPI(title="CodeGen / Data Engineer Agent — demo UI", lifespan=lifespan)
+
+# post159 (pentest APP-CSP-1): every response carries a Content-Security-Policy and
+# the usual hardening headers, so an XSS that slipped past the sanitiser could not
+# load or run script from elsewhere, nor call out. The built shell (dist/index.html)
+# has no inline script; inline STYLE attributes are React's, hence 'unsafe-inline'
+# for style only. frame-ancestors 'self': the App is opened at its own URL.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; "
+        "frame-ancestors 'self'; form-action 'self'; img-src 'self' data: blob:; "
+        "font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'"),
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "SAMEORIGIN",
+}
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:
+    """Any exception a route did not turn into an HTTP status: JSON the error
+    card renders (type + message, the traceback's innermost frame, the health
+    line), never Starlette's plain-text 500. ``detail`` keeps the one-string
+    form every other error response has. The exception is still logged in full
+    (Starlette re-raises it to the server after this response is sent)."""
+    detail = ui_errors.error_detail(exc)
+    return JSONResponse(status_code=500, content={
+        "detail": f"{detail['type']}: {detail['message']}",
+        "error": {**detail, "request": f"{request.method} {request.url.path}"},
+    })
 
 # SharePoint picker + confirm-gated publish. Registered before the "/" static
 # mount below (which would otherwise swallow these paths) and bound to the
@@ -128,6 +277,18 @@ def _decision_for(feed_slug: str, index: int, decisions: dict) -> dict:
     return entry if entry else {"decision": "pending", "note": None}
 
 
+def _notebook_path(run: FeedRun) -> str | None:
+    """post81: the written notebook, relative to the feed dir (what the file /
+    download routes take) — v1 ``<slug>.ipynb``, v2 ``notebook/<slug>.ipynb``;
+    None when none was written (framework only, or a blocking line withheld it)."""
+    marker = f"/{run.spec.feed_slug}/"
+    for path in run.written_files:
+        at = path.find(marker)
+        if path.endswith(".ipynb") and at >= 0:
+            return path[at + len(marker):]
+    return None
+
+
 def _summary(run: FeedRun, decisions: dict) -> dict:
     spec, gate = run.spec, run.gate
     counts = Counter(o.classification for o in run.outcomes)
@@ -154,8 +315,88 @@ def _summary(run: FeedRun, decisions: dict) -> dict:
         "candidate_count": len(run.candidates),
         "candidates_pending": pending,
         "files_written": len(run.written_files),
+        # post81: where the notebook is (the dashboard links it; no Layer-2 step)
+        "notebook": _notebook_path(run),
         "framework": run.framework,
+        # post76: {mode, review_candidates: pending | done | skipped | none, rules}
+        "layer2": run.layer2,
     }
+
+
+@app.get("/api/health")
+def health() -> dict:
+    """Liveness + what this process runs with: version, the codegen source
+    line, the config overlays applied (in order), the startup error when the
+    pipeline is down — and every storage root the App reads: env var, value
+    and a live probe (readable / empty / not shared with the App's service
+    principal / unset), what the documents panel shows when it lists
+    nothing."""
+    import codegen
+    from codegen.storage import default_client_factory
+    from ui.backend.health import probe_roots
+
+    factory = default_client_factory(store.config) if store is not None else None
+    facts = _health_facts()
+    return {"status": "ok" if store is not None else "degraded",
+            "version": facts["version"],
+            # {sha, branch, committed, source: git | stamp | env | none[, src_tree]}
+            "build": facts["build"],
+            "codegen_source": facts["codegen_source"],
+            "codegen_file": codegen.__file__,
+            "config_overlays": facts["config_overlays"],
+            "startup_error": facts["startup_error"],
+            **probe_roots(REPO_ROOT, client_factory=factory)}
+
+
+# post144: the client's logo, top-left in the header. It is never in git (CLAUDE.md:
+# no client logo or name in the repo): the App reads it from the state root, which
+# the state mirror copies with everything else - <state root>/branding/logo.<ext>,
+# the first of these that exists. Absent = the header shows the wordmark alone.
+BRANDING_DIR = "branding"
+LOGO_TYPES = {"logo.svg": "image/svg+xml", "logo.png": "image/png",
+              "logo.jpg": "image/jpeg", "logo.jpeg": "image/jpeg", "logo.webp": "image/webp"}
+
+
+def _logo_file() -> Path | None:
+    from codegen.config import state_root
+
+    folder = state_root() / BRANDING_DIR
+    return next((folder / name for name in LOGO_TYPES if (folder / name).is_file()), None)
+
+
+@app.get("/api/branding")
+def branding() -> dict:
+    """Whether the state root carries a logo (the header asks once, so a missing
+    logo never shows as a failed image request)."""
+    return {"logo": _logo_file() is not None}
+
+
+@app.get("/api/branding/logo")
+def branding_logo() -> Response:
+    logo = _logo_file()
+    if logo is None:
+        raise HTTPException(status_code=404, detail="no logo in the state root's branding folder")
+    return Response(logo.read_bytes(), media_type=LOGO_TYPES[logo.name],
+                    headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/api/health/facts")
+def health_facts() -> dict:
+    """The static half of /api/health — no storage probe, answers at once —
+    plus the one-line form the error cards print."""
+    facts = _health_facts()
+    return {**facts, "health_line": ui_errors.health_line(facts)}
+
+
+def _provider_label(config) -> str | None:
+    """post136: the sidebar badge's provider. A label only - the provider a run
+    USES is decided (and fails loudly) at startup and run time, never here - so
+    a config this cannot resolve gives None (the frontend's pre-post136 badge)
+    rather than failing /api/feeds, which every page reads."""
+    try:
+        return provider_of(config)
+    except Exception:  # noqa: BLE001 — a display label never breaks the feeds route
+        return None
 
 
 @app.get("/api/feeds")
@@ -166,6 +407,9 @@ def list_feeds() -> dict:
             "failures": [{"label": "startup", "error": f"pipeline unavailable — {startup_error}"}],
             "mode": "mock",
             "label": None,
+            "model_usage": [],
+            "provider": None,
+            "run_provider": None,
         }
     decisions = store.load_decisions()
     return {
@@ -173,7 +417,77 @@ def list_feeds() -> dict:
         "failures": [f.model_dump() for f in store.failures],
         "mode": store.mode,
         "label": store.label,
+        # post136: the provider the NEXT run uses (the sidebar badge) and the one
+        # the served run used (the banner) - "live" | "mock"; run_provider None =
+        # no Generate-page run served
+        "provider": _provider_label(store.config),
+        "run_provider": getattr(store, "run_provider", None),
+        # Per stage, what the served run did with a model (label included).
+        "model_usage": store.model_usage,
+        # post91: the run's combined set per STTM (codegen.run_artefacts)
+        # post98: narrowed to the files the App lists (config output.app_files)
+        "combined": _combined_sets(store, shown=store.config.output.app_files),
+        # post91: what the App offers (config output.app_options) - no notebook
+        # panel / tab when notebook is not offered
+        "app_options": list(store.config.output.app_options),
+        # post98: which framework files the App lists (config output.app_files)
+        "app_files": list(store.config.output.app_files),
+        # post101: the blank IDs the panel tells the engineer to assign ({} = all)
+        "assign_ids": dict(store.config.output.app_assign_ids),
     }
+
+
+# post91: the order the combined files are offered in
+_COMBINED_ORDER = ("ddl", "ddl_tests", "ddl_tests_xlsx", "iig", "review", "log")
+# post98: a combined-set kind -> its output.app_files name
+_COMBINED_APP_FILE = {"ddl": "ddl", "ddl_tests": "ddl_tests", "ddl_tests_xlsx": "ddl_tests",
+                      "iig": "iig",
+                      "review": "iig_review", "log": "log"}
+
+
+def _combined_sets(served, shown=None) -> list[dict]:
+    """The served run's combined sets ({sttm, files}) from its manifest — only
+    files that exist; [] for a run without one (an older run, startup feeds).
+    post98: ``shown`` (output.app_files) narrows the list the App DISPLAYS; the
+    download route passes none, so a hidden file is still served by name."""
+    from codegen.run_stages import read_stage_manifest
+
+    try:
+        blocks = read_stage_manifest(served.out_root).get("combined") or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    sets = []
+    for block in blocks:
+        folder = served.out_root / block.get("dir", "combined")
+        files = [block["files"][kind] for kind in _COMBINED_ORDER
+                 if kind in block.get("files", {}) and (folder / block["files"][kind]).is_file()
+                 and (shown is None or _COMBINED_APP_FILE[kind] in shown)]
+        if files:
+            sets.append({"sttm": block.get("sttm"), "files": files})
+    return sets
+
+
+@app.get("/api/combined/{name}")
+def download_combined(name: str) -> Response:
+    """post91: one file of the served run's combined set — only a name the
+    manifest lists, read from the run's combined folder."""
+    served = _require_store()
+    for block in _combined_sets(served):
+        if name in block["files"]:
+            from codegen.run_stages import read_stage_manifest
+
+            folder = next(served.out_root / b.get("dir", "combined")
+                          for b in read_stage_manifest(served.out_root)["combined"]
+                          if name in b.get("files", {}).values())
+            media = (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                if name.endswith(".xlsx")
+                else "text/markdown; charset=utf-8" if name.endswith(".md")
+                else "text/plain; charset=utf-8"
+            )
+            return Response(content=(folder / name).read_bytes(), media_type=media,
+                            headers={"Content-Disposition": f'attachment; filename="{name}"'})
+    raise HTTPException(404, f"no combined file named {name!r} in this run")
 
 
 @app.get("/api/feeds/{slug}")
@@ -185,6 +499,7 @@ def feed_detail(slug: str) -> dict:
     spec = run.spec
     return {
         **_summary(run, decisions),
+        "app_options": list(_require_store().config.output.app_options),   # post91
         "delimiter": spec.delimiter,
         "file_name_patterns": spec.file_name_patterns,
         "landing_location": spec.landing_location,
@@ -225,14 +540,22 @@ class GenerateRequest(BaseModel):
     skip_tests: bool = True
 
 
+def _app_default_parts(config) -> list[str]:
+    """post91: what the App's own (startup / Regenerate) generations write -
+    the profile's App default, never a part the App does not offer."""
+    return config.output.default_parts(config.conventions.profile)
+
+
 @app.post("/api/generate")
 def generate(req: GenerateRequest) -> dict:
     # Always mock here regardless of the request body: with a real key in the
     # backend env, honoring dry_run=False would allow billed calls without the
     # cost confirmation. The ONLY live path is /api/demo/run-live.
+    _refresh_state()
     try:
         _require_store().generate(
-            only_slug=req.feed_slug, dry_run=True, skip_tests=req.skip_tests
+            only_slug=req.feed_slug, dry_run=True, skip_tests=req.skip_tests,
+            output_mode=_app_default_parts(_require_store().config),
         )
     except NothingToGenerateError as exc:
         raise HTTPException(409, str(exc)) from exc
@@ -338,13 +661,14 @@ def run_live(req: LiveRunRequest) -> dict:
     if not available:
         raise HTTPException(400, f"live run unavailable: {reason}")
     _require_store()
+    _refresh_state()
     try:
         _require_runner().start_live()
     except LiveRunInProgress as exc:
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:  # nothing selected under Output
         raise HTTPException(400, str(exc)) from exc
-    return _require_runner().status()
+    return demo_status()
 
 
 class VddSelectRequest(BaseModel):
@@ -358,15 +682,18 @@ def select_vdd(req: VddSelectRequest) -> dict:
     runner = _require_runner()
     if "/" in req.name or "\\" in req.name or ".." in req.name:
         raise HTTPException(400, f"invalid workbook name {req.name!r}")
-    for _label, directory in runner._workbook_dirs():  # noqa: SLF001
-        candidate = directory / req.name
-        if candidate.is_file() and candidate.suffix.lower() == ".xlsx":
-            try:
-                runner.select_vdd(candidate)
-            except LiveRunInProgress as exc:
-                raise HTTPException(409, str(exc)) from exc
-            return {"selected": req.name}
-    raise HTTPException(404, f"no workbook named {req.name!r} in the input directories")
+    # M9.3: through the input catalog — the local directories AND the remote /
+    # extra input roots (a dictionary in a workspace pair folder used to be a
+    # 404); a failed download is a 424 with the reason, never a silent no-op.
+    try:
+        runner.select_vdd_by_name(req.name)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except SelectionFailed as exc:
+        raise HTTPException(424, str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(404, f"{exc} (the input directories)") from exc
+    return {"selected": req.name}
 
 
 @app.delete("/api/demo/vdd")
@@ -382,6 +709,7 @@ class LayoutAnswersRequest(BaseModel):
     answers: dict = {}
     proceed: bool = False
     cancel: bool = False
+    refresh: bool = False  # M9.1: re-resolve past every cached profile instead
 
 
 @app.post("/api/demo/layout-answers")
@@ -389,104 +717,226 @@ def layout_answers(req: LayoutAnswersRequest) -> dict:
     """The human's role placements for a run paused in ``needs_layout``
     (M2.5 §6): ``answers`` = ``{"sttm": {"<sheet>/<layer>/<role>": col},
     "frd": {"<field>": {table,row,col,…}}}``; ``proceed`` continues with the
-    remaining roles read as empty (gate-flagged); ``cancel`` stops the run."""
+    remaining roles read as empty (gate-flagged); ``cancel`` stops the run;
+    ``refresh`` re-resolves the layout past every cached profile (M9.1)."""
     from codegen.layout.resolve import parse_answers
 
     runner = _require_runner()
     try:
         parse_answers(req.answers)
-        runner.answer_layout(req.answers, proceed=req.proceed, cancel=req.cancel)
+        runner.answer_layout(req.answers, proceed=req.proceed, cancel=req.cancel,
+                             refresh=req.refresh)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except LiveRunInProgress as exc:
         raise HTTPException(409, str(exc)) from exc
-    return runner.status()
+    return demo_status()
+
+
+class InputChoicesRequest(BaseModel):
+    choices: dict = {}
+
+
+@app.post("/api/demo/cancel")
+def cancel_run() -> dict:
+    """Cancel run: stop a run waiting on its questions, or drop the questions
+    a stopped run left on the page; the page goes back to idle (the run's
+    folder stays until Clear past runs). 409 while a run works and asks
+    nothing."""
+    try:
+        _require_runner().cancel_run()
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return demo_status()
+
+
+@app.post("/api/demo/input-choices")
+def confirm_input_choices(req: InputChoicesRequest) -> dict:
+    """post59: the BSA's Confirm on the inputs panel — ``{"choices": {"<inputs
+    key>": {"choice": "use_default" | "naming_standard" | "leave_blank",
+    "standard": "<template>"} | null}}``. Recorded, never applied until the next
+    Generate (proposed is not applied). 400 on an unknown choice / placeholder."""
+    # post83: the FULL status (mode / label included), as GET /api/demo/status —
+    # the bare runner status made "View results" fall back to load-live-run (a re-run)
+    try:
+        _require_runner().confirm_input_choices(req.choices)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return demo_status()
+
+
+class Layer2Request(BaseModel):
+    confirm: bool = False  # one model request per feed (billed on a live transport)
+
+
+@app.post("/api/demo/layer2")
+def run_layer2(req: Layer2Request) -> dict:
+    """post76: ask the model about the served run's deferred feeds (the App
+    defers Layer 2 by default — ``reasoning.layer2_app``): one request per feed,
+    candidates added to the review. Confirm-gated; 400 when nothing is deferred."""
+    if not req.confirm:
+        raise HTTPException(400, "Layer 2 requires explicit confirm: true (billed API calls)")
+    _require_store()
+    runner = _require_runner()
+    try:
+        asked = runner.run_deferred_layer2()
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"asked": asked, **list_feeds()}
+
+
+class RerunRequest(BaseModel):
+    answers: dict = {}
+    confirm: bool = False
+
+
+@app.post("/api/demo/rerun-with-answers")
+def rerun_with_answers(req: RerunRequest) -> dict:
+    """Re-run the last run's documents with the answers its held-back feeds
+    need (``status.needs_answers``), given inline on the Generate page — the
+    same payload shape as layout-answers: ``{"sttm": {"<sheet>/band[n]/layer":
+    "stage", "<sheet>/<layer>/<role>": col}, "frd": {…}, "vdd": {…},
+    "gaps": {"<key>": {value, layer?, source?}}}``. The answers the last run's
+    layout dialog received are carried too. Confirm-gated like run-live (a
+    live run); 400 on a malformed answer or changed documents, 409 while a
+    run is in progress."""
+    if not req.confirm:
+        raise HTTPException(400, "a re-run requires explicit confirm: true (billed API calls)")
+    available, reason = _live_ready()
+    if not available:
+        raise HTTPException(400, f"live run unavailable: {reason}")
+    _require_store()
+    runner = _require_runner()
+    try:
+        runner.rerun_with_answers(req.answers)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return demo_status()
+
+
+class LayoutRefreshRequest(BaseModel):
+    enabled: bool = True
+
+
+@app.post("/api/demo/layout-refresh")
+def layout_refresh(req: LayoutRefreshRequest) -> dict:
+    """M9.1 "re-resolve layout": arm (or disarm) a one-shot bypass of every
+    cached layout profile for the NEXT run; its runtime cache entries are
+    overwritten by what the run resolves. 409 while a run is in progress
+    (its layout dialog has its own re-resolve action)."""
+    runner = _require_runner()
+    try:
+        runner.set_layout_refresh(req.enabled)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return demo_status()
+
+
+class LayoutAdviceRequest(BaseModel):
+    confirm: bool = False  # a model call (billed on a live transport)
+
+
+@app.post("/api/demo/layout-advice")
+def layout_advice(req: LayoutAdviceRequest) -> dict:
+    """Ask the Layer-2 transport for advice on the pending layout questions:
+    one call over the question texts, header strips and candidate labels
+    (never a data row). Confirm-gated like run-live; the mock lock or an
+    unavailable transport answers offline and the response names it."""
+    from codegen.layout.model import LayoutProviderError
+
+    if not req.confirm:
+        raise HTTPException(400, "layout advice requires explicit confirm: true (a model call)")
+    runner = _require_runner()
+    try:
+        runner.advise_layout(dry_run=False)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except LayoutProviderError as exc:
+        raise HTTPException(502, f"layout advice failed: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001 — transport errors surface, never a bare 500
+        raise HTTPException(502, f"layout advice failed: {type(exc).__name__}: {exc}") from exc
+    return demo_status()
 
 
 @app.get("/api/demo/status")
 def demo_status() -> dict:
     demo = _require_store().config.demo
+    runner_status = _require_runner().status()
+    # ONE snapshot of the selection record for every field below (M9.3
+    # addendum: the list's ``selected`` and the chooser disagreed on site).
+    chosen = runner_status["selection"]
     return {
-        **_require_runner().status(),
+        **runner_status,
         "mode": _require_store().mode,
         "label": _require_store().label,
-        "estimates": {
-            "calls": demo.estimated_calls,
-            "cost_usd": demo.estimated_cost_usd,
-            "seconds": demo.estimated_seconds,
-        },
+        # post67: what the last live runs for the run's conventions profile
+        # took (ui/backend/run_history.py) — the confirm dialog's ranges
+        "live_history": _require_runner().live_history.view(
+            _require_runner().live_history_profile()),
         # Which STTM workbook a live run would consume — file name only, so
         # the "choose an STTM" step is legible in the UI before firing.
         # sttm_chosen distinguishes an operator's explicit pick from the
         # config-default fallback, so the UI can demand the choice up front.
-        "sttm_workbook": _require_runner().effective_workbook().name,
-        "sttm_chosen": _require_runner().selected_workbook is not None,
+        "sttm_workbook": chosen["sttm"] or Path(demo.workbook).name,
+        "sttm_chosen": chosen["sttm"] is not None,
         # M3: the optional Vendor Data Dictionary (third input), file name only.
-        "vdd_name": (_require_runner().selected_vdd.name
-                     if _require_runner().selected_vdd is not None else None),
-        # Output mode a run would use (Option A notebook / Option B
-        # framework / both) — the runner's override or the config default.
-        # The generator mode the Output selection maps onto (None while
-        # nothing is selected) and the selection itself (the UI's toggles).
+        "vdd_name": chosen["vdd"],
+        # The outputs a run would produce (notebook and / or framework) —
+        # None while nothing is selected — and the selection itself.
         "output_mode": (
             _require_runner().output_mode if _require_runner().output_parts is not None
-            else _require_store().config.output.mode
+            else _require_runner().effective_output_parts()
         ),
         "output_parts": _require_runner().effective_output_parts(),
+        # post91: what the App offers (config output.app_options)
+        "app_options": list(_require_store().config.output.app_options),
         # M4/M5 generation options a run would use (override or config default).
         "conventions_profile": (_require_runner().conventions_profile
                                 or _require_store().config.conventions.profile),
         "iig_template": (_require_runner().iig_template
                          or _require_store().config.metadata.template),
+        # post69: which notebook the Notebook output is for that profile (v1 | v2)
+        "notebook_version": _require_store().config.conventions.get(
+            _require_runner().conventions_profile).notebook_version,
         "playbook_template": (_require_runner().playbook_template
                               or _require_store().config.playbook.template),
-        # The FRD side of the pair. frd_warning: the STTM is an explicit
-        # non-golden pick while the FRD is still the pinned demo golden —
-        # a feed-match failure is likely; the human decides, no auto-fix.
-        "frd_name": (_require_runner().selected_frd_label
-                     or _require_store().config.demo.frd),
-        "frd_chosen": _require_runner().selected_frd is not None,
+        # The FRD side of the pair (2026-10-16): only the one chosen or paired
+        # with the STTM — None = "none chosen"; the demo contract is never
+        # preselected. frd_paired: chosen automatically from the pair index.
+        "frd_name": chosen["frd"],
+        "frd_chosen": chosen["frd"] is not None,
+        "frd_paired": _require_runner().frd_auto_paired is not None,
         # Set when choosing the STTM selected its associated FRD automatically
         # ({frd, rule: pairing_map | ticket | name_stem}); None for a manual pick.
         "frd_auto_paired": _require_runner().frd_auto_paired,
         "vdd_auto_paired": _require_runner().vdd_auto_paired,
-        "frd_warning": (
-            _require_runner().selected_workbook is not None
-            and _require_runner().selected_workbook.name
-            != Path(_require_store().config.demo.workbook).name
-            and _require_runner().selected_frd is None
-        ),
         "error_hint": _require_runner().error_hint,
     }
 
 
 @app.get("/api/demo/frd-choices")
 def frd_choices() -> dict:
-    """FRD options for the chooser: upstream contracts (FRD→STTM agent's
-    table, with audit stamps and pairing vs the current STTM) and local
-    FRDs — contract JSONs AND FRD .docx documents (standalone doctrine,
-    2026-09-18: a .docx is extracted by ``codegen.extract.frd_docx`` when
-    the run starts). ``no_contract`` is kept for API compatibility and is
-    always empty now. Upstream unreachable → that section absent with a
-    reason, everything else still renders."""
-    from codegen.demo_sources import (
-        canonical_document_name,
-        document_stem,
-        pair_sttm_with_frd,
-        suggest_pairs,
-    )
-    from codegen.upstream_contracts import list_contracts
+    """FRD options for the chooser: local FRDs — contract JSONs AND FRD .docx
+    documents (standalone doctrine, 2026-09-18: a .docx is extracted by
+    ``codegen.extract.frd_docx`` when the run starts) — and, ONLY with
+    ``upstream.enabled``, the upstream contracts (FRD→STTM agent's table).
+
+    M9.3 addendum: this request NEVER calls the warehouse. Upstream rows are the
+    runner's snapshot, refreshed in a background task with a hard timeout
+    (``upstream_state``: disabled | loading | ready | failed — the chooser
+    polls while it is ``loading``). ``no_contract`` is kept for API
+    compatibility and is always empty."""
+    from codegen.demo_sources import pair_sttm_with_frd, suggest_pairs
 
     store = _require_store()
     runner = _require_runner()
     sttm_name = runner.effective_workbook().name
 
     upstream_rows: list[dict] = []
-    upstream_error: str | None = None
-    try:
-        contracts = list_contracts(store.config)
-    except Exception as exc:  # noqa: BLE001 — chooser stays usable offline
-        contracts, upstream_error = [], str(exc).splitlines()[0][:160]
+    snapshot = runner.upstream_snapshot()
+    contracts, upstream_error = snapshot["rows"], snapshot["error"]
     doc_ids = [row["doc_id"] for row in contracts]
     paired = pair_sttm_with_frd([sttm_name], doc_ids,
                                 explicit_map=store.config.demo.pairing_map)
@@ -500,17 +950,20 @@ def frd_choices() -> dict:
         })
 
     local = sorted(runner.local_frd_candidates())
-    del canonical_document_name, document_stem
     orphans: list[str] = []
 
     return {
         "sttm": sttm_name,
+        # 2026-10-16: none chosen unless chosen / paired — never the demo default
         "current": {
-            "label": runner.selected_frd_label or store.config.demo.frd,
+            "label": runner.selected_frd_label if runner.selected_frd is not None else None,
             "chosen": runner.selected_frd is not None,
+            "paired": runner.frd_auto_paired is not None,
         },
         "upstream": upstream_rows,
         "upstream_error": upstream_error,
+        "upstream_enabled": snapshot["enabled"],
+        "upstream_state": snapshot["state"],
         "local": local,
         "no_contract": orphans,
     }
@@ -522,44 +975,38 @@ class FrdSelectRequest(BaseModel):
 
 
 @app.post("/api/demo/frd")
-def select_frd(req: FrdSelectRequest) -> dict:
-    from codegen.upstream_contracts import UpstreamContractError, materialize
-
-    store = _require_store()
+def select_frd(req: FrdSelectRequest, response: Response) -> dict:
     runner = _require_runner()
     try:
         if req.kind == "upstream":
-            path, contract, meta = materialize(store.config, req.id, REPO_ROOT)
-            runner.select_frd(path, req.id)
-            feeds = [{
-                "feed_name": f.feed_name,
-                "stage": f"{f.stage_target.schema_name}."
-                         f"{','.join(f.stage_target.tables)}",
-                "standard": (f"{f.standard_target.schema_name}."
-                             f"{','.join(f.standard_target.tables)}"
-                             if f.standard_target.tables else None),
-            } for f in contract.feeds]
-            return {"selected": req.id, "kind": "upstream",
-                    "audited_at": meta["audited_at"], "feeds": feeds}
+            # A warehouse read: never awaited here. 202 + the job; the outcome
+            # ({selected, audited_at, feeds} or the error) is the status'
+            # ``selection_job``. Refused (403) while upstream.enabled is false.
+            try:
+                job = runner.start_upstream_frd(req.id)
+            except PermissionError as exc:
+                raise HTTPException(403, str(exc)) from exc
+            response.status_code = 202
+            return {"job": job, "kind": "upstream"}
         if req.kind == "local":
             # A local FRD is a .contract.json or an FRD .docx (extracted by
             # the runner when the run starts — standalone doctrine).
             if "/" in req.id or "\\" in req.id or ".." in req.id:
                 raise HTTPException(400, f"invalid contract name {req.id!r}")
-            for directory in (REPO_ROOT / store.config.contracts.dir,
-                              REPO_ROOT / "inputs" / "databricks",
-                              REPO_ROOT / "inputs" / "sharepoint",
-                              REPO_ROOT / "inputs" / "uploads"):
-                candidate = directory / req.id
-                if candidate.is_file():
-                    runner.select_frd(candidate, req.id)
-                    return {"selected": req.id, "kind": "local", "feeds": None}
+            # The contracts dir, the inboxes of the inputs role and the extra
+            # input roots (M8.1) — a remote document is downloaded on selection.
+            candidate = runner.fetch_frd_candidate(req.id)
+            if candidate is not None:
+                runner.select_frd(candidate, req.id)
+                return {"selected": req.id, "kind": "local", "feeds": None}
             raise HTTPException(404, f"no local contract named {req.id!r}")
         raise HTTPException(400, f"unknown kind {req.kind!r}")
-    except LiveRunInProgress as exc:
+    except (LiveRunInProgress, SelectionInProgress) as exc:
         raise HTTPException(409, str(exc)) from exc
-    except UpstreamContractError as exc:
-        raise HTTPException(502, str(exc)) from exc
+    except (StorageError, OSError) as exc:
+        # M9.3: the FRD stays as it was; the reason is the response AND the status.
+        failed = runner._fail_selection("frd", req.id, exc, "downloading it")  # noqa: SLF001
+        raise HTTPException(424, str(failed)) from exc
 
 
 _UPLOAD_MAX_BYTES = 25 * 1024 * 1024  # same cap as the SharePoint import
@@ -630,20 +1077,26 @@ async def upload_demo_document(
     else:
         raise HTTPException(400, f"unknown upload kind {kind!r}")
 
-    dest_dir = REPO_ROOT / "inputs" / "uploads"
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    from ui.backend import stores as ui_stores
+
+    config = _require_store().config
+    dest_dir = ui_stores.inbox_dir(config, "uploads", REPO_ROOT / "inputs" / "uploads")
+    dest_dir.mkdir(parents=True, exist_ok=True)      # repo dir or local working copy
     # Write-then-rename, same discipline as the SharePoint import.
     tmp = dest_dir / (name + ".part")
     tmp.write_bytes(payload)
     dest = dest_dir / name
     tmp.replace(dest)
+    ui_stores.push_input(config, "uploads", name)    # no-op for the local role
+    runner.refresh_inputs()
 
     try:
         if kind == "sttm":
-            runner.select_workbook(name)
-        else:
-            runner.select_frd(dest, name)
-    except LiveRunInProgress as exc:
+            # A job, like any STTM choice: selected once the status' job is done.
+            job = runner.start_selection(name)
+            return {"stored": name, "kind": kind, "selected": False, "job": job}
+        runner.select_frd(dest, name)
+    except (LiveRunInProgress, SelectionInProgress) as exc:
         raise HTTPException(409, str(exc)) from exc
     return {"stored": name, "kind": kind, "selected": True}
 
@@ -657,8 +1110,51 @@ def clear_frd() -> dict:
     return {"selected": None}
 
 
+@app.get("/api/demo/runs")
+def past_runs() -> dict:
+    """The run folders "Clear past runs" would delete (names only)."""
+    from ui.backend import stores
+
+    try:
+        return {"runs": stores.run_labels(_require_store().config)}
+    except Exception as exc:  # noqa: BLE001 — a remote listing error is a 502, not a 500
+        raise HTTPException(502, f"could not list the outputs role: {exc}") from exc
+
+
+class ClearRunsRequest(BaseModel):
+    confirm: bool = False   # deletion is permanent
+
+
+@app.post("/api/demo/runs/clear")
+def clear_past_runs(req: ClearRunsRequest) -> dict:
+    """Delete every past run folder (demo_<timestamp>) in the outputs role —
+    the remote copy too. Needs confirm: true; refused while a run is in
+    progress. Nothing else in the outputs role is touched."""
+    if not req.confirm:
+        raise HTTPException(400, "clearing runs deletes them permanently — send confirm: true")
+    try:
+        result = _require_runner().clear_runs()
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"clearing runs failed: {exc}") from exc
+    return result
+
+
+@app.get("/api/demo/output-options")
+def output_options() -> list[str]:
+    """The outputs a run can produce — exactly these (codegen.output_modes),
+    narrowed to what the App offers (post91: output.app_options)."""
+    from codegen.output_modes import OUTPUT_OPTIONS
+
+    offered = _require_store().config.output.app_options
+    return [o for o in OUTPUT_OPTIONS if o in offered]
+
+
 class OutputModeRequest(BaseModel):
-    mode: str | None = None  # notebook | framework | both | rfc | all; null = config default
+    # notebook | framework; a retired value (both / rfc / all) maps to both
+    # outputs with a one-time notice. null = config default
+    mode: str | None = None
 
 
 @app.post("/api/demo/output-mode")
@@ -673,8 +1169,8 @@ def select_output_mode(req: OutputModeRequest) -> dict:
 
 
 class OutputPartsRequest(BaseModel):
-    # any subset of notebook | framework | rfc | all; [] = nothing selected
-    # (a run is refused); null = the config default
+    # any subset of notebook | framework; [] = nothing selected (a run is
+    # refused); null = the config default
     parts: list[str] | None = None
 
 
@@ -694,6 +1190,37 @@ class GenerationOptionsRequest(BaseModel):
     conventions_profile: str | None = None
     iig_template: str | None = None
     playbook_template: str | None = None
+
+
+class EnvironmentRequest(BaseModel):
+    # name = one of the overlay's environments; custom = the "Other" box's
+    # values (containers.<layer>, storage_account, values.<name>); neither =
+    # back to the default
+    name: str | None = None
+    custom: dict[str, str] | None = None
+    custom_name: str | None = None
+    # 2026-10-15: the named profile's fields as edited on the form
+    overrides: dict[str, str] | None = None
+
+
+@app.get("/api/demo/environment")
+def environment_options() -> dict:
+    """2026-10-14: the run's environment — the overlay's choices (one
+    default), the choice in effect and its source (default / selected / custom)."""
+    return _require_runner().environment_options()
+
+
+@app.post("/api/demo/environment")
+def select_environment(req: EnvironmentRequest) -> dict:
+    try:
+        _require_runner().select_environment(name=req.name, custom=req.custom,
+                                             custom_name=req.custom_name,
+                                             overrides=req.overrides)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return _require_runner().environment_options()
 
 
 @app.get("/api/demo/generation-options")
@@ -718,7 +1245,8 @@ def select_generation_options(req: GenerationOptionsRequest) -> dict:
 
 @app.get("/api/feeds/{slug}/download")
 def download_generated_file(slug: str, path: str) -> Response:
-    """Binary download (framework workbooks / inserts) with containment."""
+    """Binary download (framework workbooks / inserts, the assembled
+    notebook) with containment."""
     if slug not in _require_store().runs:
         raise HTTPException(404, f"no generated feed named {slug!r}")
     try:
@@ -731,12 +1259,60 @@ def download_generated_file(slug: str, path: str) -> Response:
     media = (
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         if name.endswith(".xlsx")
+        else "application/x-ipynb+json" if name.endswith(".ipynb")
         else "text/plain; charset=utf-8"
     )
     return Response(
         content=payload,
         media_type=media,
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+# post90: every notebook of the loaded run in one zip (the Notebooks panel's
+# "Download all"). The notebooks stay separate files - nothing is merged or
+# wrapped; a feed without one (framework only, or withheld by a blocking line)
+# is named in README.txt so the bundle never looks more complete than it is.
+# Fixed entry timestamps: the same run gives the same bytes.
+_ZIP_DATE = (1980, 1, 1, 0, 0, 0)
+
+
+def notebooks_zip_bytes(runs) -> tuple[bytes, int]:
+    """(the zip, how many notebooks) for ``runs`` (feed slug -> run)."""
+    buffer = io.BytesIO()
+    included, missing = [], []
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for slug in sorted(runs):
+            path = _notebook_path(runs[slug])
+            if path is None:
+                missing.append(slug)
+                continue
+            name = Path(path).name
+            info = zipfile.ZipInfo(name, date_time=_ZIP_DATE)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, _require_store().read_generated_bytes(slug, path))
+            included.append(name)
+        lines = ["Notebooks generated in this run, one per feed (each runs on its own):", ""]
+        lines += [f"  {name}" for name in included]
+        if missing:
+            lines += ["", "Feeds with no notebook in this run (framework artefacts only, or",
+                      "withheld until a blocking question is answered):", ""]
+            lines += [f"  {slug}" for slug in missing]
+        info = zipfile.ZipInfo("README.txt", date_time=_ZIP_DATE)
+        info.compress_type = zipfile.ZIP_DEFLATED
+        archive.writestr(info, "\n".join(lines) + "\n")
+    return buffer.getvalue(), len(included)
+
+
+@app.get("/api/notebooks.zip")
+def download_all_notebooks() -> Response:
+    payload, count = notebooks_zip_bytes(_require_store().runs)
+    if not count:
+        raise HTTPException(404, "no notebook was generated in this run")
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="notebooks.zip"'},
     )
 
 
@@ -750,12 +1326,38 @@ class WorkbookSelectRequest(BaseModel):
     name: str
 
 
-@app.post("/api/demo/workbook")
+@app.post("/api/demo/workbook", status_code=202)
 def select_workbook(req: WorkbookSelectRequest) -> dict:
+    """Choose the STTM — **202 + a job, at once** (M9.3 addendum,
+    APP_CHOOSER_BUG: this request used to download, parse and pair before it
+    answered, and hung the App). Locate → download → classify → pair FRD → pair
+    VDD → record run in a background job, each step with a timeout; nothing is
+    selected until all have succeeded. ``GET /api/demo/status`` carries the job
+    (``selection_job``: state running | done | failed, the steps, ``error``
+    {code: not_found | timeout | failed, message}, ``pairing.frd`` /
+    ``pairing.vdd`` = {chosen, rule, reason, scope, candidates, question}) and
+    the one record of what is selected (``selection``). A failed job leaves the
+    STTM UNSELECTED (``selection_error``) — never the config default. 409 while
+    a run or ANOTHER workbook's selection is in progress; the same workbook
+    again while its job runs = **200 + that job** (``joined: true``); a job
+    older than every step's budget is stale and replaced."""
+    runner = _require_runner()
     try:
-        _require_runner().select_workbook(req.name)
-    except LiveRunInProgress as exc:
+        job = runner.start_selection(req.name, join=True)
+    except (LiveRunInProgress, SelectionInProgress) as exc:
         raise HTTPException(409, str(exc)) from exc
+    if job.get("joined"):
+        # The same workbook while its job still runs: idempotent — that job, 200.
+        return JSONResponse({"job": job}, status_code=200)
+    return {"job": job}
+
+
+@app.post("/api/demo/workbook/reclassify")
+def reclassify_workbook(req: WorkbookSelectRequest) -> dict:
+    """M9.3: read an ``unreadable`` workbook again (a person asked — the
+    background index never retries on its own)."""
+    try:
+        _require_runner().reclassify_workbook(req.name)
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
     return {"workbooks": _require_runner().workbook_choices()}
@@ -771,6 +1373,30 @@ def clear_workbook() -> dict:
     return {"workbooks": _require_runner().workbook_choices()}
 
 
+@app.post("/api/demo/choosing")
+def begin_choosing() -> dict:
+    """post141: "Choose documents" opened - remember the selection Cancel restores."""
+    try:
+        _require_runner().begin_choosing()
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True}
+
+
+@app.post("/api/demo/choosing/cancel")
+def cancel_choosing() -> dict:
+    """post141: Cancel - the selection as it was when the dialog opened."""
+    restored = _require_runner().cancel_choosing()
+    return {"restored": restored, "status": _require_runner().status()}
+
+
+@app.post("/api/demo/choosing/done")
+def end_choosing() -> dict:
+    """post141: Done - the new selection stands."""
+    _require_runner().end_choosing()
+    return {"ok": True}
+
+
 @app.get("/api/demo/input-documents")
 def input_documents() -> dict:
     """The documents card's data: reference documents + the FRD stand-in.
@@ -782,7 +1408,10 @@ def input_documents() -> dict:
     found document into the generator is the next step. The ``frd`` kind is
     unchanged: a scan of the SharePoint inbox for a real FRD contract.
     """
-    inbox = REPO_ROOT / "inputs" / "sharepoint"
+    from ui.backend import stores as ui_stores
+
+    inbox = ui_stores.inbox_dir(_require_store().config, "sharepoint",
+                                REPO_ROOT / "inputs" / "sharepoint")
 
     def scan(patterns: list[str]) -> list[str]:
         if not inbox.is_dir():
@@ -802,35 +1431,6 @@ def input_documents() -> dict:
             },
         ]
     }
-
-
-@app.get("/api/demo/source-files")
-def demo_source_files() -> dict:
-    """The "source files this run will read" panel + synthetic shell listing.
-
-    Display data only, rendered server-side (no path logic in TypeScript);
-    reads the demo FRD contract at request time and, when the real FRD .docx
-    is present in the input dirs, its Structural Metadata convention values —
-    nothing is cached to disk.
-    """
-    try:
-        return source_files_payload(_require_store().config, REPO_ROOT)
-    except FileNotFoundError as exc:
-        raise HTTPException(404, str(exc)) from exc
-
-
-def _metadata_sheet_inputs(store: GenerationStore):
-    """The current run's specs + unmapped rule texts, if any run is loaded."""
-    if not store.runs:
-        return None, None
-    specs = [run.spec for run in store.runs.values()]
-    unmapped = {
-        run.spec.feed_slug: {
-            o.rule_text for o in run.outcomes if o.classification == "unmapped"
-        }
-        for run in store.runs.values()
-    }
-    return specs, unmapped
 
 
 @app.get("/api/demo/governance-checks")
@@ -887,42 +1487,6 @@ def input_requirements() -> dict:
     config = _require_store().config
     return {"configured": _reference_documents_present(config),
             **input_requirements_payload(config, REPO_ROOT)}
-
-
-@app.get("/api/demo/metadata-sheet")
-def metadata_sheet() -> dict:
-    """Display-only preview of the ACFC metadata sheet (see codegen.metadata_sheet)."""
-    store = _require_store()
-    specs, unmapped = _metadata_sheet_inputs(store)
-    try:
-        return metadata_sheet_payload(
-            store.config, REPO_ROOT, specs=specs,
-            unmapped_by_slug=unmapped, run_label=store.label,
-        )
-    except FileNotFoundError as exc:
-        raise HTTPException(404, str(exc)) from exc
-
-
-@app.get("/api/demo/metadata-sheet.xlsx")
-def metadata_sheet_xlsx() -> Response:
-    """The same preview as a downloadable workbook — built in memory, never
-    written to disk on the serving path."""
-    store = _require_store()
-    specs, unmapped = _metadata_sheet_inputs(store)
-    try:
-        payload = metadata_sheet_payload(
-            store.config, REPO_ROOT, specs=specs,
-            unmapped_by_slug=unmapped, run_label=store.label,
-        )
-    except FileNotFoundError as exc:
-        raise HTTPException(404, str(exc)) from exc
-    return Response(
-        content=workbook_bytes(payload),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={
-            "Content-Disposition": f'attachment; filename="{workbook_filename(payload)}"'
-        },
-    )
 
 
 @app.get("/api/feeds/{slug}/file")

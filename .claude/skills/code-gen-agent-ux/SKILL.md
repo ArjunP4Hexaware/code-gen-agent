@@ -93,15 +93,61 @@ as a requirement, not a style preference.
     `dry_run=True, skip_tests=True` (the only billed path is the confirmed
     live endpoint).
 
+### Design pillars (post143, 2026-10-29 — the guided look)
+
+Taken from the STTM agent's App (the program's other agent) by Soham's decision;
+every screen keeps the doctrine above.
+
+1. **One job, one path.** The landing page is the action. A step strip
+   (Choose documents → Check the settings → Answer questions → Get the
+   results) says where the person is; it is computed from the run state, never
+   a separate page per step.
+2. **Plain words.** Headings say what to do; leads are one sentence; "the
+   agent", not the pipeline's internals. Engineering detail (requirement and
+   governance checks, rules compiled, the Layer-1/2 doctrine, Reset / Generate
+   all) lives in a folded "Details for the team".
+3. **Summary first, detail on demand.** Stat tiles first; folding sections
+   (Advanced, What the agent did, flag sections) for the rest.
+4. **Calm and light.** White header with the wordmark and the provider badge;
+   white sidebar (icons, pale-blue active pill); white cards, 14px corners, a
+   soft blue-tinted shadow on the light page; centred 900px column; 32px
+   brand-blue page titles.
+5. **Status as tint + words.** Pills (ok / warn / bad / info), cards with a
+   coloured left bar (green done, orange waiting, red failed), counts at a
+   card's top right. Colour never alone.
+6. **Uploads where they are needed.** A dashed drop zone on the Documents card
+   while the STTM or FRD is missing: an `.xlsx` uploads as the STTM, a `.docx` /
+   `.json` as the FRD (STTM first); any other file is refused before anything
+   is sent. "Choose documents…" opens the full chooser.
+7. **One action bar.** Secondary on the left ("Clear past runs…"), the big
+   primary on the right ("Generate"), why it is disabled in words, a hint
+   below ("Nothing runs until you confirm. A live run sends the documents'
+   content to the model.").
+8. **Accessible.** A 3px focus ring, `prefers-reduced-motion`, ≤ 75ch lines,
+   a file's Download button named for the file; below 760px the sidebar is a
+   drawer over the page that starts hidden on a first visit.
+
 ---
 
 ## Part 2 — Screens
 
 ### 2.1 Application shell
 
+> **post143 (current):** a sticky white header (72px, 3px `--accent` rule):
+> top-left, the client's logo when the state root carries one (post144:
+> `branding/logo.<ext>`, `GET /api/branding` → `{logo}`, the image at
+> `/api/branding/logo`; never in the repo), then the centred wordmark "CodeGen · Data Engineer Agent" / "From an approved
+> STTM and FRD to Databricks artefacts" (a link to Generate) and, right, the
+> provider badge (solid: LIVE `--critical`, MOCK hairline grey). Below it a
+> white 272px sidebar (hide / show kept) with "Generate a pipeline" and
+> "Results" (icons), then "Feeds in these results" with verdict dots; no
+> footer (its doctrine sentence is in Results → Details for the team). The
+> mode banner and error banner sit at the top of the main column. The
+> diagram below is the pre-post143 shell, kept as history.
+
 ```
 ┌──────────────────┬──────────────────────────────────────────────────────────┐
-│ SIDEBAR (dark)   │ MAIN (light, max-width 1240px, padding 28px 36px 64px)   │
+│ SIDEBAR (navy)   │ MAIN (light, max-width 1240px, padding 28px 36px 64px)   │
 │ 264px, sticky,   │                                                          │
 │ 100vh, scrolls   │ [error banner — only when the last API call failed]      │
 │                  │ [mode banner — only LIVE or REPLAY]                      │
@@ -127,14 +173,20 @@ as a requirement, not a style preference.
 └──────────────────┴──────────────────────────────────────────────────────────┘
 ```
 
-- **Brand block:** product name "CodeGen · Data Engineer Agent" (15px,
-  weight 650), sub-line "Contracts → Databricks pipelines" (12px muted),
-  then the **mode badge** (pill, 10.5px, weight 750, letter-spacing
-  0.08em): text is the mode upper-cased plus ` · <label>` when a label
-  exists. Title attribute carries the mode copy (see Part 4).
+- **Brand block:** a 4px light-blue (`--accent-light`) rule on top; product
+  name "CodeGen · Data Engineer Agent" (16px, weight 700), sub-line "Contracts → Databricks pipelines" (12px muted),
+  then the **mode badge** (2px-radius tag, 10.5px, weight 750, letter-spacing
+  0.08em; solid on the navy sidebar — see 4.1): the provider a run started NOW
+  would use (`/api/feeds` `provider`): `LIVE` (live red) or `MOCK` (grey), title
+  "Runs call the model when the documents need it; those calls are billed." /
+  "Runs use the mock provider: no model is called." Never the served result
+  set's mode (post136: that read MOCK after every deploy of a live App). An
+  older backend that omits `provider` gets the pre-post136 badge (mode
+  upper-cased + ` · <label>`).
 - **Nav:** section headers are 11px uppercase letter-spaced muted text
-  ("Overview", "Feeds"). Nav items are 13px rows with 8px radius, hover
-  = 6% white, active = 12% white + weight 600. "Generate" carries a right-aligned
+  ("Overview", "Feeds"). Nav items are 14px square rows with a 4px
+  left border, hover = 6% white, active = 12% white + weight 700 + a
+  light-blue (`--accent-light`) left bar. "Generate" carries a right-aligned
   10.5px hint ("STTM · FRD · VDD"). Feed items show the slug (ellipsised) and a right-aligned
   8px verdict dot.
 - **Footer:** the two-line doctrine sentence above, 11.5px muted.
@@ -142,12 +194,19 @@ as a requirement, not a style preference.
   - `error-banner` (red tint) reads "Backend error: <message>" when the
     feeds fetch failed.
   - `mode-banner` for LIVE (red tint) or REPLAY (blue tint): the mode
-    copy plus ` · <code>label</code>`.
+    copy plus ` · <code>label</code>`. A Generate-page run the mock answered
+    (mode `live`, `/api/feeds` `run_provider` `mock`) is a grey `mock-run`
+    banner: "MOCK RUN — generated now with the mock provider; no model was
+    called" — never "LIVE RUN". `mode` itself (and every behaviour keyed on
+    it) is unchanged.
   - **Generate-all confirm modal** (opened only when the current mode is
-    not mock): title "Replace the current LIVE|REPLAY results?", body
-    "This replaces the current live|replayed results (<label>) with a
-    fresh **mock** run.", buttons "Continue — run mock" (primary) / "Cancel".
-- **Routes:** `/` Dashboard · `/modes` Generate ·
+    not mock): title "Replace the current LIVE|MOCK RUN|REPLAY results?", body
+    "This replaces the current live|mock-run|replayed results (<label>) with a
+    fresh **dry-run** generate (a dry-run never calls a model). You can reload
+    them afterwards from the Generate page.", buttons "Continue — dry-run
+    generate" (primary) / "Cancel".
+- **Routes:** `/` Generate · `/results` Results (post144; `/` was the Dashboard and
+  `/modes` Generate until then — `/modes` now redirects to `/`) ·
   `/feeds/:slug` Feed detail (`/demo` removed 2026-09-18) (accepts `?tab=` one of `overview | rules |
   candidates | notebook | code | report`). Client-side routing with an
   `index.html` fallback so deep links survive a refresh on the App.
@@ -158,6 +217,18 @@ as a requirement, not a style preference.
   data URI). Document title "CodeGen · Data Engineer Agent".
 
 ### 2.2 Dashboard (`/`) — "Generation gate"
+
+> **post143 (current): "Results".** Centred title "Results" and one lead
+> ("Download the files, then review each feed's flags before the DDL and the
+> IIG go further." / none: "No results yet. …" + a "Generate a pipeline"
+> button). Then, unfolded: four stat tiles (feeds / passed / passed with flags /
+> failed — red when > 0); "Your files — Framework artefacts" (the approval note,
+> "Assign before loading", one row per file with a Download button named
+> "Download <file>"); Notebooks (rows, then "Download all (n) .zip"); Layer-2
+> review (when deferred); "Feeds (n)" with the feed cards. Folded at the foot:
+> "Details for the team" (rules compiled, pending review, the doctrine
+> sentence, Reset decisions, Generate all feeds — both confirms unchanged).
+> The rest of this section is the pre-post143 layout, kept as history.
 
 ```
 Generation gate                                   [Reset decisions] [Generate all feeds]
@@ -283,11 +354,32 @@ Overview | Rules (7) | Layer-2 review (1) | Notebook | Generated code (30) | Rep
    `debug_patterns`, `secrets`, `test_per_module` (+ `generated_tests`
    when run).
 2. *Flags — needs a human* (only when `flags` non-empty; hint "`n`
-   open"): a list; each row has an amber dot. A flag containing
-   "pending engineer approval" is the **HITL centrepiece**: the row gets
-   an amber background and a `PENDING ENGINEER APPROVAL` tag (10px,
+   open"): the flags in collapsible SECTIONS (post137, `ui/frontend/src/
+   flagGroups.ts` + `components/FlagSections.tsx`), grouped by each flag's
+   leading code, in this order — first matching rule wins; a section shows
+   only when it has flags; each summary = navy title, a count tag ("`n` flags",
+   "`n` sheets" for `iig_blank`) and a muted one-line hint:
+   1. **Rules an engineer must decide** (OPEN): every flag containing
+      "pending engineer approval" (the gate writes it for every unmapped rule,
+      Layer 2 on or off), `layer2_*`, `unimplemented_rule_has_candidate`,
+      `rule classified …`, `confirm item pending …`;
+   2. **From the documents (FRD / STTM / VDD)** (OPEN): `frd_` `sttm_` `vdd_`
+      `layout_` `lob_` `delimiter_` `file_pattern_` `format_` `length_`
+      `width_` `field_` … (the full prefix list is in `flagGroups.ts`);
+   3. **IIG workbook cells**: `iig_` (but `iig_blank`) `stgdelta_` `pipeline_`
+      `rfc_` `file_log_`; 4. **DDL and its test cases**: `ddl_` `sql_`;
+   5. **Metadata inserts**: `dml_` `metadata_` `config_`; 6. **Environment**;
+   7. **Generation and checks**: `generated` `ruff_` `sqlglot_` `load_mode_`
+      `test_`; then **Other** (any code no rule names — never dropped), then the
+      collapsed housekeeping families `faq_unanswered` and `iig_blank`.
+   "Expand all" / "Collapse all" (small secondary buttons, right) when there
+   are 2+ sections. Inside a section each row has an amber dot. A flag
+   containing "pending engineer approval" is the **HITL centrepiece**: the
+   row gets an amber background and a `PENDING ENGINEER APPROVAL` tag (10px,
    weight 750, warning background) before the text. Flag strings come
-   verbatim from the gate (see Part 4 copy bank).
+   verbatim from the gate (see Part 4 copy bank); grouping never edits one.
+   On the 12 ACFC pairs (2026-10-28) every flag lands in a named section
+   ("Other" empty).
 3. *Source contracts* (hint "provenance embedded in every generated
    file"): definition list — FRD name + `sha256 <hash>` line; STTM name
    (+ `synthetic` tag) + sha256; File patterns (one `<code>` per line);
@@ -375,6 +467,41 @@ tables bordered, code inline chips). "Loading report…" while pending.
 
 ### 2.4 Generate (`/modes`) — was "Run modes" until the 2026-09-18 ACFC trim
 
+> **post143 (current): the guided page — the App's landing page since post144
+> (`/`; `/modes` redirects to it, Results moved to `/results`).** Centred "Generate a pipeline from
+> your STTM and FRD" + lead, the step strip (Part 1 pillar 1: step 1 while no
+> STTM / FRD or a selection runs; 2 when chosen; 3 while running, paused or
+> blocked; 4 after a completed run), then top to bottom (post152: the run card
+> moved under the action bar, see below): the **run card**
+> (only once a run exists: "Generating…" / "The agent needs your answers" /
+> "Answer the blocking questions" / "The run didn't finish" / "Your results
+> are ready", the state sentences of §4.2, the inputs-needed and
+> answers-needed panels, the layout questions with their buttons, "What the
+> agent did" folded once done, "View results →"); **1. Documents** ("n of 2
+> required chosen", the drop zone while STTM or FRD is missing, one row each
+> for STTM / FRD / VDD with Clear, the pairing and folder notes,
+> "Choose documents…"); **2. Settings** (the output badge, "A run will use",
+> output toggles when more than one, "Advanced" folded: the environment
+> (post147; named on the summary, open when a required value is missing),
+> conventions / IIG / playbook selects and Re-resolve layout); the action bar;
+> "Details for the team" folded (the requirement and governance tables).
+> **post152:** the run card renders directly UNDER the action bar (where the person
+> pressed Generate) and is scrolled into view when the run starts, pauses for
+> answers or ends — never at the top of the page. The
+> chooser is a 640px dialog. The confirm button reads "Confirm — run live"
+> only for a live transport, else "Confirm — generate with the mock". The
+> text below describes the pre-post143 card, kept as history.
+>
+> **post146:** while the run works (running or paused) the run card shows a
+> progress bar under its heading: a 12px `--accent` fill on an `--accent-tint`
+> track, the % beside it, the current step in plain words under it
+> (`role=progressbar`, `aria-valuetext` "<n>% — <step>"). Floors per known step
+> (pairing 2, resolving layout 5, layout recognizer 15, FRD 22, VDD 28, workbook
+> 32, contracts 40, feeds 45–85 split by `feed {n, of}`, layer2 87, model usage
+> 90, storing 93, publishing 97); inside a step it creeps toward the next floor,
+> paced by completed runs' wall-clock; never backwards; "Waiting for your
+> answers" while paused; 100 only when done.
+
 ONE full-width card. Page head: `h1` "Generate a pipeline", subtitle
 "Choose the documents, pick the output, generate. Every run ends on the
 dashboard with its human review queue." A red error banner above the card
@@ -384,10 +511,13 @@ On mount the page fires, in parallel: `liveAvailable` (with the detected
 Layer-2 `transport`), `demoStatus`, `generationOptions`, `sourceFiles`,
 `inputRequirements`, `governanceChecks`. Everything is a live read.
 
-Card order, top to bottom: the transport line ("Model transport: Databricks
-Foundation Model serving endpoint `<endpoint>` (<model>). Detected by
-DATABRICKS_APP_PORT (Databricks App runtime)." — or the Anthropic / mock
-variants); one hint sentence; **Choose documents…** (primary) with the
+Card order, top to bottom: the transport line in plain words (post136) —
+"**A run will use:** Claude Opus 5.5, through Databricks. A model is called
+only when the documents need it; those calls are billed." (Anthropic: "…,
+through the Anthropic API. …"; mock / locked: "the mock provider. No model is
+called and nothing is billed.") — with the detection detail (transport label,
+"Detected by <setting>", the runtime, any override) under a collapsed
+"How this was chosen"; one hint sentence; **Choose documents…** (primary) with the
 STTM / FRD / VDD status + a Clear each; the source-files table; **Output**
 mode buttons + the conventions-profile / IIG-template / playbook-template
 selects; the Generate button and run progress (layout dialog included);
@@ -510,7 +640,7 @@ block "Live is unavailable: <reason from the backend> (provider: <p>)".
 The reason is provider-specific ("Databricks workspace config does not
 resolve", "databricks.serving_endpoint is not configured", "no
 ANTHROPIC_API_KEY in the backend env") — never hard-code one. Otherwise a
-primary button "Generate from this STTM…" (disabled until an STTM is
+primary button "Generate Documents" (disabled until an STTM is
 chosen — tooltip "Choose an STTM workbook first" — and while running,
 where it reads "Live run in progress…"). Click opens the **cost
 confirmation modal** (§2.4.5).
@@ -518,8 +648,8 @@ confirmation modal** (§2.4.5).
 **Run progress** (shown once `status.state !== "idle"`):
 
 - Lead hint: running → "Running — stages appear as they start:"; done →
-  "Last live run completed."; failed → "Last live run FAILED — nothing
-  was published."
+  "Last run completed."; failed → "Last run FAILED — nothing
+  was published." (post136: "Last run", whatever the provider)
 - Failed: red banner with `status.error`; when `error_hint` exists, add
   its message and a secondary button `Choose companion FRD "<doc id,
   middle-truncated to 36>"` which selects that upstream FRD and reopens
@@ -610,18 +740,47 @@ bottom:
      FRD `.docx` (standalone doctrine, 2026-09-18).
    - no-contract rows: retired — `no_contract[]` is always empty now that
      a .docx is selectable; the frontend block remains for API compatibility.
-8. Footer button reads **"Done"** once an STTM is chosen, **"Cancel"**
-   before.
+8. Footer (post141, Aruna): two buttons, pinned to the bottom of the dialog
+   so they stay in view (`.modal-actions`, sticky, hairline above): **"Done"**
+   (primary; disabled until an STTM is chosen and while a pick is still
+   selecting) keeps the selection — `POST /api/demo/choosing/done`;
+   **"Cancel"** puts back the documents chosen when the dialog opened
+   (STTM, FRD, VDD and their pairing; a pick still downloading is superseded)
+   — `POST /api/demo/choosing/cancel`, then a status read. Opening the dialog
+   calls `POST /api/demo/choosing` (the backend remembers the selection). A
+   pick still applies at once, as before; only Cancel undoes it.
 
 #### 2.4.5 Modal — cost confirmation
+
+> **post145:** under a live transport the measured headline is labelled
+> "Pairs the agent has mapped before:" (those runs make no layout call, so they
+> read 0 calls), and a blue note follows (`data-testid=live-estimate-new-pair`):
+> "A pair the agent has not seen before costs more on its first run: the model
+> maps where things are in each document (one call per document — STTM, FRD,
+> and the VDD if chosen): estimated ≈ 6–8 DBU (rounded up on purpose). Later runs of that
+> pair reuse the mapping and make no call." Measured runs replace the estimate
+> ("typically n calls, ≈ a–b DBU (measured from N runs; <rate source>)"): the
+> recorded runs whose `layout` stage sent FM API calls, tokens ×
+> `reasoning.dbu_rates`; the estimate is `demo.new_pair_layout_estimate`; with
+> neither the note says "no DBU figure is configured" — never a made-up number.
 
 Title "Generate a pipeline from this STTM?". Body: "Input:
 `<workbook>`"; then either "This deployment is **locked to the mock
 provider** — the run makes **zero model calls** (deterministic mock
 candidates)." or "This makes real, billed Claude calls through the
 Databricks serving endpoint:" (FMAPI) / "This makes real, billed
-Anthropic API calls:" (Anthropic) followed by "**~3 calls · ≈ $0.10 ·
-~20s**" (numbers from `status.estimates`). Then "Output is isolated to
+Anthropic API calls:" (Anthropic) followed by the measured ranges of the
+last live runs for the run's conventions profile (post67, `status.live_history`,
+`ui/frontend/src/liveEstimate.ts`): "**typically 1½–2½ min · 3–5 calls ·
+≈ $0.10–0.15 at Anthropic list price; Databricks bills in DBUs**" ("at this
+workspace's rate" once `reasoning.prices.databricks_fmapi` has the model) —
+wall-clock first — and "Measured from N runs (profile P; <price row source>)."
+Ranges come from completed runs (PASS / PASS_WITH_OPEN_INPUTS) only; under
+3 of them = "**no history yet for completed runs**", never a constant.
+NEEDS_ANSWERS / GATE_FAIL runs, when any exist, add a second line "runs that
+stopped for answers: typically 20–40 s". Dollars only from runs whose tokens
+were measured and priced (`reasoning.prices`); none recorded = calls +
+wall-clock only. Then "Output is isolated to
 its own run directory; the tracked replay fixtures and default output
 are never touched." and, depending on `frd_chosen`: "Client documents in
 play: live runs on client STTM/FRD pairs are permitted only per the
@@ -696,39 +855,46 @@ agent never inserts unapproved rows."
 
 ### 2.8 Shared primitives
 
-- **VerdictChip:** pill, 12px weight 650, icon + label. PASS = check
+- **VerdictChip:** 2px-radius tag, 12px weight 650, icon + label. PASS = check
   glyph, green tint; PASS WITH FLAGS = flag glyph, amber tint; FAIL = ×
   glyph, red tint. **VerdictDot:** 8px circle in the status colour with
   the label as title.
-- **ClassBadge:** outlined pill, 11.5px weight 600, 7px identity dot +
+- **ClassBadge:** outlined 2px-radius tag, 11.5px weight 600, 7px identity dot +
   label (`mappable`, `orchestration`, `notification`, `out of scope`,
   `flagged`, `unmapped → L2`).
-- **StatTile:** surface card; 11.5px uppercase muted label; 26px weight
-  650 value; 12px hint.
+- **StatTile:** surface card; 11.5px uppercase muted label; 28px weight
+  700 value in `--heading`; 12px hint.
 - **Pill:** outlined 11.5px weight 600; variants `grounded` (green),
   `ungrounded` (red), `synthetic` (amber), `req-*`, `gc-*`.
-- **Buttons:** 13px weight 550, 8px radius, 7px×14px padding; `.primary`
-  = deep accent fill, white text; `.approve` green outline; `.reject`
+- **Buttons:** 14px weight 600, square, 8px×16px padding. Default = ACFC
+  secondary (white, 1px accent border, accent text, accent-tint hover);
+  `.primary` = accent fill, white text, `--accent-hover` (navy) on hover. A
+  `<button>` with no class (inline actions, e.g. "Change defaults") is a small
+  secondary (13px, 2px×10px); `.approve` green outline; `.reject`
   red outline; disabled = 55% opacity. Spinner = 13px ring.
-- **Panel:** surface, 1px border, 10px radius; `.panel-head` (13px×18px
-  padding, hairline below, `h2` 14px + right-aligned 12px muted hint);
+- **Panel:** surface, 1px border, square; `.panel-head` (13px×18px
+  padding, wraps on narrow screens, hairline below, `h2` 16px weight 700 navy +
+  right-aligned 12px muted hint); the Dashboard's `.dash-section` blocks are
+  white with a 2px `--border` bottom rule (the style guide's accordion);
   `.panel-body` 16px×18px. `.panel-subhead` = uppercase 12px weight 700
   with a hairline above (used inside the live card).
-- **Modal:** fixed overlay `rgba(15,23,32,.45)`; dialog white, 12px
-  radius, 22px×24px padding, width `min(460px, 100vw − 32px)`,
+- **Modal:** fixed overlay `--heading` at 45%; dialog white, square, 22px×24px padding, width `min(460px, 100vw − 32px)`,
   max-height 80vh with internal scroll; `role="dialog" aria-modal`.
 - **Tables:** `table.data` (13px, uppercase 11.5px muted headers,
   hairline rows) for rules; `.source-files-table` (12px, nowrap cells,
   `.sf-wrap` for the one prose column at 240–340px) inside a
   horizontally scrolling `.source-files-scroll`.
 - **Empty state:** centred muted 13.5px with 48px vertical padding.
-- **Error banner:** red 8% tint, red 35% border, critical text, 8px
-  radius.
+- **Error banner:** red 8% tint, red 35% border, critical text, square.
 - **`tag-synthetic`:** 10.5px uppercase weight 700, burnt-orange text and
-  outline, 4px radius.
+  outline, 2px radius.
 - **`flag-hitl`:** amber 10% background block; **`hitl-tag`:** 10px
   weight 750 warning-filled pill.
-- **Shell block:** dark sidebar palette, mono, `summary` clickable.
+- **Shell block:** sidebar (navy) palette, mono, `summary` clickable.
+- **Form fields:** `select` / text inputs square, 1px `--border`, 5px×8px,
+  accent outline on focus; checkboxes / radios in the accent colour.
+- **Headings** (`h1`–`h3`) are `--heading` (navy); page `h1` 26px weight 700;
+  every focusable element shows a 2px accent outline on keyboard focus.
 - **Middle truncation** for file names: keep the last 16 characters (the
   ticket/copy suffix distinguishes files), elide the middle with `…`,
   full name in `title`.
@@ -780,7 +946,7 @@ it fails the app still starts with empty state and reports through
 |---|---|---|
 | `GET /api/demo/live-available` | `{available, provider, reason}` — provider is `databricks_fmapi`, `anthropic`, `mock (locked)` or null; `reason` is the remedy | — |
 | `POST /api/demo/run-live` `{confirm: true}` | Start the background live run; returns `DemoStatus` | 400 no confirm / unavailable; 409 already running |
-| `GET /api/demo/status` | `DemoStatus`: `state idle|running|done|failed`, `stages[{stage, detail, at}]`, `error`, `error_hint`, `last_run_label`, `mode`, `label`, `estimates{calls,cost_usd,seconds}`, `sttm_workbook`, `sttm_chosen`, `output_mode`, `frd_name`, `frd_chosen`, `frd_warning` | — |
+| `GET /api/demo/status` | `DemoStatus`: `state idle|running|done|failed`, `stages[{stage, detail, at}]`, `error`, `error_hint`, `last_run_label`, `mode`, `label`, `live_history{profile,runs,min_runs,stopped{runs,wall_seconds},wall_seconds,model_seconds,calls,cost_usd,cost_runs,cost_basis,price_source,billed_in_dbus}` (ranges `{low,high}`), `sttm_workbook`, `sttm_chosen`, `output_mode`, `frd_name`, `frd_chosen`, `frd_warning` | — |
 | `POST /api/demo/output-mode` `{mode|null}` | `notebook|framework|both`; null = config default → `DemoStatus` | 400 bad value; 409 running |
 
 `error_hint` = `{sttm, frd_used, candidate_doc_id, message}` when a
@@ -876,43 +1042,75 @@ interface FeedDetail extends FeedSummary {
 
 ### 4.1 Design tokens (light theme only; the App renders light)
 
+The palette is ACFC's own: the Brand, Text and Accents, and UI colour sets of
+the public style guide on ACFC's web properties (2026-10-28). Typography is
+its secondary typeface, Open Sans (self-hosted from `@fontsource/open-sans`,
+latin 400 / 600 / 700, so the App never fetches fonts at runtime); its primary
+typeface (`area-normal`) is a licensed web font, first in the stack and used
+only when the browser already has it. Corners are rounded and cards carry a soft
+shadow (post143, the guided look — Part 1 "Design pillars"; square until then).
+
 | Token | Value | Use |
 |---|---|---|
-| `--page` | `#f9f9f7` | body background |
-| `--surface` | `#fcfcfb` | cards, panels, buttons |
-| `--ink` / `--ink-2` / `--muted` | `#0b0b0b` / `#52514e` / `#898781` | text hierarchy |
-| `--hairline` / `--border` | `#e1e0d9` / `rgba(11,11,11,.1)` | dividers / card borders |
-| `--accent` / `--accent-deep` | `#2a78d6` / `#1c5cab` | links, active tabs, primary buttons (hover `#174e91`) |
-| `--good` / `--good-text` | `#0ca30c` / `#006300` | PASS, verified, grounded |
-| `--warning` / `--warning-text` | `#fab219` / `#7a5300` | PASS_WITH_FLAGS, synthetic, attention, HITL |
-| `--critical` / `--critical-text` | `#d03b3b` / `#8f2222` | FAIL, ungrounded, errors |
-| `--sidebar-bg` / `--sidebar-ink` / `--sidebar-muted` | `#16181d` / `#e8e8e4` / `#9a9aa2` | sidebar + shell block |
+| `--page` | `#f4f6f9` | body background |
+| `--surface` | `#ffffff` | cards, panels, buttons |
+| `--ink` / `--ink-2` / `--muted` | `#2d2d2d` / `#455560` / `#66727d` | text hierarchy (ink = the guide's Copy) |
+| `--heading` | `#0a2458` | headings, tile values (the guide's Primary Dark) |
+| `--hairline` / `--border` (`--line` = hairline) | `#dfe3ea` / `#cbd2dc` | dividers / card borders |
+| `--accent` / `--accent-deep` | `#003da5` / `#003da5` | links, active tabs, buttons (the guide's Primary); hover `--accent-hover` `#0a2458` |
+| `--accent-light` / `--accent-tint` | `#69b3e7` / `#e8eef8` | sidebar active bar + brand rule / secondary-button hover |
+| `--good` / `--good-text` / `--good-bg` | `#006d30` / `#006d30` / `#ccf0dc` | PASS, verified, grounded (the guide's Confirmation) |
+| `--warning` / `--warning-text` / `--warning-bg` | `#ffcb05` / `#6b5200` / `#fcf3cc` | PASS_WITH_FLAGS, synthetic, attention, HITL (Warning) |
+| `--critical` / `--critical-text` / `--critical-bg` | `#d22730` / `#a81f27` / `#f6d4d6` | FAIL, ungrounded, errors, LIVE (Error) |
+| `--info` / `--info-bg` | `#17496a` / `#d4e4ef` | informational notes (Info) |
+| `--flag` / `--flag-text` | `#f7921e` / `#9a4a00` | `tag-synthetic` (the guide's orange accent) |
+| `--sidebar-bg` / `--sidebar-ink` / `--sidebar-muted` | `--surface` / `--ink-2` / `--muted` | the light sidebar (post143; the shell block keeps `--heading`) |
+| `--surface-2` / `--border-soft` / `--border-btn` | `#f6f8fc` / `#d6deec` / `#c9d4ea` | drop zone and chosen rows / their border / secondary-button border |
 | `--mono` | `ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace` | slugs, paths, code, hashes |
-| body font | `system-ui, -apple-system, "Segoe UI", sans-serif` 14px / 1.5 | — |
-| `--radius` | 10px | cards, panels |
+| `--font` (body) | `area-normal, "Open Sans", system-ui, -apple-system, "Segoe UI", sans-serif` 15px / 1.55 | — |
+| `--radius` / `--radius-sm` / `--radius-md` / `--radius-lg` / `--radius-pill` | 8 / 4 / 10 / 14px / 999px | buttons, fields / code, strips / rows, tiles, notes / cards, panels, dialogs / pills, chips, badges |
+| `--shadow-card` / `--shadow-soft` | `0 4px 24px` / `0 1px 3px` of `--accent` at 8% / 6% | cards, tiles / small lifts |
 
-**Classification identity colours (fixed, never cycled):** mappable
-`#2a78d6` · orchestration_config `#1baf7a` · notification `#4a3aa7` ·
-out_of_scope `#898781` · flagged `#eb6834` · unmapped `#eda100`.
+Tints are `color-mix(in srgb, var(<token>) N%, transparent)` of these tokens
+(the pre-restyle alphas kept). Every text / background pair above meets WCAG
+AA (≥ 4.5:1; checked 2026-10-28).
 
-**Mode badge colours:** mock grey (`rgba(110,122,135,.16)` / `#4a5560`),
-live red (`rgba(217,72,63,.14)` / `#a2231b`), replay blue
-(`rgba(42,120,214,.14)` / accent-deep). Mode banners use the same hues
-at 9–10% with a 28–30% border.
+**Classification identity colours (fixed, never cycled; the guide's accent
+set, kept clear of its UI status colours):** mappable `#0099d8` ·
+orchestration_config `#27a27a` · notification `#8c4b9d` · out_of_scope
+`#8a96a3` · flagged `#ec4761` · unmapped `#f7921e`.
 
-**Prism token colours:** comment muted italic; keyword/builtin `#4a3aa7`;
-string `#006300`; number/boolean `#1c5cab`; function/class/decorator
-`#b3400f`; operator/punctuation ink-2.
+**Mode badge colours:** in the main area, tints as before — mock muted 16%
+/ ink-2, live critical 14% / critical-text, replay accent 14% / accent. On the
+header (post143), solid: mock `--hairline` / ink-2, live `--critical` / white,
+replay `--accent-light` / `--heading`. Mode banners use the same hues at
+9–10% with a 28–30% border.
+
+**Prism token colours:** comment muted italic; keyword/builtin
+`--code-keyword` `#8c4b9d`; string `--code-string` `#006d30`;
+number/boolean `--code-number` `#003da5`; function/class/decorator
+`--code-function` `#9a4a00`; operator/punctuation ink-2.
 
 ### 4.2 Copy bank (exact strings; do not paraphrase)
 
 - Mode copy: `MOCK — deterministic stand-in provider, zero network` ·
   `LIVE — generated now; each candidate card names its provider` ·
   `REPLAY — recorded live run`.
-- Sidebar footer: `Layer 1 deterministic (Jinja2) · Layer 2 review-only
-  candidates.` / `Gate verdict computed in code, never by judgment.`
-- Dashboard sub-line: `Pipelines generated from approved FRD + STTM
-  contracts. Every rule is compiled deterministically or routed to a
+- Header (post143): `CodeGen · Data Engineer Agent` / `From an approved STTM
+  and FRD to Databricks artefacts`. Nav: `Generate a pipeline` · `Results` ·
+  `Feeds in these results`.
+- Generate (post143): title `Generate a pipeline from your STTM and FRD`;
+  steps `Choose documents` · `Check the settings` · `Answer questions` ·
+  `Get the results`; cards `1. Documents` (`n of 2 required chosen`) and
+  `2. Settings`; button `Generate Documents` (`Generating…`; post151 — the label a
+  stakeholder asked for); action hint `Nothing runs
+  until you confirm. A live run sends the documents' content to the model.`;
+  why-disabled `Choose the STTM workbook first.`
+- Results (post143): title `Results`; tiles `feeds` · `passed` · `passed with
+  flags` · `failed`; `Your files — Framework artefacts`; `Details for the
+  team` holds the doctrine sentence: `Layer 1 is deterministic (Jinja2);
+  Layer 2 only writes review candidates. The gate verdict is computed in code,
+  never by judgment. Every rule is compiled deterministically or routed to a
   reviewed Layer-2 candidate — nothing lands unreviewed.`
 - Gate flags (from the verdict computation, shown verbatim):
   `Layer-2 candidate pending engineer approval: '<rule>'` ·
@@ -928,8 +1126,8 @@ string `#006300`; number/boolean `#1c5cab`; function/class/decorator
   merge into generated code remains a manual (v2) step` · `Soft
   confirmation — the run proceeds; a source-team answer closes it`.
 - Live unavailable: `Live is unavailable: <reason> (provider: <p>)`.
-- Run states: `Running — stages appear as they start:` · `Last live run
-  completed.` · `Last live run FAILED — nothing was published.`
+- Run states: `Running — stages appear as they start:` · `Last run
+  completed.` · `Last run FAILED — nothing was published.`
 - Chooser: `FRD document — extracted at run start` · `looks like a
   pair — confirm` · `companion FRD` ·
   `includes companion FRD — fetched together` · `differs from local copy`.
@@ -965,7 +1163,9 @@ string `#006300`; number/boolean `#1c5cab`; function/class/decorator
 
 ### 4.4 Acceptance checklist (a rebuild is not done until every line holds)
 
-1. Sidebar mode badge on every route; LIVE/REPLAY banner with label.
+1. Header provider badge (LIVE / MOCK = what the next run uses) on every
+   route (post143; the sidebar until then); LIVE / MOCK RUN / REPLAY banner with label, the word from the
+   provider that answered the served run.
 2. Dashboard tiles, cards, rule strip order and foot line match §2.2;
    empty state and 409 banner behave as specified.
 3. Generate-all from LIVE/REPLAY prompts; from mock it runs directly.
@@ -983,7 +1183,7 @@ string `#006300`; number/boolean `#1c5cab`; function/class/decorator
    section hidden on 503 and shown with Retry on 502, fetch/re-fetch/
    fetched states, companion FRDs collapsed, FRD section with paired /
    suggested / local / no-contract rows, Done vs Cancel.
-9. Cost modal shows estimates from the backend and the FMAPI wording;
+9. Cost modal shows the measured live-run ranges (or "no history yet") and the FMAPI wording;
    confirm → run → 1 s polling → stage checklist → View results.
 10. Failed run shows the error and, when hinted, the one-click companion
     FRD button; no auto-retry.

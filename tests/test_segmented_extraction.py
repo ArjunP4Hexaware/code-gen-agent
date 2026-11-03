@@ -125,6 +125,40 @@ def test_recycle_built_from_frd_dq_with_citation(pair):
     assert "retained for 15 days" in note.citation
 
 
+
+def test_a_recycle_rule_with_no_day_count_takes_the_config_default_not_15(pair):
+    """Audit #2 (post127): an FRD recycle rule that states no "N days" used to
+    get a hard-coded 15 (no document states it; config.defaults says 7) and its
+    own on_match / on_no_match strings. Now the same as the flat and generic
+    readers: config.defaults.recycle_window_days and config.extractor's texts,
+    and the provenance note says the window is the config default."""
+    workbook_path, frd_path, scoped, _ = pair
+    data = json.loads(frd_path.read_text(encoding="utf-8"))
+    data["feeds"][0]["recycle_rule"] = "Invalid records will be moved to Recycle table."
+    frd_path.write_text(json.dumps(data), encoding="utf-8")
+    (feed,) = _extract(pair).feeds
+    recycle = feed.load_rules.recycle
+    days = scoped.defaults.recycle_window_days
+    assert days != 15
+    assert recycle.recycle_window_days == days
+    assert recycle.on_match == scoped.extractor.recycle_on_match.format(window_days=days)
+    assert recycle.on_no_match == scoped.extractor.recycle_on_no_match.format(window_days=days)
+    note = next(n for n in feed.segmented.provenance_notes
+                if "existence checked against" in n.note)
+    assert f"recycle for {days} days" in note.note
+    assert "the FRD states no window" in note.note
+    assert "defaults.recycle_window_days" in note.note
+
+
+def test_a_stated_window_still_wins_with_the_config_texts(pair):
+    (feed,) = _extract(pair).feeds                       # the FRD says 15 days
+    recycle = feed.load_rules.recycle
+    assert recycle.recycle_window_days == 15
+    assert recycle.on_no_match == pair[2].extractor.recycle_on_no_match.format(window_days=15)
+    note = next(n for n in feed.segmented.provenance_notes
+                if "existence checked against" in n.note)
+    assert "defaults.recycle_window_days" not in note.note
+
 def test_missing_trailer_marker_refuses_with_override_remedy(pair, tmp_path):
     workbook = build_workbook()
     ws = workbook.active
@@ -254,14 +288,14 @@ def test_generation_emits_per_segment_tables_both_layers(generated):
     import re
 
     stage_tables = set(re.findall(
-        r"CREATE OR REPLACE TABLE SYN_DLK\.STG_SYN\.(\w+)", stage_txt))
+        r"CREATE TABLE IF NOT EXISTS SYN_DLK\.STG_SYN\.(\w+)", stage_txt))
     assert stage_tables == {"EXT_SYN_HDR", "EXT_SYN_DTL", "EXT_SYN_TRL",
                             "EXT_SYN_DTL_RECYCLE"}
     assert "side-tables omitted from deployment DDL" in stage_txt
     assert "not in FRD Target Table Name" in stage_txt
     for table in ("EXT_SYN_HDR", "EXT_SYN_DTL", "EXT_SYN_TRL"):
-        assert f"CREATE OR REPLACE TABLE SYN_STD.SYN.{table}" in standard_txt
-    assert "CREATE OR REPLACE TABLE SYN_STD.SYN.EXT_SYN_DTL_RECYCLE" not in standard_txt
+        assert f"CREATE TABLE IF NOT EXISTS SYN_STD.SYN.{table}" in standard_txt
+    assert "CREATE TABLE IF NOT EXISTS SYN_STD.SYN.EXT_SYN_DTL_RECYCLE" not in standard_txt
     # ...but the side-table DDL sources remain untouched in ddl/.
     ddl_dir = tmp / "out" / spec.feed_slug / "ddl"
     assert (ddl_dir / "STG_SYN.EXT_SYN_DTL_ERRORS.sql").is_file()
@@ -360,3 +394,27 @@ def test_synthetic_fixture_passes_the_scrub_denylist(pair):
                        REPO / "fixtures" / "workbooks" /
                        "synthetic_segmented_golden.xlsx"])
     assert hits == [], hits
+
+
+# -- post109 (codeflow audit #3): the metadata block's File Type delimiter -------- #
+
+
+@pytest.mark.parametrize(("file_type", "expected"), [
+    ("Pipe delimited (|)", "|"),          # was "(" - the first character after "delimited"
+    ("Comma delimited file", ","),        # was "f"
+    ("txt (pipe delimited |)", "|"),
+    ("Tab delimited text", "\t"),
+])
+def test_the_file_type_delimiter_is_the_stated_character(pair, tmp_path, file_type, expected):
+    workbook_path, frd_path, scoped, _ = pair
+    frd = json.loads(frd_path.read_text(encoding="utf-8"))
+    frd["feeds"][0]["delimiter"] = None            # the docx FRD reader never states one
+    frd_path.write_text(json.dumps(frd), encoding="utf-8")
+    book = build_workbook()
+    (cell,) = [c for row in book.active.iter_rows() for c in row
+               if isinstance(c.value, str) and c.value.strip().lower() == "file type"]
+    book.active.cell(cell.row, cell.column + 1).value = file_type
+    edited = tmp_path / "file_type.xlsx"
+    book.save(edited)
+    contract = extract_contract(edited, frd_path, scoped, generated_date="2026-01-01")
+    assert contract.feeds[0].source_file.delimiter == expected

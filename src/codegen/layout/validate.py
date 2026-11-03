@@ -29,7 +29,7 @@ import re
 from dataclasses import dataclass
 
 from codegen.config import ExtractorConfig
-from codegen.layout.discover import _band_layer, _has_token, normalize, text
+from codegen.layout.discover import _band_layer, _has_token, normalize, text, value_layers
 from codegen.layout.profile import (
     REQUIRED_ROLES,
     ROLE_BEARING_KINDS,
@@ -93,7 +93,7 @@ def validate_profile(profile: LayoutProfile, workbook, config: ExtractorConfig, 
                      document: str = "sttm") -> tuple[LayoutProfile, list[Rejection]]:
     """Return (profile with rejected claims dropped, rejections)."""
     disc = config.discovery
-    thresholds = disc.validate
+    thresholds = disc.thresholds
     type_re = re.compile(thresholds.type_token_regex, re.IGNORECASE)
     sources = check_sources or {"model", "user"}
     rejections: list[Rejection] = []
@@ -114,7 +114,9 @@ def validate_profile(profile: LayoutProfile, workbook, config: ExtractorConfig, 
 
     for sp in profile.sheets:
         if sp.name not in workbook.sheetnames:
-            reject(sp.name, None, None, "sheet does not exist in the workbook")
+            # post133 (audit #9): a name the workbook lacks is the model's - never echoed
+            reject(None, None, None, "a sheet the answer names does not exist in the workbook "
+                                     "(its name is not repeated)")
             continue
         ws = workbook[sp.name]
         if sp.kind not in ROLE_BEARING_KINDS:
@@ -147,8 +149,8 @@ def validate_profile(profile: LayoutProfile, workbook, config: ExtractorConfig, 
                     # A header is text; a numeric cell means the claimed
                     # header row is a data row.
                     reject(sp.name, band.layer, role,
-                           f"header cell at column {col} is not text ({raw!r}) — row "
-                           f"{sp.header_row} is a data row")
+                           f"header cell at column {col} is not text "
+                           f"({type(raw).__name__}) — row {sp.header_row} is a data row")
                     continue
                 if col in seen_cols:
                     reject(sp.name, band.layer, role,
@@ -161,6 +163,9 @@ def validate_profile(profile: LayoutProfile, workbook, config: ExtractorConfig, 
                     continue
                 column_values = [r[col - 1] if col - 1 < len(r) else None for r in data]
                 problem = _plausibility(role, column_values, thresholds, type_re)
+                if problem is None and role_sources.get(
+                        confidence_key(sp.name, band.layer, role), profile.source) == "model":
+                    problem = _identifier_values(role, column_values, disc)
                 if problem:
                     reject(sp.name, band.layer, role, problem)
                     continue
@@ -230,6 +235,30 @@ def _plausibility(role: str, values: list, thresholds, type_re) -> str | None:
     return None
 
 
+def _identifier_values(role: str, values: list, disc) -> str | None:
+    """P1-1 (red team LM-1): a catalog / schema column the MODEL placed is
+    judged by its values, through the same catalog-value chain discovery reads
+    layers by (``layer_evidence.catalog_words``): a catalog column's values read
+    as catalogs, a schema column's do not. Header text steered a model into
+    swapping the two, and identifier shape or distinct counts cannot tell them
+    apart - both are short identifiers. Counts only, never a value."""
+    if role not in (Role.CATALOG.value, Role.SCHEMA.value):
+        return None
+    sample = [str(v) for v in values if v is not None][:disc.layer_evidence.value_scan_rows]
+    if not sample:
+        return None
+    catalogs = sum(1 for v in sample if value_layers(v, "catalog_value", disc))
+    if role == Role.CATALOG.value and catalogs == 0:
+        return (f"none of the {len(sample)} values under the header reads as a catalog "
+                "(extractor.discovery.layer_evidence.catalog_words) - a model-placed catalog "
+                "column must")
+    if role == Role.SCHEMA.value and catalogs:
+        return (f"{catalogs} of the {len(sample)} values under the header read as a catalog "
+                "(extractor.discovery.layer_evidence.catalog_words) - a model-placed schema "
+                "column holds none")
+    return None
+
+
 def _validate_band_spans(sp: SheetProfile, ws, header: list, disc, reject) -> list[BandProfile]:
     bands = list(sp.bands)
     if sp.band_row is not None:
@@ -243,6 +272,11 @@ def _validate_band_spans(sp: SheetProfile, ws, header: list, disc, reject) -> li
                   if r.min_row == sp.band_row}
         for band in bands:
             if band.layer not in ("stage", "standard"):
+                continue
+            if band.layer_evidence not in (None, "title"):
+                # Chunk A: a band whose layer an answer / its headers / its
+                # catalog or schema values established - the band row is not
+                # its evidence, so a title row without the token proves nothing.
                 continue
             covering = [normalize(c) for i, c in enumerate(band_cells, start=1)
                         if c and (band.col_start <= i <= band.col_end
@@ -278,7 +312,8 @@ def _validate_meta_rows(sp: SheetProfile, ws, disc, reject) -> list[MetaRow]:
         if label is None or (normalize(label) != normalize(entry.label)
                              and synonyms.get(normalize(label)) != entry.key):
             reject(sp.name, None, None,
-                   f"meta row {entry.row}: label cell reads {label!r}, not {entry.label!r}")
+                   f"meta row {entry.row}: the label cell (column {entry.col}) does not read "
+                   "as the claimed label")
             continue
         if entry.value_col is not None and entry.value_col <= entry.col:
             reject(sp.name, None, None,
@@ -288,7 +323,8 @@ def _validate_meta_rows(sp: SheetProfile, ws, disc, reject) -> list[MetaRow]:
             continue
         if entry.key is not None and synonyms.get(normalize(label)) != entry.key:
             reject(sp.name, None, None,
-                   f"meta row {entry.row}: label {label!r} is not a synonym of {entry.key!r}")
+                   f"meta row {entry.row}: the label cell (column {entry.col}) is not a "
+                   f"synonym of {entry.key!r}")
             out.append(entry.model_copy(update={"key": None}))
             continue
         out.append(entry)

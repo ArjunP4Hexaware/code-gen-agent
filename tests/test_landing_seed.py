@@ -227,13 +227,11 @@ def test_shell_mode_auto_respects_probe(config, monkeypatch):
     assert resolve_shell_listing(_rows(), config, mode="auto")["mode"] == "live"
 
 
-# -- endpoint ------------------------------------------------------------------ #
+# -- the payload ----------------------------------------------------------------- #
+# 2026-10-16: the /api/demo/source-files route (and the App panel it fed) is
+# gone; the payload builder is kept and checked directly.
 
-pytest.importorskip("fastapi")
 from pathlib import Path  # noqa: E402
-
-from fastapi.testclient import TestClient  # noqa: E402
-from ui.backend import main as ui_main  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 needs_demo_frd = pytest.mark.skipif(
@@ -243,20 +241,18 @@ needs_demo_frd = pytest.mark.skipif(
 
 
 @needs_demo_frd
-def test_endpoint_reports_mode_and_reason(monkeypatch, tmp_path):
+def test_payload_reports_mode_and_reason(config, monkeypatch, tmp_path):
     import codegen.demo_sources as ds
 
-    monkeypatch.setenv("CODEGEN_INPUT_DOCS_DIR", str(tmp_path))
     monkeypatch.setattr(ds, "_landing_available", lambda cfg: (False, "no creds"))
-    client = TestClient(ui_main.app)
-    payload = client.get("/api/demo/source-files").json()
+    payload = ds.source_files_payload(config, REPO, env={"CODEGEN_INPUT_DOCS_DIR": str(tmp_path)})
     assert payload["shell_mode"] == "synthetic"
     assert payload["shell_reason"] == "no creds"
 
     monkeypatch.setattr(ds, "_landing_available", lambda cfg: (True, ""))
     monkeypatch.setattr(ds, "live_shell_listing",
                         lambda rows, cfg: (["$ live"], "soham_workspace.codegen_agent.mftlanding"))
-    payload = client.get("/api/demo/source-files").json()
+    payload = ds.source_files_payload(config, REPO, env={"CODEGEN_INPUT_DOCS_DIR": str(tmp_path)})
     assert payload["shell_mode"] == "live"
     assert payload["shell_listing"] == ["$ live"]
     assert payload["shell_listed_at"]

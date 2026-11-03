@@ -14,6 +14,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from codegen.contracts.frd import BannerText, FrdFeed
+
 RecordSegment = Literal["Header", "Detail", "Trailer"]
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
@@ -22,7 +24,10 @@ _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
 class SourceFile(BaseModel):
     model_config = _MODEL_CONFIG
 
-    name_pattern: str
+    # None (M9.1b): neither the FRD nor the workbook names a file pattern at
+    # extract time — no longer a hard stop; the chain continues at resolve
+    # time (VDD FILES sheet, the `feeds[i].file_patterns` gap answer).
+    name_pattern: str | None
     format: str
     delimiter: str | None
     frequency: str | None
@@ -59,13 +64,44 @@ class LoadRules(BaseModel):
     mandatory_columns: list[str]
     phi_columns: list[str]
     recycle: RecycleSpec | None
+    # post70: the source columns an explicit KEY signal marks — a Primary Key /
+    # Key cell (the header families of docs/acfc/SHAPES_FOR_PORT.md). Never the
+    # not-null list: a required column is not a key. Empty (left out of the
+    # JSON) when no row is marked.
+    natural_key: list[str] = Field(default_factory=list)
+
+
+# Audit-column datatype: the workbook's spelling (normalized) -> the contract
+# spelling. String / Timestamp are the original two; the integer / boolean
+# types came with D1 post51 pair_06 (a DELETE_FLAG typed tinyint). Which ones a
+# column may carry is the conventions profile's choice (audit_datatypes /
+# audit_flag_datatypes, extract.audit_types); this map is the closed set any
+# profile may list, each one emit.context.sql_type can render.
+AUDIT_DATATYPE_SPELLING = {
+    "string": "String", "timestamp": "Timestamp", "tinyint": "TINYINT",
+    "smallint": "SMALLINT", "int": "INT", "integer": "INT", "bigint": "BIGINT",
+    "boolean": "BOOLEAN",
+}
 
 
 class AuditColumn(BaseModel):
     model_config = _MODEL_CONFIG
 
     column: str
-    datatype: Literal["String", "Timestamp"]
+    datatype: Literal["String", "Timestamp", "TINYINT", "SMALLINT", "INT", "BIGINT", "BOOLEAN"]
+    # 2026-10-14 (D1 post44 item 5): the audit row's load rule as the STTM
+    # states it ("Default to 'CAQH'") — the DQ AddCustomColumnsRule literal.
+    # None (the JSON leaves it out) when the row states none.
+    value_spec: str | None = None
+    # post74 (D1 post73 pair_06): the type cell's parenthesised attribute,
+    # verbatim ("YYYY-MM-DD HH:MM:SS" of "timestamp(YYYY-MM-DD HH:MM:SS)");
+    # the datatype is the keyword. None when the cell has none.
+    datatype_format: str | None = None
+    # post104: the audit row's description, read as a field's ddl_description
+    # is (Field Description, else Description / Data Definition; never
+    # Comments) — the DDL COMMENT, as ACFC's prod DDLs comment audit columns.
+    # None (the JSON leaves it out) when the row states none.
+    description: str | None = None
 
 
 # ---- segmented-extraction block (v2 dialect; corrected 2026-09-01) ---------
@@ -100,7 +136,7 @@ class RecordIdentification(BaseModel):
     model_config = _MODEL_CONFIG
 
     method: Literal["derived_from_sttm", "declared_override"]
-    trailer_marker: str
+    trailer_marker: BannerText       # post159: printed in the generated banners
     header_rule: str
     detail_rule: str
     citation: str = Field(min_length=1)
@@ -142,6 +178,28 @@ class FieldProvenance(BaseModel):
     row: int = Field(ge=1)
     col: int = Field(ge=1)
     source: Literal["synonyms", "model", "user", "cache"]
+
+
+class PendingAnswer(BaseModel):
+    """A mapping sheet the extractor could not turn into a feed because no
+    document states one of its targets (the first ACFC run: blank Schema /
+    TableName cells, nothing in File Details / the FRD / the layer
+    convention). The feed is NEEDS_ANSWERS — reported with the exact
+    answers-file key that unblocks it — instead of failing the whole run."""
+
+    model_config = _MODEL_CONFIG
+
+    feed_name: str        # the FRD feed the sheet pairs with
+    sheet: str
+    key: str              # the answers.yaml `gaps:` key, e.g. feeds[0].stage_target.schema
+    reason: str           # which cells / sources were read and found blank
+    # 2026-10-13: the values a person chooses among (the files a sheet may
+    # map, a band's layers, the columns a role may sit in) — the answers
+    # template lists them. Absent from the JSON when empty.
+    candidates: list[str] = Field(default_factory=list)
+    # post57: the sheet's 0-based position in its workbook — a printed key
+    # names it ``sheets[<i>]``, never by name (codegen.layout.sheet_refs).
+    sheet_index: int | None = None
 
 
 class AuxiliarySheet(BaseModel):
@@ -203,6 +261,63 @@ class SttmField(BaseModel):
     source_length: str | None = None
     source_start: str | None = None
     source_end: str | None = None
+    # M9.2 (codegen.resolve.widths): the fixed-width BYTE width when it is not
+    # simply the integer ``source_length`` — the STTM span end-start+1, the
+    # VDD's span, or the person's answer (each flagged with its cell). None =
+    # ``source_length`` is the width (an integer), or nothing resolved one yet.
+    source_width: int | None = None
+    # A non-integer length ("10,2") is a precision, kept as such — never a width.
+    source_precision: str | None = None
+    # The person's answer to feeds[i].fields[<name>].width, carried by the
+    # extractor; the resolver uses it only when the VDD states no span.
+    width_answer: int | None = None
+    # Multi-table step 1 (docs/acfc/MULTI_TABLE_DESIGN.md rules 1 and 6): what
+    # codegen.contracts.tables needs to group rows into tables per band. Each
+    # is written only when it says something (the contract JSON excludes
+    # defaults), so every existing contract is byte-identical:
+    # the row's Primary Key cell (Stage band, else the rules / source band);
+    primary_key: bool = False
+    # the row's own band catalog / schema when it differs from the band's
+    # value (SttmFeed.stage / .standard), else None = the band's value;
+    stage_catalog: str | None = None
+    stage_schema: str | None = None
+    standard_catalog: str | None = None
+    standard_schema: str | None = None
+    # the Standard band's Mandatory / Primary Key when they differ from the
+    # Stage band's, else None = the same.
+    standard_mandatory: bool | None = None
+    standard_primary_key: bool | None = None
+    # post74 (D1 post73 pair_06): a type cell's parenthesised FORMAT
+    # ("timestamp(YYYY-MM-DD HH:MM:SS)" -> datatype "timestamp", format
+    # "YYYY-MM-DD HH:MM:SS"; codegen.extract.type_format). A size (decimal(18,2),
+    # varchar(50)) stays in the datatype. None = the cell states no format.
+    stage_datatype_format: str | None = None
+    standard_datatype_format: str | None = None
+    # post104 (Nikshit's review, 2026-10-23: the DDL column COMMENT is the STTM's
+    # field description). The target band's Field Description, kept only when
+    # ``description`` is not already that text; and whether ``description`` was
+    # read from a Comments cell (rule text, never a column description). Both
+    # are written only when they say something, so existing contracts are
+    # byte-identical. ``ddl_description`` is what the DDL COMMENT uses.
+    field_description: str | None = None
+    description_from_comments: bool = False
+
+    @property
+    def ddl_description(self) -> str | None:
+        """The column's description for a DDL COMMENT: the target band's
+        Field Description, else the source Description / Column Description /
+        Data Definition — never a Comments cell. None = the STTM states none."""
+        if self.field_description is not None:
+            return self.field_description
+        return None if self.description_from_comments else self.description
+
+    @property
+    def byte_width(self) -> int | None:
+        """The resolved fixed-width byte width, or None."""
+        from codegen.resolve.widths import as_integer
+
+        return self.source_width if self.source_width is not None else as_integer(
+            self.source_length)
 
 
 class SttmFeed(BaseModel):
@@ -230,55 +345,69 @@ class SttmFeed(BaseModel):
     # M3: database-table sources name their source table (dominant value of
     # the source band's table column); None on file sources.
     source_table: str | None = None
+    # M9.2: what the extractor decided that a reviewer must see — a field the
+    # STTM marks "Do Not Map" (skipped_rows: one per feed), a schema taken from
+    # the FRD / config because the band states none (sttm_unstated:…). Each
+    # cites its cell; the resolver carries them to the gate. Empty (and absent
+    # from the JSON) on every feed that raised none.
+    extraction_flags: list[str] = Field(default_factory=list)
+    # post140 (Soham, 2026-10-28): each target table's Table Description as the
+    # band states it, keyed "<layer>.<table>" (stage / standard); the DDL table
+    # COMMENT reads it. Empty (and absent from the JSON) when no band states one.
+    table_descriptions: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _check_internal_consistency(self) -> SttmFeed:
-        errors: list[str] = []
+        # post74 (D1 post73 pair_10): each check is a NAMED rule
+        # (codegen.contracts.validation.RULES) carrying the columns it names.
+        from codegen.contracts.validation import ContractRuleError
+
+        errors: list[tuple[str, str, tuple[str, ...]]] = []
 
         if self.field_count != len(self.fields):
-            errors.append(
-                f"field_count is {self.field_count} but fields[] has {len(self.fields)} entries"
-            )
+            errors.append(("field_count_mismatch",
+                           f"field_count is {self.field_count} but fields[] has "
+                           f"{len(self.fields)} entries", ()))
 
         source_columns = {f.source_column for f in self.fields}
         for rule_name in ("not_null_columns", "mandatory_columns", "phi_columns"):
             unknown = set(getattr(self.load_rules, rule_name)) - source_columns
             if unknown:
-                errors.append(
-                    f"load_rules.{rule_name} references columns not in fields[]: {sorted(unknown)}"
-                )
+                errors.append(("load_rule_unknown_column",
+                               f"load_rules.{rule_name} references columns not in fields[]: "
+                               f"{sorted(unknown)}", tuple(sorted(unknown))))
 
         recycle = self.load_rules.recycle
         if recycle is not None and recycle.applies_to not in source_columns:
-            errors.append(
-                f"load_rules.recycle.applies_to '{recycle.applies_to}' is not a column in fields[]"
-            )
+            errors.append(("recycle_unknown_column",
+                           f"load_rules.recycle.applies_to '{recycle.applies_to}' is not a "
+                           "column in fields[]", ()))
 
         phi_flagged = {f.source_column for f in self.fields if f.phi}
         phi_listed = set(self.load_rules.phi_columns)
         if phi_flagged != phi_listed:
-            errors.append(
-                f"fields flagged phi=true {sorted(phi_flagged)} do not match "
-                f"load_rules.phi_columns {sorted(phi_listed)}"
-            )
+            errors.append(("phi_mismatch",
+                           f"fields flagged phi=true {sorted(phi_flagged)} do not match "
+                           f"load_rules.phi_columns {sorted(phi_listed)}", ()))
 
         # Segment annotations must be all-or-nothing within a feed: a mix
         # means the contract is half-migrated to the segmented dialect.
         with_segment = [f.source_column for f in self.fields if f.record_segment]
         if with_segment and len(with_segment) != len(self.fields):
             missing = sorted(source_columns - set(with_segment))
-            errors.append(f"some fields carry record_segment but these do not: {missing}")
+            errors.append(("segment_missing_on_fields",
+                           f"some fields carry record_segment but these do not: {missing}",
+                           tuple(missing)))
         for f in self.fields:
             if (f.record_segment is None) != (f.stage_table is None):
-                errors.append(
-                    f"field '{f.source_column}' must set record_segment and "
-                    "stage_table together or not at all"
-                )
+                errors.append(("segment_without_table",
+                               f"field '{f.source_column}' must set record_segment and "
+                               "stage_table together or not at all", (f.source_column,)))
 
         if errors:
-            raise ValueError(
-                f"STTM feed '{self.feed_id}' failed validation:\n  - " + "\n  - ".join(errors)
-            )
+            raise ContractRuleError(
+                f"STTM feed '{self.feed_id}' failed validation:\n  - "
+                + "\n  - ".join(text for _rule, text, _columns in errors), errors)
         return self
 
     @property
@@ -286,12 +415,27 @@ class SttmFeed(BaseModel):
         return any(f.record_segment is not None for f in self.fields)
 
 
+class FrdFeedSplit(BaseModel):
+    """2026-10-13 (D1 pair_11): ``extract-sttm`` was given an FRD contract with
+    ONE feed for an STTM with several mapping sheets (an ``extract-frd``
+    contract, not the layout stage's ``--frd-contract-out``) and split it
+    itself — one FRD feed per mapping sheet, by the layout stage's own rule.
+    The derived feeds travel here so ``generate`` joins the SAME split
+    against the one-feed FRD contract it is given."""
+
+    model_config = _MODEL_CONFIG
+
+    source_feed_name: str
+    feeds: list[FrdFeed] = Field(min_length=2)
+    flags: list[str] = Field(default_factory=list)
+
+
 class SttmContract(BaseModel):
     """Top-level STTM mapping contract."""
 
     model_config = _MODEL_CONFIG
 
-    contract_name: str
+    contract_name: BannerText        # post159: printed in the generated banners
     generated_from_workbook: str
     sttm_version: str
     generated_date: str
@@ -304,6 +448,12 @@ class SttmContract(BaseModel):
     # read through. Both default so pre-M1 contract JSON still loads.
     auxiliary_sheets: list[AuxiliarySheet] = Field(default_factory=list)
     layout: LayoutSummary | None = None
+    # Feeds held back as NEEDS_ANSWERS (absent from the JSON when empty, so
+    # every existing contract is byte-identical).
+    needs_answers: list[PendingAnswer] = Field(default_factory=list)
+    # The FRD feeds extract-sttm derived from a one-feed FRD contract (absent
+    # from the JSON when it split nothing).
+    frd_split: FrdFeedSplit | None = None
 
     @model_validator(mode="after")
     def _check_unique_feed_ids(self) -> SttmContract:
@@ -312,5 +462,8 @@ class SttmContract(BaseModel):
         for feed in self.feeds:
             (duplicates if feed.feed_id in seen else seen).add(feed.feed_id)
         if duplicates:
-            raise ValueError(f"duplicate feed_id(s) in STTM contract: {sorted(duplicates)}")
+            from codegen.contracts.validation import ContractRuleError
+
+            text = f"duplicate feed_id(s) in STTM contract: {sorted(duplicates)}"
+            raise ContractRuleError(text, [("duplicate_feed_id", text, ())])
         return self

@@ -1,5 +1,39 @@
 # Standup notes
 
+## 2026-10-08 — feature/multi-table: overnight Phase C + morning cleanup
+
+Branch `feature/multi-table` (cut from `feature/iig-first` at be38f05; NOT merged —
+`feature/iig-first` stays the demo branch codegen-watch pulls). Pushed through
+`e02defa`, marker 0.5.8.post17. Record: `docs/acfc/OVERNIGHT_2026-10-08.md`;
+design: `docs/acfc/MULTI_TABLE_DESIGN.md`. Already pushed on 10-07 evening:
+Phase A / B (`e76496a`, `79ed3d7`: design doc, the synthetic pair-4 fixture
+and golden) and steps 1–2 (`e64539b`, `12a401a`: tables by band triple, files
+by the LOB rule, `catalog_map`).
+
+- **Overnight (10-07 evening → 10-08, unattended, committed per chunk):**
+  `2a67c91` catalog precedence STTM band → FRD → `default_catalog`
+  (`catalog_conflict`, lowercase map output); `0c85b39` step 3 — ADLS rows =
+  files, STGDELTA rows = tables; `0a6efd7` step 4 — DQ keyed per file, the
+  header/trailer split row; `9685f97` step 5 — four structural schedule rows
+  (post15); `8b94b9e` chunk A — every IIG cell pinned for pair 1 and pair 4,
+  feed-family conventions (`family_conventions`); `686aad9` chunk C —
+  `iig_scorecard.py --all-sheets`; `4fa9e78` + `eb9ff00` chunk B —
+  `metadata_inserts.sql` (the client's "DDL") and one CREATE block per table;
+  `54ecaad` chunk D — docs, Friday checklist, the report (post16). Suite 906
+  passed / 27 skipped at the end of the night.
+- **Morning cleanup (`e02defa`, post17, pushed):** `metadata_inserts.sql` on
+  every framework run (the DML switches gate only the runner notebooks);
+  `config_inserts_<env>.sql` retired after porting its DB-side rules (value
+  map, forced NULLs, audit defaults, EXISTS / IS NULL guards, connection
+  reuse, one aborting transaction) — every remaining old-vs-new difference on
+  pair 1 listed in the report; `acfc_env.yaml` pins the CAQH-style family; the
+  scorecard prints matched / open-by-design / open-for-engineer / diff (pair
+  1: 347 / 185 / 46 / 21; 57.9 raw, 83.8 excluding open-by-design);
+  worktree-agent branches removed. Suite 912 passed / 27 skipped.
+- **Next:** Friday 10-09 session with the framework owners —
+  `docs/acfc/FRIDAY_2026-10-09.md` (ten checklist questions, the pair-4
+  walk-through). No ACFC run of this branch yet.
+
 ## 2026-08-27 — demo-readiness freeze (client demo tomorrow 5 PM)
 
 - Baseline tag: **`pre-demo-2026-08-27`** (= `003c0fe`, EDO standards

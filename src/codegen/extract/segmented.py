@@ -49,14 +49,16 @@ from codegen.contracts.sttm import (
     SttmField,
     TableRef,
 )
+from codegen.extract.audit_names import clean_audit_column
+from codegen.extract.audit_types import audit_datatype
+from codegen.extract.audit_types import expectation as audit_expectation
 from codegen.extract.workbook import SegmentedWorkbookError, WorkbookParseError, _norm, _text
 from codegen.faq import load_faq
 from codegen.layout.profile import LayoutProfile, SheetProfile
-from codegen.resolve.resolver import _FORMAT_DELIMITERS, normalize_feed_name
+from codegen.resolve.resolver import _FORMAT_DELIMITERS, delimiter_char, normalize_feed_name
+from codegen.run_errors import Coord, located
 
-_AUDIT_DATATYPES = {"string": "String", "timestamp": "Timestamp"}
 _YES_VALUES = {"yes", "y", "true"}
-_DELIMITER_RE = re.compile(r"delimited\s*(\S)")
 # The STTM trailer "Record Type" comment states the static marker, e.g.
 # "Static text identifying the record as the trailer record.\nContains the
 # value ******" — the derivation quotes this cell verbatim as its citation.
@@ -113,15 +115,15 @@ def _find_mapping_sheet(workbook, seg_config: SegmentedExtractorConfig,
                 candidates.append((ws, index, rows))
             break
     if not candidates:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{name}: no sheet matches the segmented layout family "
             "(band row + metadata block / Segment header)"
-        )
+        ), Coord("STTM"), "sttm.layout")
     if len(candidates) > 1:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{name}: {len(candidates)} sheets match the segmented layout family "
             f"({[c[0].title for c in candidates]}); expected exactly one mapping sheet"
-        )
+        ), Coord("STTM"), "sttm.layout")
     return candidates[0]
 
 
@@ -137,15 +139,16 @@ def _parse_metadata_block(rows, band_row: int, seg_config: SegmentedExtractorCon
         if key in wanted and value is not None:
             logical = wanted[key]
             if logical in facts:
-                raise WorkbookParseError(
-                    f"{sheet}: metadata key {row[0]!r} appears more than once")
+                raise located(WorkbookParseError(
+                    f"{sheet}: metadata key {row[0]!r} appears more than once"),
+                        Coord("STTM"), "sttm.duplicate")
             facts[logical] = value
     missing = {"files", "generator", "file_type"} - set(facts)
     if missing:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{sheet}: metadata block is missing key(s) "
             f"{sorted(seg_config.metadata_keys[m] for m in missing)}"
-        )
+        ), Coord("STTM"), "sttm.missing", role=sorted(missing)[0])
     return facts
 
 
@@ -169,15 +172,16 @@ def _resolve_blocks(header: list, band_starts: dict[str, int], max_col: int,
             if text in names or any(text.startswith(n.split(" (")[0]) for n in names)
         ]
         if not matches:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{sheet}: unrecognized source-block header {header[index]!r} "
                 f"(column {index + 1}); known: {seg_config.source_headers}"
-            )
+            ), Coord("STTM", col=index + 1), "sttm.header")
         source.setdefault(matches[0], index)
     required = {"field_name", "datatype", "segment"} - set(source)
     if required:
-        raise WorkbookParseError(
-            f"{sheet}: source block is missing required column(s) {sorted(required)}")
+        raise located(WorkbookParseError(
+            f"{sheet}: source block is missing required column(s) {sorted(required)}"),
+                Coord("STTM"), "sttm.missing", role=sorted(required)[0])
 
     def _table_block(start: int, end: int, band: str) -> dict[str, int]:
         known = {_norm(h): h for h in seg_config.table_headers}
@@ -187,15 +191,16 @@ def _resolve_blocks(header: list, band_starts: dict[str, int], max_col: int,
             if not text:
                 continue
             if text not in known:
-                raise WorkbookParseError(
+                raise located(WorkbookParseError(
                     f"{sheet}: unrecognized {band}-block header {header[index]!r} "
                     f"(column {index + 1}); expected one of {seg_config.table_headers}"
-                )
+                ), Coord("STTM", col=index + 1), "sttm.header")
             resolved.setdefault(text, index)
         missing = {"schema", "tablename", "columnname", "datatype"} - set(resolved)
         if missing:
-            raise WorkbookParseError(
-                f"{sheet}: {band} block is missing column(s) {sorted(missing)}")
+            raise located(WorkbookParseError(
+                f"{sheet}: {band} block is missing column(s) {sorted(missing)}"),
+                    Coord("STTM"), "sttm.missing", role=f"{band} {sorted(missing)[0]}")
         return resolved
 
     stage = _table_block(stage_start, standard_start or (max_col + 1), "stage")
@@ -218,17 +223,19 @@ def _segment_rows(rows, header_row: int, blocks: _Blocks,
         field_name = _cell(row, blocks.source["field_name"])
         segment = canonical.get(_norm(segment_raw)) if segment_raw is not None else None
         if segment_raw is not None and segment is None:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{sheet} row {row_number}: unrecognized Segment value {segment_raw!r} "
                 f"(known: {sorted(seg_config.segment_names.values())})"
-            )
+            ), Coord("STTM", row=row_number, col=blocks.source["segment"] + 1), "sttm.segment")
         if segment is None and field_name is not None:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{sheet} row {row_number}: field {field_name!r} carries no Segment value"
-            )
+            ), Coord("STTM", row=row_number, col=blocks.source["segment"] + 1), "sttm.segment")
         out.append(_SegRow(row_number=row_number, segment=segment, values=row))
     if not out:
-        raise WorkbookParseError(f"{sheet}: no data rows below the header row")
+        raise located(
+            WorkbookParseError(f"{sheet}: no data rows below the header row"),
+            Coord("STTM"), "sttm.missing", role="field_row")
     return out
 
 
@@ -248,17 +255,19 @@ def _derive_identification(seg_rows: list[_SegRow], blocks: _Blocks,
     The citation is the verbatim STTM comment cell the derivation rests on."""
     trailer_rows = [r for r in seg_rows if r.segment == "Trailer"]
     if not trailer_rows:
-        raise WorkbookParseError(f"{sheet}: no Trailer-segment rows found")
+        raise located(
+            WorkbookParseError(f"{sheet}: no Trailer-segment rows found"),
+            Coord("STTM"), "sttm.segment")
     first = trailer_rows[0]
     comment = _cell(first.values, blocks.source.get("comments")) or ""
     match = _TRAILER_MARKER_RE.search(comment)
     if match is None:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{sheet} row {first.row_number}: the Trailer record-type comment does "
             f"not state a static marker value (comment: {comment!r}); record "
             "identification cannot be derived — declare a confirmed "
             "record_type_discriminators override in the feed's FAQ instead"
-        )
+        ), Coord("STTM", row=first.row_number), "sttm.record_type")
     return RecordIdentification(
         method="derived_from_sttm",
         trailer_marker=match.group(1),
@@ -318,9 +327,10 @@ def extract_segmented_contract(
         found = discover(workbook_path, config.extractor)
         profile, workbook = found.profile, found.workbook
     if profile.strategy != "segmented_family":
-        raise SegmentedWorkbookError(
+        raise located(SegmentedWorkbookError(
             f"{workbook_path.name}: {refusal_evidence}; the segmented extractor cannot "
-            f"resolve this workbook (discovery strategy {profile.strategy!r})")
+            f"resolve this workbook (discovery strategy {profile.strategy!r})"),
+                Coord("STTM"), "sttm.segment")
     sheet_profile = profile.mapping_sheets[0]
     ws = workbook[sheet_profile.name]
     rows = list(ws.iter_rows(values_only=True))
@@ -341,12 +351,12 @@ def extract_segmented_contract(
     faq = load_faq(normalize_feed_name(feed_id), config)
     override = faq.record_type_discriminators
     if override is not None and override.status != "confirmed":
-        raise ExtractionError(
+        raise located(ExtractionError(
             f"feed {frd_feed.feed_name!r}: record_type_discriminators in the FAQ "
             "is an OVERRIDE and requires status 'confirmed' — record "
             "identification is derived from the STTM by default "
             f"(declared status: {override.status!r})"
-        )
+        ), Coord("FAQ"), "config")
     if override is not None:
         identification = RecordIdentification(
             method="declared_override",
@@ -364,7 +374,8 @@ def extract_segmented_contract(
 
     # ---- group rows by segment; per-segment audit rows ---------------------
     fields_by_segment: dict[str, list[_SegRow]] = {}
-    audit_by_segment: dict[str, list[tuple[str, str]]] = {}
+    audit_by_segment: dict[str, list[tuple[str, str, str | None, str | None]]] = {}
+    annotation_flags: list[str] = []   # audit_column_annotated (audit_names)
     row_counts: dict[str, int] = {}
     segments_found: list[str] = []
     current_segment: str | None = None
@@ -380,20 +391,35 @@ def extract_segmented_contract(
         column = _cell(row, blocks.stage.get("columnname"))
         datatype_raw = _cell(row, blocks.stage.get("datatype")) or ""
         if column is None or current_segment is None:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{ws.title} row {seg_row.row_number}: row carries neither a Segment "
                 "value nor an audit-column identity"
-            )
-        datatype = _AUDIT_DATATYPES.get(_norm(datatype_raw))
+            ), Coord.in_sheet("STTM", ws, row=seg_row.row_number), "sttm.audit",
+                role="audit_column")
+        datatype = audit_datatype(column, datatype_raw, config)
         if datatype is None:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{ws.title} row {seg_row.row_number}: audit column {column!r} has "
-                f"datatype {datatype_raw!r}; expected one of {sorted(_AUDIT_DATATYPES)}"
-            )
-        audit_by_segment.setdefault(current_segment, []).append((column, datatype))
+                f"datatype {datatype_raw!r}; {audit_expectation(column, config)}"
+            ), Coord.in_sheet("STTM", ws, row=seg_row.row_number), "sttm.audit",
+                role="audit_column", type_text=datatype_raw)
+        column = clean_audit_column(column, "audit_columns",
+                                    f"{ws.title} row {seg_row.row_number}", annotation_flags)
+        # 2026-10-14 (D1 post44 item 5): the row's transformation cell rides on
+        # the audit column ("Default to 'CAQH'" — the DQ AddCustomColumnsRule).
+        rule = _cell(row, blocks.stage.get("transformations/data quality"))
+        # post104: the row's Field Description (the DDL COMMENT; never Comments);
+        # an audit marker ("NA") is no description
+        description = _cell(row, blocks.stage.get("field description"))
+        if _norm(description) in {_norm(m) for m in config.extractor.audit_source_markers}:
+            description = None
+        audit_by_segment.setdefault(current_segment, []).append(
+            (column, datatype, rule, description))
 
     if "Detail" not in fields_by_segment:
-        raise WorkbookParseError(f"{ws.title}: no Detail-segment rows found")
+        raise located(
+            WorkbookParseError(f"{ws.title}: no Detail-segment rows found"),
+            Coord.in_sheet("STTM", ws), "sttm.segment")
 
     # ---- both layers, scoped by Load Strategy — never by the schema block --
     sttm_has_standard = blocks.standard is not None and any(
@@ -423,6 +449,7 @@ def extract_segmented_contract(
     # ---- fields: every segment's rows, both layers -------------------------
     fields: list[SttmField] = []
     mandatory_sources: list[str] = []
+    key_sources: list[str] = []          # post70: Primary Key cells only
     phi_sources: list[str] = []
     for segment in segments_found:
         for seg_row in fields_by_segment[segment]:
@@ -434,6 +461,8 @@ def extract_segmented_contract(
             phi = _is_yes(_cell(row, blocks.source.get("pii")))
             if mandatory or primary_key:
                 mandatory_sources.append(field_name)
+            if primary_key and segment == "Detail":
+                key_sources.append(field_name)
             if phi:
                 phi_sources.append(field_name)
             value_parts = [
@@ -445,6 +474,13 @@ def extract_segmented_contract(
             fields.append(SttmField(
                 source_column=field_name,
                 description=_cell(row, blocks.source.get("comments")),
+                # post104: the DDL COMMENT reads the band's Field Description,
+                # never the Comments cell (rule text).
+                field_description=(
+                    _cell(row, blocks.stage.get("field description"))
+                    or (_cell(row, blocks.standard.get("field description"))
+                        if blocks.standard is not None else None)),
+                description_from_comments=_cell(row, blocks.source.get("comments")) is not None,
                 sample_value=None,
                 source_datatype=_cell(row, blocks.source.get("datatype")) or "unstated",
                 nullable=not (mandatory or primary_key),
@@ -501,14 +537,14 @@ def extract_segmented_contract(
 
     # ---- recycle from the FRD's stated DQ requirement ----------------------
     recycle = _build_recycle(frd_feed, fields_by_segment, blocks, seg_config,
-                             provenance_notes)
+                             provenance_notes, config)
 
     detail_audit = audit_by_segment.get("Detail", [])
     if not detail_audit:
-        raise ExtractionError(
+        raise located(ExtractionError(
             f"feed {frd_feed.feed_name!r}: no Detail-segment audit rows found "
             "(rows with empty source cells inside the Detail block)"
-        )
+        ), Coord("STTM"), "sttm.audit", role="audit_column")
 
     segmented = SegmentedExtraction(
         segments_found=segments_found,
@@ -517,7 +553,8 @@ def extract_segmented_contract(
         provenance_notes=provenance_notes,
         # Per-segment audit columns exactly as the STTM lists them.
         segment_audit={
-            segment: [AuditColumn(column=c, datatype=d) for c, d in columns]
+            segment: [AuditColumn(column=c, datatype=d, value_spec=r, description=t)
+                      for c, d, r, t in columns]
             for segment, columns in audit_by_segment.items()
         },
     )
@@ -540,39 +577,50 @@ def extract_segmented_contract(
         )
 
     file_pattern = _match_file_pattern(facts["files"], frd_feed, workbook_path.name)
-    delimiter = frd_feed.delimiter or _metadata_delimiter(facts) or \
-        _FORMAT_DELIMITERS.get(frd_feed.file_format.lower())
+    delimiter = (frd_feed.delimiter
+                 or _metadata_delimiter(facts, config.extractor.delimiter_words)
+                 or _FORMAT_DELIMITERS.get(frd_feed.file_format.lower()))
     if delimiter is None:
-        raise ExtractionError(
+        raise located(ExtractionError(
             f"feed {frd_feed.feed_name!r}: no delimiter in the FRD, the metadata "
             f"block ({facts['file_type']!r}), or implied by format "
             f"{frd_feed.file_format!r}"
-        )
+        ), Coord("FRD"), "frd.missing", role="delimiter")
 
-    feed = SttmFeed(
-        feed_id=feed_id,
-        source_system=facts["generator"],
-        mapping_sheet=ws.title,
-        source_file=SourceFile(
-            name_pattern=file_pattern,
-            format=frd_feed.file_format,
-            delimiter=delimiter,
-            frequency=facts.get("frequency"),
-        ),
-        stage=TableRef(schema=stage_schema, table=detail_stage_table,
-                       catalog=stage_catalog),
-        standard=standard_ref,
-        load_rules=LoadRules(
-            not_null_columns=list(mandatory_sources),
-            mandatory_columns=list(mandatory_sources),
-            phi_columns=phi_sources,
-            recycle=recycle,
-        ),
-        audit_columns=[AuditColumn(column=c, datatype=d) for c, d in detail_audit],
-        field_count=len(fields),
-        fields=fields,
-        segmented=segmented,
-    )
+    try:
+        feed = SttmFeed(
+            feed_id=feed_id,
+            source_system=facts["generator"],
+            mapping_sheet=ws.title,
+            source_file=SourceFile(
+                name_pattern=file_pattern,
+                format=frd_feed.file_format,
+                delimiter=delimiter,
+                frequency=facts.get("frequency"),
+            ),
+            stage=TableRef(schema=stage_schema, table=detail_stage_table,
+                           catalog=stage_catalog),
+            standard=standard_ref,
+            load_rules=LoadRules(
+                not_null_columns=list(mandatory_sources),
+                mandatory_columns=list(mandatory_sources),
+                natural_key=list(dict.fromkeys(key_sources)),
+                phi_columns=phi_sources,
+                recycle=recycle,
+            ),
+            audit_columns=[AuditColumn(column=c, datatype=d, value_spec=r, description=t)
+                           for c, d, r, t in detail_audit],
+            field_count=len(fields),
+            fields=fields,
+            segmented=segmented,
+            extraction_flags=annotation_flags,
+        )
+    except ValueError as exc:  # post74: the contract rules by name
+        from codegen.contracts.validation import classify
+        from codegen.extract.generic import contract_invalid
+
+        raise contract_invalid(ExtractionError, frd_feed.feed_name, classify(exc),
+                               Coord.in_sheet("STTM", ws)) from exc
 
     return SttmContract(
         contract_name=contract_name
@@ -613,7 +661,8 @@ def _first_standard(fields_by_segment, blocks: _Blocks, which: str) -> str | Non
 
 def _build_recycle(frd_feed: FrdFeed, fields_by_segment, blocks: _Blocks,
                    seg_config: SegmentedExtractorConfig,
-                   provenance_notes: list[ProvenanceNote]) -> RecycleSpec | None:
+                   provenance_notes: list[ProvenanceNote],
+                   config: Config) -> RecycleSpec | None:
     """The FRD's stated member-existence DQ requirement, via the existing
     recycle pattern. Built ONLY when the FRD states both the recycle rule and
     the member-validation rule; the reference table name is a config knob
@@ -652,12 +701,16 @@ def _build_recycle(frd_feed: FrdFeed, fields_by_segment, blocks: _Blocks,
     stage_schema = _cell(member_field.values, blocks.stage["schema"])
     reference = ".".join(p for p in (
         stage_catalog, stage_schema, seg_config.member_reference_table) if p)
-    days = window_days or 15
+    # post127 (audit #2): an unstated window is the cited config default, as in
+    # the flat and generic readers - never a number no document states
+    days = window_days or config.defaults.recycle_window_days
+    window_note = ("" if window_days else
+                   " (the FRD states no window: config defaults.recycle_window_days)")
     provenance_notes.append(ProvenanceNote(
         note=(
             f"Recycle: {seg_config.member_field!r} existence checked against "
             f"{reference} in the stage layer; invalid records recycle for "
-            f"{days} days."
+            f"{days} days{window_note}."
         ),
         citation=(
             f"FRD validation rule: {member_rules[0]!r}; FRD recycle_rule: "
@@ -671,18 +724,17 @@ def _build_recycle(frd_feed: FrdFeed, fields_by_segment, blocks: _Blocks,
             f"Check with {stage_column} from {reference}, per FRD rule "
             f"{member_rules[0]!r}"
         ),
-        on_match="Process record into stage table",
-        on_no_match=(
-            f"Load record to Recycle Table with recycle flag enabled for "
-            f"{days} days; retry on subsequent runs"
-        ),
+        on_match=config.extractor.recycle_on_match.format(window_days=days),
+        on_no_match=config.extractor.recycle_on_no_match.format(window_days=days),
         recycle_window_days=days,
     )
 
 
 def _require(sheet: str, row_number: int, value: str | None, what: str) -> str:
     if value is None:
-        raise WorkbookParseError(f"{sheet} row {row_number}: {what} is empty")
+        raise located(
+            WorkbookParseError(f"{sheet} row {row_number}: {what} is empty"),
+            Coord("STTM", row=row_number), "sttm.missing", role=what)
     return value
 
 
@@ -704,10 +756,10 @@ def _match_frd_feed(frd: FrdContract, facts: dict[str, str], name: str) -> FrdFe
         if workbook_patterns & {_canonical_file_name(p) for p in feed.file_name_patterns}
     ]
     if len(matches) != 1:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{name}: {len(matches)} FRD feeds match the metadata File(s) patterns "
             f"{sorted(workbook_patterns)} (FRD feeds: {[f.feed_name for f in frd.feeds]})"
-        )
+        ), Coord("FRD"), "contract.mismatch")
     return matches[0]
 
 
@@ -717,17 +769,22 @@ def _match_file_pattern(files_value: str, frd_feed: FrdFeed, name: str) -> str:
         canonical = _canonical_file_name(line)
         if canonical in frd_canonical:
             return line.strip()
-    raise WorkbookParseError(
+    raise located(WorkbookParseError(
         f"{name}: none of the metadata File(s) entries match the FRD's "
         f"file_name_patterns {frd_feed.file_name_patterns}"
-    )
+    ), Coord("STTM"), "contract.mismatch")
 
 
-def _metadata_delimiter(facts: dict[str, str]) -> str | None:
-    match = _DELIMITER_RE.search(facts.get("file_type", ""))
-    if match and match.group(1) not in (")",):
-        return match.group(1)
-    return None
+def _metadata_delimiter(facts: dict[str, str], words: dict[str, str]) -> str | None:
+    """The delimiter a metadata block's File Type states ("Pipe delimited (|)",
+    "Comma delimited file"), read as ``resolver.delimiter_char`` reads any stated
+    delimiter: the quoted character, else the delimiter word. None when the text
+    says nothing about a delimiter or names none. post109 (codeflow audit #3): it
+    took the first character after "delimited" - "(" or "f" above."""
+    text = facts.get("file_type", "")
+    if "delimit" not in text.lower():
+        return None
+    return delimiter_char(text, words)
 
 
 __all__ = ["SegmentedWorkbookError", "extract_segmented_contract"]

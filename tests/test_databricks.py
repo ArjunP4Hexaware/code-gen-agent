@@ -47,9 +47,29 @@ def test_partial_config_names_the_missing_knobs():
         db.config_for(_settings(sttm_volume=""), env={})
 
 
-def test_tracked_config_section_resolves(config):
-    cfg = db.config_for(config.databricks, env={})
-    assert cfg.frd_volume == "frd_raw" and cfg.sttm_volume == "sttm_raw"
+def test_tracked_config_ships_the_document_volumes_off(config):
+    """The volumes named the Hexaware build workspace's own document volumes;
+    inside ACFC the App listed / fetched from them. They ship blank: the
+    volumes seam is off, the model endpoint still resolves."""
+    with pytest.raises(db.DatabricksConfigError, match="not configured"):
+        db.config_for(config.databricks, env={})
+    cfg = db.config_for(config.databricks, env={}, require=())
+    assert cfg.serving_endpoint == "databricks-claude-opus-5-5"     # Opus 5.5, 2026-10-13
+    # A machine that HAS such volumes opts in through its environment.
+    opted = db.config_for(config.databricks, env=VOLUMES_ENV)
+    assert (opted.catalog, opted.frd_volume) == ("soham_workspace", "frd_raw")
+
+
+# The Hexaware desktop's volumes, set as env (the opt-in the tracked config
+# no longer carries).
+VOLUMES_ENV = {"DATABRICKS_CATALOG": "soham_workspace", "DATABRICKS_SCHEMA": "codegen_agent",
+               "DATABRICKS_FRD_VOLUME": "frd_raw", "DATABRICKS_STTM_VOLUME": "sttm_raw"}
+
+
+@pytest.fixture()
+def volumes_env(monkeypatch):
+    for name, value in VOLUMES_ENV.items():
+        monkeypatch.setenv(name, value)
 
 
 class _StubFiles:
@@ -307,16 +327,85 @@ def test_chat_joins_list_of_content_blocks():
     assert text == "pong"  # reasoning block ignored, text block kept
 
 
-def test_chat_content_text_handles_every_shape():
-    assert db._chat_content_text(None) == ""
+def test_chat_content_text_accepts_the_observed_shapes():
     assert db._chat_content_text("plain") == "plain"
     assert db._chat_content_text(_RECORDED_BLOCK_CONTENT) == "pong"
-    # multiple text blocks join; stray plain strings in the list survive
+    # multiple text blocks join; non-text blocks are ignored
     assert db._chat_content_text(
-        [{"type": "text", "text": "a"}, "b", {"type": "tool_use"}]
+        [{"type": "text", "text": "a"}, {"type": "tool_use"}, {"type": "text", "text": "b"}]
     ) == "ab"
-    with pytest.raises(db.DatabricksTransportError):
-        db._chat_content_text(42)
+    # an EMPTY text block is still a text block — valid, not "no text found"
+    assert db._chat_content_text(
+        [_RECORDED_BLOCK_CONTENT[0], {"type": "text", "text": ""}]
+    ) == ""
+
+
+# Fail loud on unobserved shapes (2026-10-05): none of these has been seen
+# from the endpoint, so none is flattened or guessed at. Every one carries
+# _CLIENT_TEXT somewhere; the error must describe structure only.
+_CLIENT_TEXT = "Member ID 12345 risk score"
+_UNKNOWN_CONTENT_SHAPES = {
+    "text value is a list": [
+        {"type": "text", "text": [{"type": "text", "text": _CLIENT_TEXT}]},
+    ],
+    "text value missing": [{"type": "text"}],
+    "text value is a dict": [{"type": "text", "text": {"value": _CLIENT_TEXT}}],
+    "no text block (was a silent '')": [
+        {"type": "reasoning",
+         "summary": [{"type": "summary_text", "text": _CLIENT_TEXT}]},
+    ],
+    "no text block, prose in the type value": [
+        {"type": _CLIENT_TEXT, "text": _CLIENT_TEXT},
+    ],
+    "nested list of blocks": [[{"type": "text", "text": _CLIENT_TEXT}]],
+    "plain string inside the list": [_CLIENT_TEXT],
+    "block is an object, not a dict": [
+        SimpleNamespace(type="text", text=_CLIENT_TEXT),
+    ],
+    "content is None": None,
+    "content is a dict": {"type": "text", "text": _CLIENT_TEXT},
+    "content is a tuple": ({"type": "text", "text": _CLIENT_TEXT},),
+    "content is bytes": _CLIENT_TEXT.encode(),
+    "content is an int": 42,
+}
+
+
+@pytest.mark.parametrize("content", list(_UNKNOWN_CONTENT_SHAPES.values()),
+                         ids=list(_UNKNOWN_CONTENT_SHAPES))
+def test_chat_content_text_raises_on_unknown_shapes_without_leaking(content):
+    with pytest.raises(db.DatabricksTransportError) as info:
+        db._chat_content_text(content)
+    message = str(info.value)
+    assert message.startswith("unexpected chat content shape: ")
+    for fragment in (_CLIENT_TEXT, "Member", "12345", "risk score"):
+        assert fragment not in message
+
+
+def test_chat_content_shape_error_names_the_structure():
+    with pytest.raises(db.DatabricksTransportError) as info:
+        db._chat_content_text(
+            [{"type": "reasoning"}, {"type": "text", "text": [{"type": "text", "text": "x"}]}])
+    assert str(info.value) == (
+        "unexpected chat content shape: text block 1 carries 'text' of type list "
+        "(nesting depth 2); content is a list of 2 block(s) [reasoning, text], "
+        "nesting depth 4"
+    )
+    with pytest.raises(db.DatabricksTransportError, match=r"no text block; .*\[reasoning\]"):
+        db._chat_content_text([_RECORDED_BLOCK_CONTENT[0]])
+
+
+def test_chat_raises_on_a_content_list_without_text():
+    # Through chat() itself: the transport error passes through unwrapped.
+    cfg = db.config_for(_settings(serving_endpoint="databricks-claude-opus-4-8"),
+                        env={})
+
+    def query(name, messages, max_tokens):
+        return SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content=[_RECORDED_BLOCK_CONTENT[0]]))])
+
+    client = SimpleNamespace(serving_endpoints=SimpleNamespace(query=query))
+    with pytest.raises(db.DatabricksTransportError, match="^unexpected chat content shape: "):
+        db.chat(cfg, [{"role": "user", "content": "hi"}], client=client)
 
 
 def test_write_surface_is_exactly_the_sanctioned_set():
@@ -351,7 +440,17 @@ def client():
     return TestClient(ui_main.app)
 
 
-def test_documents_route_unconfigured_is_503(client, monkeypatch):
+def test_documents_route_unconfigured_is_200_with_configured_false(client, monkeypatch):
+    """M15b.5: the volumes seam OFF (as shipped for ACFC) is a missing optional
+    feature, not an error — 200, ``configured: false``, empty lists, the
+    reason; the UI hides the panel. It used to be a 503 the console logged
+    on every chooser open. No workspace client is ever built for it."""
+    for name in VOLUMES_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(db, "_client", lambda _cfg: pytest.fail("a client was built"))
+    response = client.get("/api/databricks/documents")
+    assert response.status_code == 200
+    assert response.json()["configured"] is False
     store = ui_main._require_store()
     from codegen.config import DatabricksSettings
 
@@ -360,11 +459,14 @@ def test_documents_route_unconfigured_is_503(client, monkeypatch):
         store.config.model_copy(update={"databricks": DatabricksSettings()}),
     )
     response = client.get("/api/databricks/documents")
-    assert response.status_code == 503
-    assert "not configured" in response.json()["detail"]
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["configured"] is False
+    assert "not configured" in payload["reason"]
+    assert payload["documents"] == {"sttm": [], "frd": []}
 
 
-def test_documents_route_workspace_refusal_is_502_with_message(client, monkeypatch):
+def test_documents_route_workspace_refusal_is_502_with_message(client, volumes_env, monkeypatch):
     # A refused/unauthenticated workspace is NOT "unconfigured": the UI shows
     # the message (and a Retry) instead of hiding the section.
     def refuse(_cfg):
@@ -378,7 +480,8 @@ def test_documents_route_workspace_refusal_is_502_with_message(client, monkeypat
     assert "refresh token is invalid" in response.json()["detail"]
 
 
-def test_documents_and_fetch_routes_with_stubbed_transport(client, monkeypatch, tmp_path):
+def test_documents_and_fetch_routes_with_stubbed_transport(client, volumes_env, monkeypatch,
+                                                           tmp_path):
     monkeypatch.setattr(
         databricks_routes, "list_documents",
         lambda cfg: {"frd": [], "sttm": [{"name": "map.xlsx", "size": 5,
@@ -409,7 +512,7 @@ def test_documents_and_fetch_routes_with_stubbed_transport(client, monkeypatch, 
     assert response.status_code == 400
 
 
-def test_documents_route_dedupe_states_and_pairing(client, monkeypatch, tmp_path):
+def test_documents_route_dedupe_states_and_pairing(client, volumes_env, monkeypatch, tmp_path):
     """fetched (same size) / differs (size mismatch) / fetchable, matched via
     the shared canonical name (upload prefix + copy suffix + case); the
     1005034 pair is annotated, the unpaired STTM is not."""
@@ -538,60 +641,12 @@ def test_ensure_volume_generalizes_to_output_volume():
     assert client.created[0]["name"] == "generated"
 
 
-def test_publish_target_route_reports_defaults(client, monkeypatch):
-    payload = client.get("/api/databricks/publish-target").json()
-    assert payload["available"] is True
-    assert payload["writable_prefix"] == "soham_workspace.codegen_agent."
-    assert payload["volume"] == "generated"
-
-
-def test_publish_route_requires_confirm(client):
-    response = client.post("/api/databricks/publish",
-                           json={"feed_slug": "x", "confirm": False})
-    assert response.status_code == 400
-    assert "confirm" in response.json()["detail"]
-
-
-def test_publish_route_with_stubbed_transport(client, monkeypatch, tmp_path):
-    store = ui_main._require_store()
-    (tmp_path / "reports").mkdir()
-    (tmp_path / "cv_feed").mkdir()
-    (tmp_path / "reports" / "cv_feed.md").write_bytes(b"# r")
-    (tmp_path / "cv_feed" / "cv_feed.ipynb").write_bytes(b"{}")
-    monkeypatch.setattr(store, "out_root", tmp_path)
-    monkeypatch.setattr(store, "reports_root", tmp_path / "reports")
-    monkeypatch.setattr(store, "runs", {"cv_feed": object()})
-
-    import codegen.databricks as db_module
-
-    calls = {}
-    monkeypatch.setattr(
-        db_module, "ensure_volume",
-        lambda cfg, **kw: {"full_name": "soham_workspace.codegen_agent.generated",
-                           "created": False},
-    )
-
-    def fake_publish(cfg, slug, files, **kw):
-        calls["slug"] = slug
-        calls["names"] = [p.name for p in files]
-        return [{"name": p.name, "path": f"/Volumes/x/{p.name}",
-                 "size_bytes": 1} for p in files]
-
-    monkeypatch.setattr(db_module, "publish_artifacts", fake_publish)
-    response = client.post(
-        "/api/databricks/publish",
-        json={"feed_slug": "cv_feed", "confirm": True},
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["published"] is True
-    assert calls["slug"] == "cv_feed"
-    assert calls["names"] == ["cv_feed.md", "cv_feed.ipynb"]
-
-
-def test_publish_route_unknown_feed_is_404(client, monkeypatch):
-    store = ui_main._require_store()
-    monkeypatch.setattr(store, "runs", {})
-    response = client.post("/api/databricks/publish",
-                           json={"feed_slug": "ghost", "confirm": True})
-    assert response.status_code == 404
+def test_the_publish_routes_are_gone(client):
+    """2026-10-16 (post65): the Dashboard's "Publish to Unity Catalog volume"
+    section was removed with the two routes that fed it. Publishing stays
+    reachable from the CLI (``codegen databricks-publish``), tested above."""
+    paths = {getattr(route, "path", "") for route in ui_main.app.routes}
+    assert "/api/databricks/publish-target" not in paths
+    assert "/api/databricks/publish" not in paths
+    response = client.post("/api/databricks/publish", json={"feed_slug": "x", "confirm": True})
+    assert response.status_code in (404, 405)

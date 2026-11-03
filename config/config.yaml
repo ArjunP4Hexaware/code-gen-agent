@@ -18,6 +18,15 @@ contracts:
   # --frd-contract X --sttm-contract Y` still works with explicit paths, and
   # the fixture-driven tests skip rather than fail.
   pairs: []
+  # post160 (Soham, 2026-11-02): the STTM is authoritative for a feed's table set.
+  # FRD stage tables no STTM field (or recycle rule) maps are set aside - never
+  # silently: provenance flag `frd_tables_set_aside:stage`, a NOTE and ONE
+  # non-blocking INPUT_NEEDED line `feeds[<i>].tables_set_aside` (the run reads
+  # PASS_WITH_OPEN_INPUTS, never PASS). Applies only when every other error of the
+  # feed is an unstated value; an STTM table the FRD does not name, a conflict, a
+  # segment or feed mismatch, or an FRD standard layer the STTM lacks still FAIL.
+  # Prod ground truth: pair_05 deployed the STTM's table only. false = FAIL.
+  sttm_authoritative_tables: true
 
 # Overrides for FRD feed_name -> STTM feed_id when normalization
 # (lowercase, non-alphanumeric -> _) is not enough. Empty by default.
@@ -27,18 +36,44 @@ output:
   dir: out
   reports_dir: reports
   # Option A ("notebook" — today's output, a fresh standalone pipeline, the
-  # ~10% case) | Option B ("framework" — DDL scripts + config rows + insert
-  # statements for the existing ingestion framework, the ~90% case) | both.
-  # rfc (M5): framework artefacts + the assembled RFC<number>_<Feed>/
-  # deployment package (rfc: / playbook: sections below).
-  # CLI --output-mode and the UI selector override per run.
+  # ~10% case) and / or Option B ("framework" — DDL scripts + config rows +
+  # insert statements for the existing ingestion framework, the ~90% case);
+  # a list for both: [notebook, framework]. The retired values both / rfc /
+  # all map to [notebook, framework] with a one-time notice.
+  # CLI --output-mode (repeatable) and the UI selector override per run.
   mode: notebook
+  # The App's default output per conventions profile (over `mode`; the CLI keeps
+  # `mode`). acfc_prx = framework: every scored ACFC run used it (2026-10-13).
+  profile_mode: {acfc_prx: framework}
+  # post91 (Soham, 2026-10-21): what the App offers - notebooks are OFF in the App
+  # (no toggle, no notebook runs, no notebook panels). To show them again:
+  #   app_options: [notebook, framework]
+  # The CLI (mode / --output-mode) is not affected.
+  app_options: [framework]
+  # post98 (Soham, 2026-10-22): the framework files the App lists - the IIG review
+  # workbook (<STTM>_IIG_REVIEW.xlsx / <feed>_IIG_REVIEW.xlsx) is HIDDEN; it is still
+  # written. To show it again:
+  #   app_files: [ddl, ddl_tests, iig, iig_review, addition, log]
+  app_files: [ddl, ddl_tests, iig, addition, log]
+  # post101 (Soham, 2026-10-22): the artefacts panel names only the IDs the data
+  # engineer assigns (METADATA_DB_SEMANTICS.md §1-2); the rest (load timestamps,
+  # the Databricks workspace / cluster settings, columns of empty sheets, OBJECT_ID
+  # now filled) are left to the _LOG.md and the review workbook.
+  app_assign_ids:
+    PIPELINE_ID: "each pipeline row, unique"
+    PARENT_PIPELINE_ID: "each child row: its master's PIPELINE_ID"
+    GROUP_ID: "one unique per feed"
 
 framework:
   # Option B knobs. The row layout is NOT here — demo.metadata_sheet is the
   # single source of truth (a stand-in until the client's template arrives;
   # values carry over).
   metadata_layout: demo.metadata_sheet
+  # post155: the FRD file formats that mean the source is a database table (two client
+  # pairs state "Database Table"; docs/acfc/SHAPES_FOR_PORT.md: "Source here is a
+  # database table (not a file)"). Table ingestion (the RDMS sheet) is not built, so
+  # such a feed writes its DDL + test cases and holds the IIG - never ADLS file rows.
+  table_source_formats: ["database table"]
   # sqlserver | lakebase — the framework DB the inserts target. The store is
   # moving toward Databricks-native; the adapter stays thin and swappable.
   sql_dialect: sqlserver
@@ -113,14 +148,39 @@ extractor:
   recycle_header_prefix: "recycle flag"
   # Source-side cell values (normalized) marking a trailing audit row.
   audit_source_markers: ["na"]
+  # post94 (pair_08): a row with no source field name whose stage column is one of
+  # these is an audit row even when a description cell fills its source band. The
+  # framework's audit columns (the ACFC goldens); LOB stays out - it is often mapped.
+  audit_column_names: [SRC_FILE_NAME, REC_CREATION_TIME, REC_UPDATED_TIME]
+  # M9.2 (docs/acfc/HANDOVER_GENIE.md §4 error 3): target-column cell texts
+  # (normalized) by which an STTM marks a source field as NOT mapped. The
+  # field is left out of stage and standard and counted in the feed's
+  # skipped_rows flag, citing the cell — never a note only (post74: read
+  # with the conventions profile's skip_row_markers).
+  unmapped_markers: ["do not map", "dnm", "not mapped", "n/a", "na", "none"]
+  # A delimiter stated as a word -> the character every artefact writes
+  # (first real-row scorecard, 2026-10-08: never the word in an IIG cell).
+  delimiter_words: {comma: ",", pipe: "|", tab: "\t", semicolon: ";", caret: "^", tilde: "~", colon: ":"}
+  # Multi-table rule 2 (docs/acfc/MULTI_TABLE_DESIGN.md): a header-block file
+  # pattern holding one of these LOB-varying tokens (case-insensitive) expands
+  # to one file per listed LOB; any other pattern is one file.
+  lob_tokens: ["<LOB>", "{LOB}", "[LOB]"]
   file_details_headers:
     vendor: ["vendor"]
     file_name: ["filename", "file name"]
     frequency: ["frequency"]
+    # A mapping sheet whose TableName cells are blank takes its stage table
+    # from its File Details row (flag sttm_target_missing) — first ACFC run.
+    target_table: ["target table", "target table name", "stage table", "stage table name"]
   # RecycleSpec boilerplate emitted around the VERBATIM workbook validation
   # text (phrasing mirrors the existing MIDS contract fixture).
   recycle_on_match: "Process record into stage table"
   recycle_on_no_match: "Load record to Recycle Table with recycle flag enabled for {window_days} days; retry on subsequent runs"
+  # A document sheet's dead tail — empty (styled only) cells more than this
+  # many rows below the data — is dropped on load (a sheet formatted down to
+  # row 1,048,538 made every scan create a cell per row). A cell with a
+  # value is never dropped. 0 = trust max_row.
+  used_range_empty_rows: 500
 
   # ---- content-driven layout discovery (M1, 2026-09-18) ----------------
   # Vocabulary for codegen.layout.discover: the third discovery strategy,
@@ -134,6 +194,9 @@ extractor:
   # tables are M2.5's job (model/user resolution) and are deliberately NOT
   # widened here.
   discovery:
+    # post94: a blank stage type's question proposes what the sheet's other rows
+    # unanimously use with that standard type, over at least this many rows
+    stage_type_proposal_min_rows: 3
     scan_rows: 40
     band_tokens:
       source: ["source"]
@@ -144,7 +207,10 @@ extractor:
       source:
         ordinal: ["s no", "sl no", "sr no", "field id", "column no", "position", "field no"]
         field_name: ["field name", "database column name", "database name", "client data table column name", "column name", "columnname"]
-        source_type: ["type", "datatype", "data type"]
+        # "format": the source-type column of the real pair-1 sheet (M9 —
+        # PAIR1_HEADERS.md row 15, column E); without it the sheet's source
+        # types read "unstated" and nothing asks (the role is optional).
+        source_type: ["type", "datatype", "data type", "format"]
         length: ["length", "len"]
         field_length: ["field length", "field length fixed width"]
         start: ["start", "start position", "start position fixed width"]
@@ -179,10 +245,10 @@ extractor:
       target:
         workspace: ["workspace"]
         catalog: ["catalog", "target catalog"]
-        schema: ["schema", "schema name", "target schema", "target schema name in lakehouse", "stage schema", "standard schema", "schemaname"]
-        table: ["tablename", "table name", "target table", "target table name in lakehouse", "stage table name", "standard table name"]
-        column: ["columnname", "column name", "target column", "target column name in lakehouse", "stage column name", "standard column name"]
-        target_type: ["datatype", "data type", "target data type in lakehouse", "stage datatype", "standard data type"]
+        schema: ["schema", "schema name", "target schema", "target schema name in lakehouse", "target schema name in dl", "stage schema", "standard schema", "schemaname"]
+        table: ["tablename", "table name", "target table", "target table name in lakehouse", "target table name in dl", "stage table name", "standard table name"]
+        column: ["columnname", "column name", "target column", "target column name in lakehouse", "target column name in dl", "stage column name", "standard column name"]
+        target_type: ["datatype", "data type", "target data type in lakehouse", "target data type in dl", "stage datatype", "standard data type"]
         mandatory_column: ["mandatory column", "mandatory"]
         primary_key: ["primary key"]
         constraints: ["constraints"]
@@ -210,10 +276,16 @@ extractor:
       file_location: ["file location"]
       domain: ["domain"]
       sub_domain: ["sub domain", "subdomain"]
+    # M9.0: meta VALUE placeholders read as blank (the real pair-1 sheet
+    # writes "TBD" for its file names / example / frequency).
+    meta_blank_values: ["tbd", "n/a", "na", "-", "none"]
     segment_synonyms:
       Header: ["header", "hdr", "hddr", "hr", "header record", "h"]
-      Detail: ["detail", "dtl", "det", "dr", "detail record", "d", "data"]
+      Detail: ["detail", "details", "dtl", "det", "dr", "detail record", "d", "data"]
       Trailer: ["trailer", "trl", "trlr", "tr", "trailer record", "t"]
+    # A Segment cell that says "no segment" (D1 post51 pair_05). Only these (or
+    # blank) in a sheet = unsegmented; never a banner / sheet-name spelling.
+    unsegmented_markers: ["na", "n/a", "-", "none", "null"]
     auxiliary_sheets:
       file_details: [["vendor", "filename"], ["vendor", "file name"], ["inbound file name"]]
       table_details: [["table name", "table description"], ["name", "table description", "load strategy"]]
@@ -221,6 +293,12 @@ extractor:
       layout: [["field name", "type", "length", "start", "end"]]
       version: [["version", "date"]]
       lob_crosswalk: [["lob"]]
+    # 2026-10-13 (D1 pair_11): a sheet with one of these names (normalized:
+    # case, separators) is the workbook's metadata - classified table_details,
+    # never a mapping sheet, so never a feed. A mapping-shaped sheet on which
+    # NO role resolves while another sheet maps fields is metadata too.
+    metadata_sheet_names: ["table details", "table detail", "tables details", "table list",
+                           "tables list", "table metadata", "target tables"]
     yes_values: ["yes", "y", "true", "x", "required", "mandatory", "m", "not null", "1"]
     no_values: ["no", "n", "false", "optional", "situational", "s", "null", "0", "nullable"]
     # Validator plausibility thresholds (M2.5 §4): share of data cells under
@@ -230,6 +308,47 @@ extractor:
       type_like: 0.8
       yes_no_like: 0.8
       field_name_non_empty: 0.9
+    # Chunk A (2026-10-09): a target band is located by its LABEL GROUP
+    # (catalog / schema / table / column / data type — the roles.target
+    # synonyms) anywhere in the header row; its LAYER only from evidence, in
+    # this order: an answer, the band title row, a word of its own headers,
+    # its Catalog values, its Schema values. Column order is never evidence:
+    # a band nothing names (or two bands naming one layer) is the question
+    # UNRESOLVED <sheet>/band[<n>]/layer. Whole-word matches; prefixes on the
+    # lowercased value.
+    layer_evidence:
+      titles:
+        source: ["source", "src"]
+        stage: ["stage", "staging", "stg"]
+        standard: ["standard", "std"]
+        rules: ["rules"]
+      # "in DL" / "DLK" in a header is OFF as stage evidence (2026-10-09:
+      # pair 1 writes "… in DL" in BOTH its stage and standard bands — an
+      # untitled one-band sheet with "in DL" asks). To turn it on, add
+      # "dl", "dlk" to header_words.stage.
+      header_words:
+        stage: ["stage", "staging", "stg"]
+        standard: ["standard", "std"]
+      # Catalog VALUES: PR_DLK -> stage, PR_STD -> standard (and the
+      # environment names catalog_map produces: d1_dlk / d1_std).
+      catalog_words:
+        stage: ["dlk"]
+        standard: ["std"]
+      schema_prefixes:
+        stage: ["stg_", "stage_", "staging_"]
+        standard: ["std_", "standard_"]
+      group_min_location_roles: 3
+      group_max_gap: 2
+      value_scan_rows: 200
+      # Chunk B (2026-10-09, cold drill) - pass 3, only when no sheet is a
+      # mapping sheet by a band row or a label group: a header row with at
+      # least candidate_min_header_cells text cells under a band title row of
+      # two or more spans, or carrying runs of candidate_min_run adjacent
+      # headers that share their first word ("Landing Catalog | Landing
+      # Schema ..."), is a CANDIDATE mapping sheet. Its bands' layers come from
+      # evidence only; every role no synonym places is asked.
+      candidate_min_header_cells: 8
+      candidate_min_run: 3
 
   # ---- FRD .docx extractor (M2, 2026-09-18) ----------------------------
   # codegen.extract.frd_docx: section titles and label synonyms, populated
@@ -240,6 +359,10 @@ extractor:
   # the contract has no slot for (owners, stewards, SLA …) are logged, not
   # mapped; fields no listed label covers stay unresolved (M2.5's job).
   frd:
+    # post94 (pair_03): the FRD's own spelling (the EDO Naming Standards' Load Strategy
+    # table writes it so too - engineering_standards.load_strategy_abbreviations)
+    load_strategy_synonyms:
+      "Truncate & Load": "Truncate and Load"
     section_titles:
       descriptive: ["Descriptive Metadata"]
       structural: ["Structural Metadata"]
@@ -267,6 +390,9 @@ extractor:
       target_schema: ["Target Catalog and Schema", "Target Schema"]
       target_table_name: ["Target Table Name"]
       domain_subdomain: ["Domain and Subdomain"]
+      # Per-file block lines inside a Domain and Subdomain cell (M7).
+      domain: ["Domain"]
+      sub_domain: ["Subdomain", "Sub Domain", "Sub-domain"]
       load_strategy_stg: ["Load Strategy STG"]
       load_strategy_std: ["Load Strategy STD", "Load Strategy STD (View)"]
       archive_schedule: ["Archive Schedule"]
@@ -278,6 +404,8 @@ extractor:
       filter_criteria: ["Filter Criteria"]
       pii_fields: ["PII Fields"]
       transformation_logic: ["Transformation Logic"]
+      # post70: the key row (codegen.primary_key reads it as a key signal)
+      primary_key: ["Primary Key", "Natural Key", "Business Key"]
       # Data Quality (positional rule rows; the recycle row also feeds recycle_rule)
       recycle_process: ["Record Recycle Process (HARD - In pipeline)"]
       # Vendor
@@ -285,8 +413,26 @@ extractor:
       vendor_abbreviation: ["Vendor Abbreviation"]
     solution_requirement_prefix: "Solution Requirement"
     solution_requirement_section_row: 4
+    # D1 post51 pairs 08-10: SR tables without a caption are found by their
+    # row labels (SHAPES_FOR_PORT section F2): every required label + at
+    # least min_labels of the list; the caption is the second signal.
+    solution_requirement_labels: ["Name", "Business Requirement", "Functional Requirement",
+                                  "Impact Details", "Solution Acceptance Criteria", "Priority",
+                                  "Source/Reference", "Traced Requirements",
+                                  "Related Requirements", "IS Owner"]
+    solution_requirement_required_labels: ["Business Requirement", "Functional Requirement"]
+    solution_requirement_min_labels: 5
+    # post84 (pair_11, the label as the client FRD writes it): a requirement's own
+    # landing line, read per requirement when the ADLS Location cell lists several
+    requirement_landing_labels: ["Raw ADLS Location", "ADLS Location"]
     inline_pair_separators: [";"]
     list_separators: [",", ";", "\n"]
+    # 2026-10-14 (D1 pair_12): a LOB cell holding a Region / LOB table (nested,
+    # or flattened one cell per line under its header row) — the LOB column's
+    # headers, then the key columns' — a plan id first, a region (REG#) second.
+    lob_table_lob_headers: ["LOB", "Line of Business", "LOB Code"]
+    lob_table_plan_headers: ["Plan", "Plan ID", "Plan Code", "Plan Number", "Plan #"]
+    lob_table_region_headers: ["Region", "REG#", "Region #", "Region Code"]
     domain_separators: ["/", ","]
     target_schema_markers:
       stage: ["STG", "Stage", "Staging"]
@@ -295,6 +441,60 @@ extractor:
     acd_headers: ["ACD Type", "Name", "Description"]
     # Placeholders the documents write for "nothing stated" — read as blank.
     blank_values: ["None", "N/A", "NA", "-", "TBD"]
+    # M7 (2026-09-18): a cell that POINTS at another document is unstated
+    # (flag frd_pointer:<field> -> <target named>) and resolved through the
+    # fallback chain (STTM File Details / meta rows, VDD FILES). Case-insensitive.
+    pointer_phrases: ["refer to", "see the", "attached in the appendix", "per the mapping document",
+                      "mentioned in the mapping document", "provided in the mapping document",
+                      "included in the mapping document"]
+    # Round 7 (2026-10-13, D1 App with the VDD attached): a 'format' cell is a FILE
+    # FORMAT only when it names one of these (whole words, case-insensitive).
+    # "File Data Ingestion" names none — an ingestion type, never a candidate; the
+    # file pattern's extension (.csv / .psv / .tsv) then decides, with a NOTE.
+    format_tokens: [csv, psv, tsv, pipe, comma, tab, semicolon, delimited, delimiter,
+                    separated, fixed, fixed width, fixed-width, fixedwidth, positional, json,
+                    parquet, avro, orc, xml, txt, text, dat, excel, xlsx, xls]
+    # 2026-10-13 (D1 pair_11, "Text files" vs the STTM's csv): a format cell
+    # that names only a text file says nothing about its layout - the file's
+    # extension (csv / psv / tsv / txt, from the patterns or the STTM / VDD
+    # format cell) decides, printed as a NOTE.
+    generic_text_formats: ["text", "texts", "text file", "text files", "flat file",
+                           "flat files", "txt", "txt file", "txt files", "text format"]
+    # Fields read as ONE line: a nested table, per-file blocks ("<File> file
+    # Ingestion from <Src>:" headings with "Domain = ..." lines), a
+    # label-prefixed description ("Vendor Files = ...") or a remaining line
+    # break leave the field unstated (StructuredValue in the contract); the
+    # layout stage resolves nested tables / blocks per derived feed.
+    single_line_fields: [feed_name, source_system, frequency, file_format, landing_location, domain,
+                         stage_target.schema, stage_target.load_strategy,
+                         standard_target.load_strategy]
+    # First-row words that mark a nested table's header row.
+    nested_table_header_words: ["file_name", "file name", "filename", "path", "mftlanding path",
+                                "vendor", "inb/oub", "location", "description"]
+    structured_text_max_chars: 200
+    # M9.3 (docs/acfc/HANDOVER_GENIE.md §4 error 6): a target cell may hold
+    # an inline layer block —
+    #     Staging Layer:
+    #     Table: <name>
+    #     Standard Layer:
+    #     Table: <name>
+    # a heading "<target_schema_markers word> <heading word>:" then
+    # "Label: value" lines, parsed per layer into the structured targets;
+    # none of its lines is ever a table name.
+    # M9.1b (PAIR1_REAL_RUN.md §1): the Object Name cell as a BLOCK. The real
+    # pair-1 cell is three stanzas — a "<line of business>:" line, then the
+    # file name pattern on the next line; a nested label | value table reads
+    # the same way. `feed_name` labels name the feed, `file_name` labels (or a
+    # file-like value under any other label) give the file name patterns.
+    object_name_labels:
+      feed_name: ["Object Name", "Object", "Feed Name", "Feed", "Name"]
+      file_name: ["File Name", "File Names", "FileName", "File Name Pattern", "File Pattern",
+                  "File"]
+    layer_block_heading_words: ["layer"]
+    layer_block_labels:
+      table: ["Table", "Table Name", "Target Table", "Target Table Name"]
+      schema: ["Schema", "Schema Name", "Target Schema"]
+      catalog: ["Catalog", "Catalog Name", "Target Catalog"]
 
   # ---- Vendor Data Dictionary reader (M3, 2026-09-18) --------------------
   # codegen.layout.discover.discover_vdd + codegen.extract.vdd: the FILES
@@ -340,24 +540,82 @@ extractor:
       - ["boolean", "bool", "bit"]
     # FRD Object/data Format words that require VDD positions (gate FAIL otherwise).
     fixed_width_tokens: ["fixed width", "fixed-width", "fixedwidth"]
+    # A dictionary missing more than this share of the STTM's fields covers a
+    # different sheet / feed: one vdd_scope_mismatch flag, not one per field.
+    scope_mismatch_ratio: 0.8
 
 reasoning:
   # Layer 2 — only free-text validation rules the deterministic compiler
   # cannot classify. Mock provider unless ANTHROPIC_API_KEY is set;
   # --dry-run forces mock.
   # Proven against our key by frd-to-sttm's live E2E runs (2026-08-07).
-  # claude-opus-5 per the 2026-08-28 decision (Databricks App + FMAPI).
-  model: claude-opus-5
+  # claude-opus-5 per the 2026-08-28 decision (Databricks App + FMAPI);
+  # Claude Opus 5.5 from 2026-10-13 (Soham's direction).
+  model: claude-opus-5-5
   max_tokens: 8192
   # No temperature knob: sampling params are removed on this model family —
   # the API returns 400 if one is sent. Live output varies run to run.
   # One retry with the validation error appended, then record a failure.
   max_attempts: 2
+  # 2026-10-14 (D1 post43: pair_12 5 of 5 Layer-2 calls failed): a response
+  # that ends inside its JSON object was cut off at max_tokens (extended
+  # thinking spends the same budget) — that call's retry asks with this many.
+  truncation_max_tokens: 32000
+  # post159 (P1-6, L2-3): a Layer-2 citation is grounded only when it quotes,
+  # on word boundaries, at least this many words of contract text (or a whole
+  # rule / excerpt that is shorter) and is not just a column name; at least
+  # one citation must quote the candidate's OWN rule - a sibling rule, the SLA
+  # or the frequency count only as extras. 3 = the shortest phrase that still
+  # states a condition ("must not be", "reject the file"); one word or a
+  # stopword grounds nothing.
+  min_citation_words: 3
+  # post159 (P2-2, L2-5): the longest Layer-2 answer the response schema takes
+  # (characters / items); over the limit = a schema failure, retried once,
+  # then a failed candidate - never a crash. Sized well above a real answer
+  # (rationale: a paragraph; code: a sketch; a citation: one rule) and far
+  # below what the transport can return (a 5 MB answer was accepted before).
+  response_limits:
+    rationale_max_chars: 4000
+    code_candidate_max_chars: 20000
+    citation_max_chars: 4000
+    citations_max_items: 20
   # Layer-2 transport: anthropic (default) | databricks_fmapi (same Claude
   # model via the databricks.serving_endpoint — transport only; needs the
   # [databricks] extra and resolvable workspace auth; mock still wins on
   # dry-run and on unresolvable creds).
   provider: databricks_fmapi
+  # 2026-10-13: THE provider switch, mock | live, for the layout recognizer AND
+  # Layer 2 (codegen.reasoning.mode). mock everywhere by default; live only
+  # where a deployment says so — ACFC sets CODEGEN_PROVIDER=live in app.yaml,
+  # the harness jobs and acfc_run.py. Never inferred from an endpoint or a
+  # Databricks login. --provider (CLI) > CODEGEN_PROVIDER > this.
+  mode: mock
+  # post76: Layer 2 is its own stage AFTER the run's outcome and files
+  # (codegen.layer2_stage) — ONE model request per feed for its unmapped rules.
+  # now | defer (kept for `codegen layer2` / the App's review panel) | skip;
+  # `generate --layer2` wins on the CLI.
+  layer2_cli: now
+  layer2_app: defer
+  # post67: what a live run's MEASURED tokens cost in the App's confirm
+  # dialog, US $ per million tokens by model id; each row names its source.
+  # A model without a row gets no dollar figure.
+  prices:
+    # Anthropic first-party list prices — the dialog says "at Anthropic list
+    # price; Databricks bills in DBUs" for a run through the FM API endpoint.
+    anthropic:
+      claude-opus-5-5: {input: 4.00, output: 20.00, cache_read: 0.20,
+                        source: "anthropic list price, 2026-10-06"}
+    # This workspace's per-token rate (its DBU rate as $/MTok), filled by the
+    # workspace — when the run's model has a row here, FM API runs are priced
+    # at it and the dialog says "at this workspace's rate". Shape:
+    #   claude-opus-5-5: {input: <$>, output: <$>, cache_read: <$>,
+    #                     source: "<workspace> DBU rate, <date>"}
+    databricks_fmapi: {}
+  # post145: DBU per million tokens through the Databricks FM API, by model id —
+  # what a new pair's layout calls cost in the confirm dialog.
+  dbu_rates:
+    claude-opus-5-5: {input: 57.143, output: 285.714,
+                      source: "Databricks FM API rate for Claude Opus 5.5, 2026-10-27 (without the 10% regional-processing uplift)"}
 
 demo:
   # Inputs for the demo UI's Live and Replay modes (CV/golden universe).
@@ -371,10 +629,22 @@ demo:
   frd: "FRD_demo_cv_golden.contract.json"
   sttm: "sttm_mapping_contracts_cv_golden.json"
   workbook: fixtures/workbooks/demo_sttm_cv_golden.xlsx
-  # Cost-confirmation copy for the live run (measured 2026-08-07 live E2E).
-  estimated_calls: 3
-  estimated_cost_usd: 0.10
-  estimated_seconds: 20
+  # post67: the live-run confirm dialog shows what the last N live runs per
+  # conventions profile took (wall-clock, calls, measured cost) — ranges from
+  # that record, "no history yet" when it is empty (post145: the one stated
+  # estimate is the new-pair layout cost below, named as an estimate).
+  run_history_size: 10
+  # post145: until a recorded run measured it, the dialog states this range for
+  # a pair the agent has not mapped before (one layout call per document, once).
+  # post148: a conservative approximation (Venu, 2026-10-29: approximate, and err
+  # high so the client is never surprised), above the 2026-10-27 offline estimate of
+  # 1.5-4.5 DBU (two client pairs' layout requests; output tokens not measured).
+  # post149: `source` is SHOWN in the App's confirm dialog (client-facing): no
+  # person's name and no internal detail there - the provenance stays in this comment.
+  new_pair_layout_estimate:
+    dbu_low: 6
+    dbu_high: 8
+    source: "rounded up on purpose"
 
   # Reference documents the documents card checks for — DISPLAY ONLY in this
   # build; wiring these into generation is the next step. Filenames as they
@@ -552,6 +822,15 @@ engineering_standards:
     history: HST
   # No resolvable frequency => the job ships unscheduled, i.e. ad hoc.
   unknown_frequency_abbreviation: ADH
+  # post85: the Naming Standards' Load Strategy table (Truncate & Load / Append /
+  # Update Else Insert / Extracts), keyed by the FRD's spellings of the strategy
+  load_strategy_abbreviations:
+    "Truncate and Load": TRUNC
+    "Truncate & Load": TRUNC
+    Append: INSRT
+    Upsert: UPSRT
+    "Update Else Insert": UPSRT
+    Extracts: EXTR
   multi_lob_abbreviation: ALL
   # MVP prerequisite: raw/stage/standard tables already exist. DDL files are
   # emitted as REFERENCE only; the notebook lists prerequisite tables instead
@@ -579,6 +858,42 @@ gate:
     - "print('DEBUG"
   # How many trailing pytest output lines the gate keeps in check details.
   pytest_tail_lines: 15
+  # 2026-10-26: the engineer RUNS the DDL - every emitted DDL file must parse
+  # under this sqlglot dialect (codegen.gate.ddl_parse: a parse error or an
+  # unrecognised statement FAILs; sqlglot absent = sqlglot_unavailable flag).
+  ddl_parse_dialect: databricks
+  # post158 (pentest CS-1): a DDL data type the framework DDL writes as the STTM
+  # states it (stage / standard / audit) must be a plain type spelling - one or
+  # two words, an optional numeric size: String, Decimal(10, 2), varchar(50).
+  # Anything else (quotes, ';', a comment, a newline, extra clauses) is NEVER
+  # written: the column gets the open marker and the ddl_types check FAILs.
+  ddl_type_pattern: '^[ \t]*[A-Za-z][A-Za-z0-9_]*(?:[ \t]+[A-Za-z][A-Za-z0-9_]*)?(?:[ \t]*\([ \t]*\d+[ \t]*(?:,[ \t]*\d+[ \t]*)?\))?[ \t]*$'
+  # M7 (2026-09-18) derivation gate — codegen.gate.derivations. Every IIG
+  # cell single-line; identifier columns charset + cap; path columns no
+  # whitespace / empty segment / punctuation-ended segment / doubled
+  # separator; DDL COMMENT / LOCATION / TBLPROPERTIES literals single-line,
+  # quotes balanced. The framework's own limits are NOT documented — these
+  # caps are conservative defaults, replace them with the framework team's.
+  derivations:
+    name_pattern: "^[A-Za-z0-9_]+$"
+    name_columns: [PIPELINE_NAME, DATABRICKS_NOTEBOOK_NAME, TGT_TABLE_NAME, SRC_TABLE_NAME,
+                   TGT_DATABASE_NAME, TGT_SCHEMA_NAME, SRC_SCHEMA_NAME, TGT_CATALOG_NAME,
+                   SRC_CATALOG_NAME, TGT_RJT_TABLE_NAME, RECYCL_TBL_NM]
+    # A notebook name is a workspace file name: the framework's carry a version
+    # dot (FileInvokeDQDeltaTable_V0.1 — SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!L2
+    # and the SD prod notebook keys, round 3).
+    name_patterns: {DATABRICKS_NOTEBOOK_NAME: "^[A-Za-z0-9_.]+$"}
+    name_max_length: {default: 128, PIPELINE_NAME: 128, DATABRICKS_NOTEBOOK_NAME: 128}
+    path_column_suffixes: [_PATH, _DIR, _ROOT_DIR]
+    # A comma-separated list is a corpus pattern here (the two-notebook form: the
+    # handler + the DQ notebook), not an error - every segment checked on its own.
+    list_columns: [DATABRICKS_NOTEBOOK_NAME, DATABRICKS_NOTEBOOK_PATH]
+    path_max_length: 1024
+    max_name_token_length: 32
+    # Sibling-type check: suffix groups whose standard-band types must agree
+    # (plus any suffix >= sibling_min_group columns share).
+    sibling_suffixes: [_pct, _pop, _amt, _dt, _cd, _id, _nm, _flg, _cnt, _ind, _qty]
+    sibling_min_group: 3
 
 sharepoint:
   # Microsoft Graph transport (codegen.sharepoint) — the document library is
@@ -613,14 +928,18 @@ databricks:
   # unconfigured: the UI hides the panel, the CLI fails loudly naming the
   # remedy, and everything else is unaffected.
   profile: DEFAULT
-  # NOTE: catalog/schema here address the REAL document volumes the fetch
-  # seam reads (uploaded 2026-08-27). The demo shell block's placeholders
-  # live separately under demo.databricks_paths — no landing volume exists
-  # in the workspace yet (Option A decision).
-  catalog: soham_workspace
-  schema: codegen_agent
-  frd_volume: frd_raw
-  sttm_volume: sttm_raw
+  # The document volumes (catalog / schema / frd_volume / sttm_volume) ship
+  # BLANK: they named the Hexaware build workspace's own volumes, which do
+  # not exist inside ACFC — the App listed and fetched from them there.
+  # Blank = the seam is off: the chooser shows no Databricks section and
+  # nothing is listed or fetched. To use it on a machine that HAS such
+  # volumes, set DATABRICKS_CATALOG / DATABRICKS_SCHEMA /
+  # DATABRICKS_FRD_VOLUME / DATABRICKS_STTM_VOLUME in that environment.
+  # The serving endpoint below does not depend on them.
+  catalog: ""
+  schema: ""
+  frd_volume: ""
+  sttm_volume: ""
   # B1 (discovery 2026-08-27, docs/DATABRICKS_DISCOVERY.md):
   # "Serverless Starter Warehouse", serverless PRO, auto-stop 10 min.
   # EXPLAIN is the ONLY statement shape this seam sends — and an EXPLAIN
@@ -628,7 +947,7 @@ databricks:
   warehouse_id: "172877b5178f7bb7"
   # Matches reasoning.model exactly: the same Claude model, served by
   # Databricks FMAPI. A transport, not a vendor change.
-  serving_endpoint: databricks-claude-opus-5
+  serving_endpoint: databricks-claude-opus-5-5
   # No wrapper job exists in the Hexaware workspace; supplied by the client.
   wrapper_notebook_path: ""
   # The ONE writable volume (guarded by construction in codegen.databricks:
@@ -658,12 +977,34 @@ layout:
   runtime_cache_dir: "ui/backend/state/layout_profiles"
   mock_dir: "fixtures/layout_profiles/mock"
   # auto: live when Layer 2 is live (same transport, databricks_fmapi /
-  # anthropic; mock on dry-run and on the mock lock) | mock: never a model.
+  # anthropic; mock on dry-run and on the mock lock) | mock: never a model
+  # | live (M8.3): the recognizer's OWN opt-in — it queries `endpoint` (else
+  # databricks.serving_endpoint) through FMAPI even while Layer 2 is
+  # mock-locked; same request (header regions / table labels, never a data
+  # row), same validator. dry-run and CODEGEN_FORCE_MOCK_LAYOUT=1 still force
+  # the mock. Env CODEGEN_LAYOUT_PROVIDER / CODEGEN_LAYOUT_ENDPOINT win. The
+  # App's service principal needs CAN_QUERY on it (docs/ACFC_DEPLOY.md §4).
   provider: auto
+  endpoint: null
   max_tokens: 8192
   max_attempts: 2
   model_confidence: 0.8
   crosscheck_bonus: 0.1
+  # P1-7 (2026-10-30): caps on a layout MODEL request (never the fingerprint /
+  # cache key). Longer cell / label / profile strings are clipped; cells go for
+  # at most max_sheets_sent sheets with open roles (others: summary line); a
+  # request over max_prompt_chars (its JSON) is refused before the call
+  # (layout.request_too_large), never retried. Not under extractor:, so the
+  # runtime cache's vocabulary hash does not move.
+  max_cell_chars: 500
+  max_prompt_chars: 250000
+  max_sheets_sent: 60
+  # P1-2 (2026-10-30): every cache hit re-validates the roles the model or a
+  # person placed against the CURRENT workbook (header + plausibility); a
+  # failure is a stale entry, re-resolved. true: a profile with model-placed
+  # roles is cached as before; false: it is not written until a person answers
+  # those roles (the next run asks the model again). Owner decision pending.
+  cache_model_placements: true
 
 job:
   # EDO coding standard: EVERY pipeline must send both success and failure
@@ -673,6 +1014,9 @@ job:
   # value and never lives in a tracked file or emitted artefact; the client
   # substitutes their DL at deployment.
   notification_emails: ["syn.dl.prodsupport@synthetic.example"]
+  # EMAIL_TEMPLATE_CONFIG SENDER_EMAIL (2026-10-13); synthetic stand-in, the
+  # real address comes from env CODEGEN_NOTIFICATION_SENDER.
+  notification_sender: "syn.dl.sender@synthetic.example"
   # Databricks Runtime / cluster shape for generated job JSON.
   # EDO coding standard: DBR >= 15.4 LTS with Photon enabled only.
   spark_version: "15.4.x-scala2.12"
@@ -688,25 +1032,48 @@ conventions:
   # edo_sfmc is TODAY'S output exactly (two .txt files conformant to the SFMC
   # reference goldens). acfc_prx is the pair-1 RFC package shape
   # (docs/acfc/rfc_capture/.../goldens/pair_1/ACCUM_DDL.txt): one combined
-  # file, '--stage table' / '--standard table' banners, CREATE OR REPLACE,
+  # file, '--stage table' / '--standard table' banners,
   # stage columns TYPED as the STTM stage band states them, audit columns in
-  # upper-case types, standard = the stage column list, no LOCATION /
-  # CLUSTER BY / TBLPROPERTIES / TAGS / COMMENTs. Whitespace knobs are data:
+  # upper-case types, standard = the stage column list and order with each
+  # column typed from the STTM STANDARD band (a type that differs from the
+  # stage band's is written normalised, e.g. Date -> DATE; one that matches
+  # keeps the stage text; blank -> stage type + flag standard_type_blank;
+  # unmappable -> as stated + flag standard_type_unmapped), no LOCATION;
+  # post104: column / table COMMENTs and the standard
+  # TBLPROPERTIES are knobs, and post105 the run-safe shape (IF NOT EXISTS,
+  # ';', CLUSTER BY, stage TBLPROPERTIES, tags) - all on here; the golden
+  # (CREATE OR REPLACE, none of them) gets them from the pair-1 fixture overlay. Whitespace knobs are data:
   # the golden opens with a blank line, has a lone-space line before the
   # standard block's USING clause, and ends WITHOUT a trailing newline.
   # CLI: codegen generate --profile <name>.
   profile: edo_sfmc
+  # M7.1: the last fallback of the catalog chain (FRD label -> STTM band ->
+  # here) for every profile; a pair whose documents state no catalog
+  # resolves to it with provenance `config_default`. Per environment in an
+  # overlay, e.g. {stage: d1_dlk, standard: d1_dlk}. Empty = none configured.
+  default_catalog: {}
+  # M9.2: last link of the SCHEMA chain (layer -> schema): STTM target band
+  # -> FRD 'Target Catalog and Schema' -> here (provenance config_default);
+  # none of the three states one = extract-sttm's hard stop. Empty = none.
+  default_schema: {}
   profiles:
     edo_sfmc:
       ddl_layout: two_files
     acfc_prx:
       ddl_layout: combined
+      # post69: the Notebook output renders from the IIG rows (notebook_v2)
+      notebook_version: v2
       # {feed_abbrev} = the load-pattern FAQ's feed_abbreviation (a
       # client-assigned name); absent -> sanitized feed slug + a gate flag.
       ddl_file_name_pattern: "{feed_abbrev}_DDL.txt"
       typed_stage: true
       standard_from_stage: true
-      create_statement: "CREATE OR REPLACE TABLE"
+      # post105 (Soham, 2026-10-26): the engineer RUNS this DDL, against tables
+      # that may already be deployed - IF NOT EXISTS (OR REPLACE would empty a
+      # deployed table) and every statement terminated. The pair-1 golden's
+      # CREATE OR REPLACE / no ';' live in its fixture overlay.
+      create_statement: "CREATE TABLE IF NOT EXISTS"
+      statement_terminator: ";"
       using_clause: "USING delta"
       stage_banner: "--stage table"
       standard_banner: "--standard table"
@@ -714,6 +1081,141 @@ conventions:
       trailing_newline: false
       block_using_prefix: {stage: "", standard: " "}
       audit_type_casing: {String: STRING, Timestamp: TIMESTAMP}
+      # post104 (Nikshit's review, 2026-10-23; Soham: on for ACFC). All off = the
+      # pair-1 golden's bare shape (its fixture overlay switches them off).
+      # Column COMMENT = the STTM's Field Description, else its source Description /
+      # Column Description / Data Definition (never Comments); none = no COMMENT +
+      # a ddl_comment_blank flag.
+      column_comments: true
+      # The STTM Primary Key cell (Yes / blank), per layer, noted in the COMMENT.
+      primary_key_note: "Primary key (STTM Primary Key)"
+      # post106 (Soham, 2026-10-26): an em dash, not "; " - a deployment script that
+      # splits the DDL on ';' must not cut a COMMENT literal in two.
+      column_comment_separator: " — "
+      # Table COMMENT: the layer's FRD Load Strategy, in the FRD's words.
+      load_strategy_comment: "Load strategy: {strategy} (FRD Load Strategy {layer})"
+      # post140 (Soham, 2026-10-28): the table COMMENT = the STTM Table Description
+      # + the separator + the load strategy above ("description + load strategy").
+      table_description_comment: true
+      # Standard-table TBLPROPERTIES, transcribed in order from ACFC's own
+      # production standard DDL for the SFMC feed
+      # (fixtures/reference/SFMC_standard_table_creation.txt, scrubbed). Open with
+      # Nikshit (2026-10-23): ACFC's standard, or a SHOW CREATE TABLE dump?
+      standard_tblproperties:
+        delta.autoOptimize.autoCompact: "true"
+        delta.autoOptimize.optimizeWrite: "true"
+        delta.checkpoint.writeStatsAsJson: "false"
+        delta.checkpoint.writeStatsAsStruct: "true"
+        delta.checkpointPolicy: "v2"
+        delta.enableDeletionVectors: "true"
+        delta.enableRowTracking: "true"
+        delta.feature.appendOnly: "supported"
+        delta.feature.deletionVectors: "supported"
+        delta.feature.invariants: "supported"
+        delta.feature.rowTracking: "supported"
+        delta.feature.v2Checkpoint: "supported"
+        delta.parquet.compression.codec: "zstd"
+      # post105: the rest of ACFC's production DDL template (the same SFMC files:
+      # fixtures/reference/SFMC_{stage,standard}_table_creation.txt, scrubbed) -
+      # CLUSTER BY AUTO on both layers (this profile writes no LOCATION), the
+      # stage TBLPROPERTIES in order, and the DOMAIN / SUBDOMAIN tags from the
+      # FRD (either blank: no tag statement + a ddl_tags_blank flag).
+      cluster_by: {stage: "CLUSTER BY AUTO", standard: "CLUSTER BY AUTO"}
+      stage_tblproperties:
+        delta.autoOptimize.autoCompact: "true"
+        delta.autoOptimize.optimizeWrite: "true"
+        delta.minReaderVersion: "1"
+        delta.minWriterVersion: "2"
+      domain_tags: true
+      # post128 (Nikshit's review 2026-10-23; Venu 2026-10-27: a separate file next to
+      # the DDL, named <DDL name>_TestCases): read-only SQL + comments the engineer
+      # runs AFTER the DDL; every value from the documents, an unstated one OPEN +
+      # a ddl_tests_open flag. The cases, in file order (codegen.emit.ddl_tests).
+      # post154: + load_strategy / second_file / multiple_files / notification_emails,
+      # the pipeline-level cases of the client's own DDL test workbook (Aruna, 2026-10-29)
+      ddl_test_cases: [file_available, file_location, column_mapping, columns_populated,
+                       column_shift, mapping_mode, record_count, load_strategy, second_file,
+                       multiple_files, key_unique, notification_emails, table_exists,
+                       columns_match, comments_present, table_properties, table_tags,
+                       ddl_rerun]
+      # post154: the cases also as <DDL name>_TestCases.xlsx in the client's test-record
+      # layout - its headers transcribed from the client's DDL test workbook (2026-10-29),
+      # then one column for the SQL to run; the tester fills the blank columns.
+      ddl_test_workbook_headers: ["Test Case #", "Test Case", "Expected Result",
+                                  "Actual Results", "Executed By", "Executed Date",
+                                  "Output(Pass/Fail)", "Comment", "SQL to run"]
+      ddl_test_workbook_columns: [id, case, expected, blank, blank, blank, blank, from, sql]
+      # post154: what sends each EMAIL_TEMPLATE_CONFIG status (the status names are the
+      # IIG's; the triggers are the corpus's meaning of each, patterns_post45 email)
+      ddl_test_email_triggers:
+        FilesNotReceived: "no file matching the pattern arrives for the run"
+        "New Files to Process": "a file matching the pattern arrives and is picked up"
+        Success: "the load completes"
+        Failed: "the load fails"
+      ddl_test_cases_suffix: "_TestCases"
+      # post134: the catalog's spelling of a DDL type, for the columns_match check
+      # (Spark SQL type aliases: docs.databricks.com sql-ref-datatypes; a bare
+      # DECIMAL is decimal(10,0)). Compared lower case, spaces removed.
+      ddl_test_type_names: {integer: int, long: bigint, short: smallint, byte: tinyint,
+                            real: float, dec: decimal, numeric: decimal}
+      ddl_test_type_defaults: {decimal: "decimal(10,0)"}
+      # post153: Databricks numbers information_schema.columns.ordinal_position from
+      # 0 (docs.databricks.com information_schema columns: "the position (numbered
+      # from 0)"); seen on D1 2026-10-29, where every columns_match case failed by one.
+      ddl_test_ordinal_base: 0
+      # D1 post51 pair_06: audit datatypes extract-sttm accepts; a column ending
+      # in an audit_flag_suffix (DELETE_FLAG) may also carry audit_flag_datatypes.
+      # Widen in an overlay (conventions.profiles.acfc_prx.*) — no code change.
+      audit_datatypes: [string, timestamp]
+      audit_flag_datatypes: [tinyint, int, smallint, boolean]
+      audit_flag_suffixes: [_flag, _ind]
+      # post57: whitespace in a path the documents state - keep (written byte for
+      # byte, one iig_path_whitespace flag per cell for the BSA) | fail (the gate
+      # fails it). The PRX golden's own paths carry double spaces.
+      path_whitespace: keep
+      # post57: record-segment codes, canonical -> spellings (the PRX golden's
+      # ADLS_FIXED_WIDTH_HANDLER SEGMENT reads hddr / det / trlr, the agent's
+      # header / details / trailer); tools/iig_diff.py compares through it.
+      segment_codes:
+        header: [header, hddr, hdr, hdrr]
+        details: [details, detail, det, dtl]
+        trailer: [trailer, trlr, trl]
+      # post59: PIPELINE_NAME proposals per flow (codegen.input_choices) over
+      # {domain} {subdomain} {source} {frequency} {layer} {load_mode} ({layer} per
+      # flow: pipeline_flow_layers). A proposal is shown, never applied: the cell
+      # is written only after the BSA's explicit choice (use_default /
+      # naming_standard / leave_blank). Rendered names: non-name characters ->
+      # '_', upper case. A proposal colliding with a PIPELINE_NAME of
+      # pipeline_name_corpus (the overlay's goldens folder) is not offered.
+      # These four are SYNTHETIC placeholders (SYN_ prefix): no naming standard
+      # ships with the repo. The real templates come from the ACFC-side
+      # codegen-state/overlays/acfc_prx.yaml (conventions.profiles.acfc_prx.
+      # pipeline_name_templates.<flow>), which overrides them flow by flow; a
+      # proposal rendered from a SYN_ template is labelled "no naming standard
+      # loaded — placeholder" (CLI line and App).
+      pipeline_name_templates:
+        grand_master: "SYN_PL_{domain}_{subdomain}_{source}_{frequency}_{layer}"
+        master: "SYN_PL_{domain}_{subdomain}_{source}_{frequency}_{layer}"
+        file_to_stg: "SYN_PL_{domain}_{subdomain}_{source}_{layer}_{load_mode}"
+        stg_to_std: "SYN_PL_{domain}_{subdomain}_{source}_{layer}_{load_mode}"
+      # M7: three-part names or no DDL (catalog_unstated:<layer> FAILs).
+      # default_catalog is the LAST fallback (FRD label -> STTM band -> here);
+      # empty = none configured. Set per environment in an overlay.
+      require_qualified_names: true
+      default_catalog: {}
+      # M7: the SQL Server metadata-DB DML deliverable (dml: section below).
+      # IIG-first (2026-10-02): OFF by default — the IIG workbook is the
+      # deliverable and DevOps's CI/CD loads the config tables from the
+      # certified copy. Set true to write config_inserts_<env>.sql + the runner
+      # notebooks again (emit/dml.py is kept, unchanged); the run report says
+      # "DML not generated (disabled)" while it is off.
+      emit_dml: false
+      # IIG-first M3: the BSA review copy + clean copy of the IIG workbook
+      # (iig_review: section below), listed in ADDITION.md with both switches.
+      emit_iig_review: true
+      # M7 §4: off — the combined DDL is byte-compared with the pair-1 golden;
+      # the target system is labelled in ADDITION.md / MANIFEST.md instead.
+      target_system_header: false
 
 metadata:
   # M4: IIG workbook template versions. iig_v1 = demo.metadata_sheet (the
@@ -727,6 +1229,13 @@ metadata:
   # constant across rows, badged synthetic with this citation — or is left
   # blank and flagged (iig_blank:<TAB>.<HEADER>). CLI: --iig-template.
   template: iig_v1
+  # M7 §5: CLAIM_TYPE_ID default for ADLS→Delta rows — null keeps the
+  # goldens' blank; "NA" writes the walkthrough's alternative (§7).
+  claim_type_id_default: null
+  # M7.1: iig_v1 synthetic TGT_ADLS_PATH domain / subdomain segments are
+  # slugified with the names' slug (SOCIAL_DETERMINANTS_OF_HEALTH), so the
+  # synthetic path passes the global path gate. false = the old raw words.
+  synthetic_path_slug: true
   templates:
     iig_v2:
       citation: "pair-1 RFC package (aliased golden RFC_ACCUMULATORS_IIG.xlsx, docs/acfc/rfc_capture)"
@@ -749,8 +1258,11 @@ metadata:
           headers: [TEMPLATE_ID, TEMPLATE_NAME, PROCESS_NAME, STATUS, ACTIVE_FLAG, SUBJECT, BODY, BODY_QUERY, SENDER_NAME, SENDER_EMAIL, EMAIL_TO, EMAIL_CC, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE]
       # Framework-assigned identifiers, connections, containers, the storage
       # account, workspace/cluster/secret handles, template IDs and the
-      # audit stamps: always blank, never invented.
-      always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, SRC_CONNECTION_ID, SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, TGT_CONNECTION_ID, SRC_CONTAINER_NAME, TGT_CONTAINER_NAME, TGT_STORAGE_ACCOUNT_NAME, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET, DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID, TEMPLATE_ID, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE]
+      # audit DATES: always blank, never invented. CREATED_BY / UPDATED_BY
+      # left this list in M7: they are the RFC number (METADATA_DB_SEMANTICS
+      # §1) — filled from the FAQ rfc_number when answered, blank + flagged
+      # otherwise.
+      always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, SRC_CONNECTION_ID, SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, TGT_CONNECTION_ID, SRC_CONTAINER_NAME, TGT_CONTAINER_NAME, TGT_STORAGE_ACCOUNT_NAME, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET, DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID, TEMPLATE_ID, CREATED_DATE, UPDATED_DATE]
       # Derivation knobs (each names the golden cell shape it reproduces).
       src_columns_style: positional        # SRC_COLUMNS 'col1:SEGMENT_IDENTIFIER,...'
       data_type_style: base                # SRC_DATA_TYPE 'String:Decimal', 'Decimal:Decimal'
@@ -758,12 +1270,56 @@ metadata:
       object_name_from_pattern: true       # 'I_ACCUM_*_TO_CLIENT_*.csv' -> I_ACCUM_TO_CLIENT
       reject_table_suffix: "_reject"       # TGT_RJT_TABLE_NAME = <stage table>_reject
       segment_filter_pattern: "value like '{value}%'"   # from the FAQ's confirmed discriminators
-      dq_rules: [date_format, data_type_cast]
-      dq_rule_classes: {date_format: DateFormatRule, data_type_cast: DataTypeCastRule}
+      # Multi-table step 4: header_trailer_split fires only when the header /
+      # trailer segments land in a table other than the detail (rule 5).
+      dq_rules: [header_trailer_split, date_format, data_type_cast]
+      dq_rule_classes: {header_trailer_split: LoadHeaderAndTrailerToSeparateTablesRule, date_format: DateFormatRule, data_type_cast: DataTypeCastRule}
       # STTM Load Rule 'Convert yyyyMMdd to yyyy-MM-dd' -> INPUT_PARAM 'yyyyMMdd--yyyy-MM-dd'
       date_format_rule_regex: '^\s*Convert\s+(\S+)\s+to\s+(\S+)\s*$'
       date_format_param_joiner: "--"
       cast_type_order: [Decimal, Date]     # DataTypeCastRule lists decimals, then dates
+      # Multi-table step 3: a stated pattern's date placeholder is the framework's
+      # '*' in SRC_FILE_NAME ('NWB_COB_RPT_110_CCYYMMDD.txt' -> 'NWB_COB_RPT_110_*.txt').
+      file_pattern_wildcards: [CCYYMMDD, YYYYMMDD, MMDDCCYY, MMDDYYYY, CCYYMM, YYYYMM, CCYY, YYYY]
+      # OBJECT_NAME: trailing segments made only of these tokens are dropped
+      # with the extension and the wildcards (first real-row scorecard).
+      object_name_strip_tokens: [CCYY, YYYY, YY, MM, DD, HH, MI, SS]
+      # ...of which these strip only beside another strip token in the same
+      # segment ('_HHMI'); a lone '_MI' is a name segment (round 6, the SD prod
+      # rows keep the file pattern's '_MI').
+      object_name_bound_tokens: [MI, SS]
+      # ADLS SRC_DATA_TYPE source side: file fields are strings.
+      file_source_type: String
+      # A per-LOB file's ADLS row partitions on this column, value = its LOB.
+      lob_partition_column: LOB
+      # Multi-table step 5: the schedule's four structural rows (grand master ->
+      # master -> file-to-stage, stage-to-standard) when no inventory overlay
+      # gives template_rows. {feed} = FAQ feed_abbreviation, else the feed slug in
+      # capitals. Parent by position; ids / dates / audit stay the engineer's.
+      pipeline_roles:
+        - {role: grand_master, name: "PL_GMSTR_{feed}", description: "Grand master"}
+        - {role: master, name: "PL_MSTR_{feed}", description: "Master", parent: grand_master}
+        - {role: file_to_stage, name: "PL_File_{feed}_ADLS_To_Delta_Incr", description: "File to Stage", parent: master}
+        - {role: stage_to_standard, name: "PL_File_{feed}_Delta_To_STD_Incr", description: "Stage to Standard", parent: master}
+      pipeline_roles_citation: "framework pipeline naming convention (framework owners, 2026-10-07; docs/acfc/MULTI_TABLE_DESIGN.md step 5)"
+      # Per-feed-family conventions (2026-10-08): two families' goldens fill three
+      # cells differently. Shipped: the pair-1 (PRX) family's LOB and primary key
+      # (the real golden), the generalized file pattern for OBJECT_NAME (the
+      # pair-1 family's own form has no known derivation). A family overlay pins
+      # its own; WHICH IS CURRENT FOR NEW FEEDS is open (MULTI_TABLE_DESIGN Friday list).
+      family_conventions:
+        lob: blank
+        stgdelta_unknown_primary_key: "NA"
+        stgdelta_object_name: generalized_file_pattern
+        schema_drift_flag: "N"      # ADLS; was a template constant until 2026-10-09
+        # First real-row scorecard (2026-10-08): SRC_FILE_NAME form, the
+        # family's audit columns + their casing, RECYCL_* when no document
+        # states a recycle (never an asserted N by default: open).
+        src_file_name: pattern
+        audit_columns: []
+        audit_type_case: configured
+        recycle_unstated: open
+        citation: "shipped default — pair-1 family LOB / primary key / SCHEMA_DRIFT_FLAG (docs/acfc/MULTI_TABLE_DESIGN.md §1)"
       # The golden IIG spells the audit types 'String' / 'TIMESTAMP' (its DDL
       # says STRING) — transcribed as the IIG states them.
       audit_type_casing: {String: String, Timestamp: TIMESTAMP}
@@ -785,7 +1341,7 @@ metadata:
       constants:
         DATA_FACTORY_PIPELINE_SCHEDULE: {NO_OF_CYCLE_PER_DAY: "1", DAY_OF_SCHEDULE: "0", ACTIVE_FLAG: "Y", ACTIVE_END_DATE: "9999-12-31"}
         FILE_ADLS_INGESTION_DETAILS: {SOURCE_TYPE: "File", COPY_START_TIME_OFFSET_IN_MINUTES: "0"}
-        ADLS_DELTA_INGESTION_DETAILS: {ACTIVE_FLAG: "Y", TGT_FORMAT: "delta", SRC_COMPRESSION: "N", MULTILINE_FLAG: "N", SCHEMA_DRIFT_FLAG: "N", TGT_PARTITION_COLUMN: "NA", TGT_PARTITION_VALUE: "NA", RECYCL_TBL_NM: "NA", RECYCL_ADLS_PATH: "NA"}
+        ADLS_DELTA_INGESTION_DETAILS: {ACTIVE_FLAG: "Y", TGT_FORMAT: "delta", SRC_COMPRESSION: "N", MULTILINE_FLAG: "N", TGT_PARTITION_COLUMN: "NA", TGT_PARTITION_VALUE: "NA", RECYCL_TBL_NM: "NA", RECYCL_ADLS_PATH: "NA"}
         STGDELTA_STDDELTA_INGESTION_DET: {ACTIVE_FLAG: "Y", SRC_FORMAT: "delta", TGT_FORMAT: "delta", TGT_PARTITION_COLUMN: "NA", TGT_PARTITION_VALUE: "NA"}
         ADLS_FIXED_WIDTH_HANDLER: {ACTIVE_FLAG: "Y", IS_MANDATORY: "N", COLUMN_VALIDATIONS: "NA"}
         DATABRICKS_NOTEBOOK_DETAILS: {SEQ_NM: "1", ACTIVE_FLAG: "Y"}
@@ -800,8 +1356,9 @@ metadata:
       # '_layer' steers which FRD load strategy feeds TGT_REFRESH_TYPE.
       template_rows:
         EMAIL_TEMPLATE_CONFIG:
-          - {STATUS: Success}
-          - {STATUS: Failed}
+          # _outcome: row metadata, never a cell ({outcome} of derived_cells, 2026-10-13)
+          - {STATUS: Success, _outcome: Completed}
+          - {STATUS: Failed, _outcome: Failed}
 
 rfc:
   # M5 (2026-09-18): the `rfc` output mode's package tree, the INGESTION
@@ -837,6 +1394,157 @@ rfc:
     - "[CREATED_DATE] [datetime] NOT NULL"
     - "[UPDATED_BY] [varchar](<length>) NOT NULL"
     - "[UPDATED_DATE] [datetime] NOT NULL"
+
+dml:
+  # The SQL Server metadata-DB runner (emit/dml.py). The metadata rows are
+  # framework/metadata_inserts.sql — the client's "DDL" — written on EVERY
+  # framework run from the same cells as the IIG (2026-10-08). These switches
+  # (with the profile's emit_dml) gate only the per-environment Databricks
+  # notebooks that run it over JDBC in one transaction. The per-environment
+  # config_inserts_<env>.sql is RETIRED (its one @OBJECT_ID / @PIPELINE_ID per
+  # script collided on multi-object feeds; metadata_inserts.sql has one
+  # <<COLUMN#n>> placeholder per row instead).
+  enabled: true
+  environments: [q1, a2, prod]
+  notebook_file_name_pattern: "Insert_scripts_config_table_{env}.py"
+  schema: dbo
+  # Databricks secret scope + key NAMES the notebook reads (never values).
+  secret_scope: metadata-db
+  jdbc_url_secret: jdbc-url
+  user_secret: jdbc-user
+  password_secret: jdbc-password
+  # DB-side knowledge ported from the retired script (METADATA_DB_SEMANTICS.md).
+  # The IIG workbook keeps what humans hand over; metadata_inserts.sql writes what
+  # the framework reads. ACTIVE_FLAG 'Y' -> 'S' (§1; the goldens print 'Y', §10):
+  # UNCONFIRMED — on the Friday checklist (MULTI_TABLE_DESIGN §7a).
+  db_value_map:
+    ACTIVE_FLAG: {"Y": "S"}
+    ACTIVE_RULE_FLG: {"Y": "S"}
+  # A blank / open cell written as a SQL expression (§1: audit dates = GETDATE()).
+  db_blank_expressions: {CREATED_DATE: "GETDATE()", UPDATED_DATE: "GETDATE()"}
+  # Written NULL whatever the workbook holds (§2 'not populating'; §7 CLAIM_TYPE_ID).
+  db_null_columns: [DAY_OF_SCHEDULE, UDF2, UDF3, UDF4, UDF5, ESTIMATED_START_TIME, COMPLETION_SLA, RUNTIME_SLA, CRITICAL_PROCESSING_PERIOD, CLAIM_TYPE_ID]
+  # Tables the walkthrough described (§2, §5, §7); the rest are marked + flagged.
+  described_tables: [DATA_FACTORY_PIPELINE_SCHEDULE, FILE_ADLS_INGESTION_DETAILS, ADLS_DELTA_INGESTION_DETAILS]
+  # IIG sheet -> metadata-DB table (2026-10-09). An IIG tab name is NOT a table
+  # name: Excel cuts tab names at 31 characters (STGDELTA_STDDELTA_INGESTION_DET
+  # is exactly 31). Listed = CONFIRMED, by the citation; every other sheet's
+  # INSERT block targets a table named after the sheet and is marked
+  # "-- unconfirmed" in metadata_inserts.sql (Friday checklist 12). The
+  # walkthrough's other three tables (the file / RDBMS connection tables, RDBMS
+  # -> ADLS) are not IIG sheets; the file connection table is dml.connection_table
+  # (as spoken, flagged dml_unconfirmed).
+  table_names:
+    DATA_FACTORY_PIPELINE_SCHEDULE: {table: DATA_FACTORY_PIPELINE_SCHEDULE, citation: "framework walkthrough, docs/acfc/METADATA_DB_SEMANTICS.md §2 (the IIG tab of the same name)"}
+    FILE_ADLS_INGESTION_DETAILS: {table: FILE_ADLS_INGESTION_DETAILS, citation: "framework walkthrough, docs/acfc/METADATA_DB_SEMANTICS.md §5"}
+    ADLS_DELTA_INGESTION_DETAILS: {table: ADLS_DELTA_INGESTION_DETAILS, citation: "framework walkthrough, docs/acfc/METADATA_DB_SEMANTICS.md §7"}
+    STGDELTA_STDDELTA_INGESTION_DET: {table: stg_delta_stddelta_ingestion_details, citation: "owner brief 2026-10-09 (the first ACFC run's known bug)"}
+  # The file connection table as SPOKEN in the walkthrough (§3) — flagged
+  # dml_unconfirmed until the framework team confirms the identifiers.
+  connection_table:
+    name: FILE_CONNECTION_DETAILS
+    id_column: CONNECTION_ID
+    description_column: CONNECTION_DESCRIPTION
+    host_column: HOST_NAME
+    root_column: ROOT_PATH
+    source_type_column: SOURCE_TYPE
+
+combined:
+  # post91 (Soham, 2026-10-21): one IIG / IIG review / DDL / log per run and STTM,
+  # in <out root>/combined/<STTM>_IIG.xlsx ... <STTM>_LOG.md, beside the per-feed files
+  # (which the harness, iig_diff and the manifest keep reading). Rows are merged by
+  # content ONLY on dedup_sheets - sheets that are run-level by design: the prod golden
+  # of pair_11 carries 2 email rows for the whole run, while every pipeline / notebook
+  # row there is distinct per feed (equal-looking agent rows differ once the framework
+  # assigns the IDs).
+  enabled: true
+  dir: combined
+  dedup_sheets: [EMAIL_TEMPLATE_CONFIG]
+  # post99 (Soham, 2026-10-22): the grand master / master pipelines are one per run
+  # (pair_11 golden: 1 + 1, then a stage and a standard child per feed), but every
+  # feed's IIG carries them. A row whose PIPELINE_NAME has the EDO Naming Standards'
+  # grand master / master prefix (Pipeline Type table: GMSTR, MSTR) and equals an
+  # earlier feed's row on every column is written once. Child rows are never
+  # merged: under the naming document's child pattern (no feed token) several
+  # feeds' children share a name, so same-name rows that differ are kept and the
+  # log names them.
+  dedup_rows:
+    DATA_FACTORY_PIPELINE_SCHEDULE: {column: PIPELINE_NAME, prefixes: [PL_GMSTR_, PL_MSTR_]}
+  # post99 (Nikshit via Soham, 2026-10-22): OBJECT_ID numbered 1..n across the run's
+  # feeds in the combined IIG (each feed's rows shifted alike); "group" = 1..n per
+  # feed, as the per-feed IIGs and the prod goldens have it (GROUP_ID tells them apart)
+  object_ids: run
+
+iig_review:
+  # IIG-first (2026-10-02, M3): every framework run writes TWO IIG workbooks
+  # next to config_rows.xlsx: <feed>_IIG_REVIEW.xlsx (summary sheet first;
+  # every open / flagged cell highlighted by owner and commented with its
+  # reason, citation and owner) and <feed>_IIG.xlsx (the clean copy: the
+  # template's sheets and columns, values only). The BSA reviews and
+  # certifies; CI/CD loads the config tables from the certified clean copy.
+  review_file_pattern: "{feed}_IIG_REVIEW.xlsx"
+  clean_file_pattern: "{feed}_IIG.xlsx"
+  summary_sheet: REVIEW_SUMMARY
+  audit_date_columns: [CREATED_DATE, UPDATED_DATE]
+  audit_by_columns: [CREATED_BY, UPDATED_BY, CRETAED_BY]
+  # Owner of an open cell: owners["<SHEET>.<COLUMN>"], else owners["*.<COLUMN>"],
+  # else owner_by_reason[<reason>]. Owners: bsa | engineer | engineer_confirms |
+  # set_at_load. Seeded from the 2026-10-02 inventory of pairs 1 and 11
+  # (IIG_FIRST_PLAN.md); reassign a column by adding or changing a key here.
+  owner_by_reason:
+    framework_assigned: engineer      # always_blank ids / connections / containers
+    audit_date: set_at_load           # CREATED_DATE / UPDATED_DATE, GETDATE() at load
+    audit_by: bsa                     # CREATED_BY / UPDATED_BY = RFC<rfc_number>
+    unstated: bsa                     # business / schedule values no input states
+    synthetic_path: engineer          # path shapes: the real container/path
+    template_constant: engineer_confirms
+    flagged_note: engineer            # e.g. iig_path_shape_on_uri
+    additional_dq_rules: engineer     # one summary entry per file: rule classes not generated
+  # P1-1 (2026-10-30, red team LM-1): feed flags a reviewer must see before
+  # approving - a column the layout MODEL placed (validated, never confirmed by
+  # a person), an FRD / STTM disagreement - one summary row each in the review
+  # copy, and a "Check before approving" section in the combined LOG.md.
+  # post160: + frd_tables_set_aside: (FRD stage tables the STTM does not build)
+  review_flag_prefixes: ["layout_model_placed:", "frd_crosscheck:", "layout_crosscheck:",
+                         "frd_tables_set_aside:"]
+  review_flag_label: "check before approving (layout / cross-document)"
+  review_flag_owner: "engineer + BSA"
+  owners:
+    # Technical values no input states: the engineer, not the BSA.
+    FILE_ADLS_INGESTION_DETAILS.SRC_ROOT_DIR: engineer
+    ADLS_DELTA_INGESTION_DETAILS.MAPPING_EXPRESSION: engineer
+    ADLS_DELTA_INGESTION_DETAILS.SRC_COL_LNGTH: engineer
+    ADLS_DELTA_INGESTION_DETAILS.SRC_COL_STRT_END_INDX: engineer
+    ADLS_DELTA_INGESTION_DETAILS.SRC_FILE_DELIMITER: engineer
+    ADLS_DELTA_INGESTION_DETAILS.SRC_REC_LNGTH: engineer
+    # RECYCL_* left open when no document states a recycle: the engineer
+    # confirms (the convention-shaped table / path is in the tooltip).
+    ADLS_DELTA_INGESTION_DETAILS.RECYCL_ENBL_FLG: engineer_confirms
+    ADLS_DELTA_INGESTION_DETAILS.RECYCL_TBL_NM: engineer_confirms
+    ADLS_DELTA_INGESTION_DETAILS.RECYCL_ADLS_PATH: engineer_confirms
+    ADLS_FIXED_WIDTH_HANDLER.EXTENSION: engineer
+    ADLS_FIXED_WIDTH_HANDLER.FILE_TYPE: engineer
+    ADLS_FIXED_WIDTH_HANDLER.RJCT_RSN_COLUMN_NM: engineer
+    ADLS_FIXED_WIDTH_HANDLER.SEGMNT_TYP: engineer
+    ADLS_FIXED_WIDTH_HANDLER.VERSION: engineer
+    DATABRICKS_NOTEBOOK_DETAILS.DATABRICKS_NOTEBOOK_PATH: engineer
+    DATABRICKS_NOTEBOOK_DETAILS.DELETE_DATABRICKS_NOTEBOOK_NAME: engineer
+    DATABRICKS_NOTEBOOK_DETAILS.DQ_NOTEBOOK_PATH: engineer
+  owner_labels:
+    bsa: BSA
+    engineer: Engineer
+    engineer_confirms: Engineer (confirm)
+    set_at_load: Set at load (CI/CD)
+  owner_fills: {bsa: FFC7CE, engineer: FFEB9C, engineer_confirms: DDEBF7, set_at_load: E7E6E6}
+  reason_labels:
+    framework_assigned: framework-assigned id / connection
+    audit_date: audit date (set when the config tables are loaded)
+    audit_by: audit by (RFC number not supplied)
+    unstated: no input states it
+    synthetic_path: synthetic path shape (real container/path unknown)
+    template_constant: template constant (confirm against the framework)
+    flagged_note: flagged by the derivation (see note)
+    additional_dq_rules: additional DQ rules (not generated)
 
 playbook:
   # Deployment playbook templates (rfc mode). sfmc_7sheet reads the
@@ -909,3 +1617,108 @@ playbook:
       rollback_validation:
         - task: "Validate the IIG tables are reverted"
           detail: "No rows from {iig_file} remain."
+
+# M8.1: where inputs, state and outputs live — one storage URI per role.
+#   local:<dir>        a directory (relative = inside the checkout; default)
+#   workspace:/Workspace/Users/<user>/<folder>   Workspace API via databricks-sdk
+#   volume:/Volumes/<catalog>/<schema>/<volume>/<folder>   UC Volumes, Files API
+# Remote roots must already exist and be shared with the caller (the App's
+# service principal / the notebook user): the agent creates folders only
+# BELOW a root, never the root — and never touches /Volumes or /Workspace as
+# a mounted filesystem (docs/ACFC_DEPLOY.md). Env CODEGEN_STORAGE_INPUTS /
+# CODEGEN_STORAGE_STATE / CODEGEN_STORAGE_OUTPUTS win over these. Workspace-
+# specific URIs belong in an overlay or the App's env, not in this file.
+storage:
+  inputs: "local:./inputs"              # inboxes: sharepoint/ databricks/ uploads/
+  state: "local:./ui/backend/state"     # decisions.json, layout_profiles/
+  outputs: null                         # null = output.dir (local), as before M8
+  scratch_dir: null                     # working copies of remote roles; null = system temp
+
+# M8.2: extra read-only input roots (storage URIs), scanned at depth 1 — the
+# root and its immediate subfolders (pair_1/ ... pair_N/). Env
+# CODEGEN_EXTRA_INPUT_DIRS (';'-separated) is appended. Real folder names
+# live in an overlay / the App's env, never here.
+# Upstream FRD contracts (the FRD→STTM agent's table, read through a SQL
+# Warehouse). OFF by default — standalone doctrine: the documents themselves
+# are the inputs. When off, nothing (the FRD list, a selection, a failed run's
+# hint) ever calls the warehouse. When on, the listing runs in a BACKGROUND task
+# with a hard timeout and no request ever waits for it.
+upstream:
+  enabled: false
+  timeout_seconds: 20
+  refresh_seconds: 300
+
+inputs:
+  extra_dirs: []
+  scan_depth: 1
+  listing_ttl_seconds: 30      # remote listings are API calls; the chooser polls
+  # M9.3: list endpoints return metadata only. Documents are downloaded,
+  # classified by content and their pairing facts read once, in a background
+  # task — per file within classify_timeout_seconds ("unreadable" beyond it,
+  # with the reason; never omitted, never retried in a loop).
+  # Documents are opened in a CHILD PROCESS (codegen.layout.docworker) that is
+  # killed when a file exceeds its budget; its start has its own budget.
+  # Choosing the STTM is a background job — locate, download, classify, pair
+  # FRD, pair VDD, record — and select_timeout_seconds bounds EACH step; a late
+  # step is a visible error on the status, never a hung request. A remote folder
+  # listing is waited for listing_timeout_seconds at most.
+  classify_timeout_seconds: 60
+  select_timeout_seconds: 120
+  listing_timeout_seconds: 30
+  parser_start_timeout_seconds: 60
+  # Auto-pairing by content (codegen.pairing): for the chosen STTM every FRD /
+  # VDD candidate is scored on what the documents SAY; the ticket number and
+  # the file-name stem are two weak signals among several. Paired only when
+  # the best reaches min_score and leads the next by margin — otherwise the
+  # top candidates are asked (layout dialog / answers file). An explicit
+  # demo.pairing_map entry still overrides.
+  pairing:
+    weights: { feed_name: 2, tables: 3, schema: 1, file_patterns: 3, meta: 1, ticket: 1, name_stem: 1 }
+    min_score: 3      # one weak signal (a name, a lone feed-name echo) never pairs
+    margin: 2
+    top_candidates: 4
+    # Names (2026-10-13): a token key — lowercased, split on whitespace _ - . ,
+    # the frd / sttm / vdd / iig role tokens dropped wherever they sit. Exact key
+    # first; else the unique token overlap at or above this threshold pairs
+    # (with a NOTE); below it: a question. (name_stem above weighs both.)
+    name_fuzzy_threshold: 0.8
+    # Pairs override file (wins over every automatic rule); env
+    # CODEGEN_PAIRING_OVERRIDES wins. A pairing_overrides.yaml next to the
+    # documents is found without it.
+    overrides_file: null
+
+# post161 (2026-11-02): the HEDIS Stage -> Consumption STTM reader, family H4 of
+# docs/acfc/HEDIS_CONSUMPTION_STTM_SHAPE.md (a CONTENTS sheet + one mapping sheet per
+# consumption table) -> a gold contract (dialect hedis_h4; `codegen read-hedis`).
+# Header labels as the shape doc spells them (matched lower-cased, whitespace
+# collapsed). Unset target catalog / schema = one QUESTION per table (overlay values).
+hedis_consumption:
+  contents_sheet_names: ["contents"]
+  contents_headers:
+    file_pattern: ["file name"]
+    target_table: ["consumption table name"]
+    load_criteria: ["load criteria (stage_to_consumption)", "load criteria"]
+  mapping_headers:
+    source_table: ["stage table name"]
+    source_column: ["stage column name"]
+    logic: ["stage logic"]
+    target_table: ["consumption table name"]
+    target_column: ["consumption column name"]
+    data_type: ["data type (max length)", "data type"]
+  min_mapping_roles: 4
+  header_search_rows: 6
+  blank_rows_end: 3
+  load_criteria_map: {"truncate and load": "full"}
+  logic_direct: ["direct map", "direct move", "move as is"]
+  logic_audit: ["etl generated"]
+  logic_hardcoded: ["hardcoded", "hard coded"]
+  spark_types: ["string", "timestamp", "date", "int", "bigint", "smallint", "tinyint",
+                "boolean", "double", "float", "decimal"]
+  sql_type_map: {"varchar": "string", "nvarchar": "string", "char": "string",
+                 "nchar": "string", "text": "string", "datetime": "timestamp",
+                 "datetime2": "timestamp", "smalldatetime": "timestamp", "date": "date",
+                 "integer": "int", "int": "int", "bigint": "bigint", "smallint": "smallint",
+                 "tinyint": "tinyint", "bit": "boolean", "decimal": "decimal",
+                 "numeric": "decimal", "float": "double", "real": "float", "money": "decimal(19,4)"}
+  target_catalog: null
+  target_schema: null

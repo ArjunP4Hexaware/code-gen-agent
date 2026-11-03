@@ -96,10 +96,20 @@ def _common_tables(project: str, feed: str) -> tuple[list[str], list[str]]:
 
 
 def build_f1_pair1() -> bytes:
-    """F1 pair-1 variant: all canonical labels present; blanks exactly as §4
-    lists for pair 1 (Impact Details everywhere, Description on Admin/DQ/
-    Vendor, Traced/Related Requirements on Structural/Admin). Describes the
-    pair-1 golden columns (pair1.py)."""
+    """F1 pair-1 variant, in the shape the REAL pair-1 FRD has (M9.0; the
+    two ACFC captures on ``acfc-hotfix-1``: HANDOVER_GENIE.md §4 error 6 and
+    PAIR1_HEADERS.md §2). Structural Metadata: the ``Target Table Name`` cell
+    holds an inline layer block (``Staging Layer:`` / ``Table: …`` /
+    ``Standard Layer:`` / ``Table: …``) and the ``Target Catalog and Schema``
+    cell is blank — the document states no schema and no catalog.
+    Descriptive Metadata: the label IS ``Object Name``, but its cell names no
+    feed — it lists the inbound FILES as stanzas, a ``<label>:`` line then the
+    file name pattern on the next line (PAIR1_REAL_RUN.md §1, the verified
+    shape); the ``Name`` row is a sentence about the requirement, and
+    ``Tags/Keywords`` holds ``Domain: …`` / ``Subdomain: …`` lines. (NOT
+    modelled: the real ``Frequency`` cell is a compound schedule sentence —
+    open item.) Other blanks as §4 lists for pair 1. Values are synthetic /
+    the aliased golden's (pair1.py)."""
     feed = pair1.FEED_NAME
     stage = f"{pair1.STAGE_CATALOG}.{pair1.STAGE_SCHEMA}"
     standard = f"{pair1.STANDARD_CATALOG}.{pair1.STANDARD_SCHEMA}"
@@ -110,13 +120,14 @@ def build_f1_pair1() -> bytes:
     functional = (f"Ingest the {feed} fixed-width files from {pair1.VENDOR_NAME} into the stage "
                   f"table {stage}.{pair1.TABLE} and the standard table {standard}.{pair1.TABLE}.")
     sections = [
-        _section("Descriptive Metadata", feed, f"{feed} file ingestion", functional, DESCRIPTIVE, {
+        _section("Descriptive Metadata", pair1.FRD_REQUIREMENT_NAME, f"{feed} file ingestion",
+                 functional, DESCRIPTIVE, {
             "Data Source": pair1.VENDOR_NAME,
-            "Object Name": feed,
+            "Object Name": pair1.FRD_OBJECT_NAME_CELL,
             "Description": f"Accumulator balances exchanged with {pair1.VENDOR_NAME}",
             "Frequency": pair1.FREQUENCY,
             "LOBs": pair1.LOB,
-            "Tags/Keywords": "pharmacy; accumulator",
+            "Tags/Keywords": f"Domain: {pair1.DOMAIN}\nSubdomain: {pair1.SUB_DOMAIN}",
             "Government Program": "Medicaid",
             "Inbound Ingestion": "Yes",
             "SFG template (Y/N)": "Y",
@@ -132,8 +143,8 @@ def build_f1_pair1() -> bytes:
         }),
         _section("Structural Metadata", feed, f"{feed} structure", functional, STRUCTURAL_P1, {
             "Object/data Format": pair1.FILE_FORMAT,
-            "Target Catalog and Schema": f"STG: {stage}; STD: {standard}",
-            "Target Table Name": pair1.TABLE,
+            "Target Catalog and Schema": "",
+            "Target Table Name": pair1.FRD_TARGET_BLOCK,
             "Domain and Subdomain": f"{pair1.DOMAIN} / {pair1.SUB_DOMAIN}",
             "Load Strategy STG": "Append",
             "Load Strategy STD (View)": "Append",
@@ -248,9 +259,14 @@ F2_SECTION_LABELS = ["Descriptive Metadata", "Structural Metadata", "Administrat
 
 
 def _solution_requirement(number: int, name: str, business: str, functional: str,
-                          section_label: str, section_text: str) -> str:
-    return table([
-        [f"Solution Requirement: {number}", "", "", ""],
+                          section_label: str, section_text: str, caption: str = "row",
+                          spacer: bool = False) -> str:
+    """``caption``: "row" = row 0 reads ``Solution Requirement: <n>`` (the
+    documented shape); "blank" = row 0 is there but empty; "none" = no row 0
+    (D1 post51 pairs 08-10: the detector saw '' titles). ``spacer`` puts an
+    empty first column before the labels."""
+    rows = [
+        [f"Solution Requirement: {number}" if caption == "row" else "", "", "", ""],
         ["Name", name, "", ""],
         ["Business \nRequirement", business, "", ""],
         ["Functional Requirement:", functional, "", ""],
@@ -260,10 +276,15 @@ def _solution_requirement(number: int, name: str, business: str, functional: str
         ["Priority", "High", "Source/Reference", "SYN-BR-00" + str(number)],
         ["Traced Requirements", f"SYN-BR-00{number}", "", ""],
         ["IS Owner", "SYN IS Owner", "", ""],
-    ])
+    ]
+    if caption == "none":
+        rows = rows[1:]
+    if spacer:
+        rows = [[""] + row for row in rows]
+    return table(rows)
 
 
-def build_f2_pair8() -> bytes:
+def build_f2_pair8(caption: str = "row", spacer: bool = False) -> bytes:
     """F2 (pairs 8/9/10 shape): Heading 1 / Heading 4 paragraphs, no
     metadata section tables; one Solution Requirement table per section
     label, the label sitting in row 4 as a cell value. Business Requirement
@@ -304,14 +325,125 @@ def build_f2_pair8() -> bytes:
     ]
     for number, (label, name, business, functional, text) in enumerate(requirements, start=1):
         parts.append(paragraph(f"2.{number} {name}", style="Heading4"))
-        parts.append(_solution_requirement(number, name, business, functional, label, text))
+        parts.append(_solution_requirement(number, name, business, functional, label, text,
+                                           caption, spacer))
     parts.append(paragraph("3. Approvals", style="Heading1"))
     parts.append(table([["Approver", "Role"], ["SYN Approver", "Data Governance"]]))
     return docx_bytes(parts)
+
+
+# ---- F1, one block / many files (the pair-11 shape) --------------------------
+
+PAIR11_FILES = ["enrollment_package_YYYY_MM.csv", "disenrollment_package_YYYY_MM.csv",
+                "vc_ind_risk_data_package_REGION_A_YYYYMMDD_HHMM.psv"]
+PAIR11_OBJECTS = ["Enrollment", "Disenrollment", "Individual Risk"]
+PAIR11_PATHS = ["mftlanding\\inbound\\dom_a\\public\\vendor_c",
+                "mftlanding\\inbound\\dom_a\\public\\vendor_c",
+                "mftlanding\\inbound\\dom_b\\dom_a\\vendor_c"]
+PAIR11_DOMAINS = [("Domain Alpha", "Public"), ("Domain Alpha", "Public"),
+                  ("Domain Beta", "Domain Alpha")]
+PAIR11_POINTER = ("Please refer to the File Details tab of the mapping document attached in \n"
+                  "the appendix section.")
+PAIR11_DATA_SOURCE = "Vendor Files = Enrollment, Disenrollment & \nIndividual Risk Reports"
+PAIR11_VENDOR = "VENDOR_C \u2013 VC 00000"
+
+
+def build_f1_pair11_multi_file(catalog: str | None = None) -> bytes:
+    """F1 variant reproducing the one-block / many-files cell shapes: the
+    'Object Name' cell is a 5-column nested table (one row per file), 'ADLS
+    Location' a 2-column nested table (object | path), 'Domain and Subdomain'
+    holds per-file blocks introduced by "<File> file Ingestion from <Src>:"
+    heading lines with "Domain = …" / "Subdomain = …" lines, 'Data Source' is
+    a label-prefixed description ("Vendor Files = …") whose label is not the
+    field, 'Frequency' is the pointer sentence, 'Target Table Name' lists the
+    FILE names, and the section titles carry requirement-ID suffixes. Three
+    feeds derive from the one document. ``catalog=None`` reproduces the
+    multi-line schema cell that names no catalog; a catalog renders the
+    clean "STG: cat.schema; STD: cat.schema" line instead."""
+    functional = "Ingest the vendor's three files into the Lakehouse."
+    object_rows = [["Vendor", "INB/OUB", "FileName", "FileName", "Vendor"]]
+    object_rows += [["VC", "INB", f, f"{o} File", "REGION_A"]
+                    for f, o in zip(PAIR11_FILES, PAIR11_OBJECTS, strict=True)]
+    location_rows = [["File_Name", "mftlanding path"]]
+    location_rows += [[o, p] for o, p in zip(PAIR11_OBJECTS, PAIR11_PATHS, strict=True)]
+    domain_blocks = "\n\n".join(
+        f"{o} file Ingestion from VC:\nDomain = {d}\nSubdomain = {s}"
+        for o, (d, s) in zip(PAIR11_OBJECTS, PAIR11_DOMAINS, strict=True))
+    if catalog is None:
+        schema = ("stg_dom_a/dom_a \u2013 Enrollment & Disenrollment File\n"
+                  "stg_dom_b/dom_b \u2013 Individual Risk File")
+    else:
+        schema = f"STG: {catalog}.stg_dom_a; STD: {catalog}.dom_a"
+    descriptive = table([
+        ["Descriptive Metadata: MDD000011", "", ""],
+        ["Descriptive Metadata: MDD000011", "Name", "Descriptive Metadata"],
+        ["Descriptive Metadata: MDD000011", "Description",
+         "The FRD is developed to ingest the region's monthly Enrollment,\n"
+         "Disenrollment & Individual Risk reports from the VC vendor."],
+        ["Descriptive Metadata: MDD000011", "Functional Requirement", functional],
+        ["Descriptive Metadata", "Data Source", PAIR11_DATA_SOURCE],
+        ["", "Object Name", object_rows],
+        ["", "Description", ""],
+        ["", "Frequency", PAIR11_POINTER],
+        ["", "LOBs", "LOB_A"],
+        ["", "Tags/Keywords", ""],
+        ["", "Government Program", "Y"],
+        ["", "Inbound Ingestion", "Yes"],
+        ["", "SFG template (Y/N)", "Yes"],
+        ["", "SR# for SFG Template", "<TBD>"],
+        ["", "Data Catalog Entry", "<TBD>"],
+    ])
+    structural = table([
+        ["Structural Metadata: MDST000011", "", ""],
+        ["Structural Metadata: MDST000011", "Name", "Structural Metadata"],
+        ["Structural Metadata: MDST000011", "Description",
+         "The vendor shall provide the data in files brought to the raw layer of ADLS."],
+        ["Structural Metadata: MDST000011", "Functional Requirement", functional],
+        ["Structural Metadata", "Object/data Format", "File Data Ingestion"],
+        ["", "Target Schema", schema],
+        ["", "Target Table Name", "\n".join(PAIR11_FILES)],
+        ["", "Domain and Subdomain", domain_blocks],
+        ["", "Load Strategy STG", "Truncate and Load"],
+        ["", "Load Strategy STD", "Append"],
+        ["", "Load Strategy Consumption (EDH, BSL)", ""],
+        ["", "Archive Schedule", ""],
+        ["", "Source Data Dictionary",
+         "File and field descriptions are mentioned in the mapping document."],
+        ["", "ADLS Location", location_rows],
+        ["", "Inbound/outbound File Folder Path", "Inbound"],
+    ])
+    technical = table([
+        ["Technical Metadata: MDT000011", "", ""],
+        ["Technical Metadata: MDT000011", "Name", "Technical Metadata"],
+        ["Technical Metadata: MDT000011", "Description", ""],
+        ["Technical Metadata: MDT000011", "Functional Requirement", functional],
+        ["Technical Metadata", "Business Rules", "Data Quality Rules Provided in the Mapping document."],
+        ["", "Filter Criteria", ""],
+        ["", "PII Fields", "Included in the Mapping Document"],
+        ["", "Transformation Logic", "NA"],
+        ["", "Primary Key", "NA"],
+    ])
+    vendor = table([
+        ["Vendor Metadata: MDV000011", "", ""],
+        ["Vendor Metadata: MDV000011", "Name", "Vendor Metadata"],
+        ["Vendor Metadata: MDV000011", "Description", ""],
+        ["Vendor Metadata: MDV000011", "Functional Requirement", functional],
+        ["Vendor Metadata", "Vendor Name", PAIR11_VENDOR],
+        ["", "Vendor Abbreviation", "VC \u2013 Vendor C"],
+        ["", "Service Grouping", ""],
+    ])
+    leading, trailing = _common_tables("PROJECT_GAMMA", "VC files")
+    return docx_bytes(leading + [descriptive, structural, technical, vendor] + trailing)
+
+
+def build_f1_pair11_multi_file_catalog() -> bytes:
+    return build_f1_pair11_multi_file(catalog="cat_syn")
 
 
 BUILDERS = {
     "frd/f1_pair_1.docx": build_f1_pair1,
     "frd/f1_pair_2_variant.docx": build_f1_pair2,
     "frd/f2_pair_8.docx": build_f2_pair8,
+    "frd/f1_pair_11_multi_file.docx": build_f1_pair11_multi_file,
+    "frd/f1_pair_11_multi_file_catalog.docx": build_f1_pair11_multi_file_catalog,
 }

@@ -1,0 +1,5 @@
+# The suite's synthetic D1 profile (2026-10-15): tests/conftest.py points
+# CODEGEN_ENVIRONMENTS_DIR here, so a default-D1 run is complete (the tracked
+# overlay's D1 storage account is a <<D1:...>> placeholder - a required value).
+# Tests of the missing-value QUESTION point the variable at an empty folder.
+storage_account: synd1teststorage

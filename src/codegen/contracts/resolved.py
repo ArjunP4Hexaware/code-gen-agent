@@ -21,7 +21,9 @@ from codegen.contracts.sttm import (
     SegmentedExtraction,
     SttmField,
 )
+from codegen.contracts.tables import FeedFile
 from codegen.contracts.vdd import VddContract
+from codegen.run_errors import Coord, located
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -35,6 +37,10 @@ class ResolvedTable(BaseModel):
     schema_name: str
     table: str
     role: Literal["stage", "standard", "errors", "recycle", "processed_files"]
+    # Multi-table rule 7: the LOGICAL catalog the documents state, when the
+    # environment's conventions.catalog_map mapped it to ``catalog``; None =
+    # no map applied (``catalog`` is as stated, or the config fallback).
+    catalog_logical: str | None = None
 
     @property
     def qualified_name(self) -> str:
@@ -113,7 +119,9 @@ class ResolvedFeedSpec(BaseModel):
     errors_table: ResolvedTable
     processed_files_table: ResolvedTable
 
-    # Load semantics. natural_key_columns MAY be empty: a feed whose FRD
+    # Load semantics. post70: natural_key_columns = an EXPLICIT key signal only
+    # (the STTM's Primary Key cells); not_null_columns = the required columns —
+    # never the same list by construction. natural_key_columns MAY be empty: a feed whose FRD
     # states Primary/Unique/Business Key = None with STG Truncate-and-Load +
     # STD Append has no MERGE key by design (CAQH 1005034 Technical Metadata).
     natural_key_columns: list[str]
@@ -154,6 +162,31 @@ class ResolvedFeedSpec(BaseModel):
     # M4: facts the resolver took from the STTM because the FRD named none
     # (file pattern, record segments) — surfaced as gate flags, never silent.
     provenance_flags: list[str] = Field(default_factory=list)
+    # Multi-table rule 2 (codegen.resolve.files): one entry per file the feed
+    # receives — a LOB-token pattern expanded per listed LOB, else one per
+    # pattern. Empty on a spec built without the resolver (builders then
+    # expand file_name_patterns themselves).
+    files: list[FeedFile] = Field(default_factory=list)
+    # The FRD's cadence sentences (FrdFeed.frequency_mentions), for the
+    # FREQUENCY normaliser's frequency_ambiguous flag.
+    frequency_mentions: list[str] = Field(default_factory=list)
+    # 2026-10-14 (D1 pair_12): files the FRD's LOB table keys to no single LOB
+    # (their LOB cells stay open) and the answers key that asks for them
+    # (``feeds[<i>].lob_by_file`` — asked once, INPUT_NEEDED, never blocking:
+    # post138). Empty / None otherwise.
+    lob_unkeyed: list[str] = Field(default_factory=list)
+    lob_question_key: str | None = None
+    # post140: the STTM's Table Description per target table, keyed
+    # "<layer>.<table>" (SttmFeed.table_descriptions) - the DDL table COMMENT.
+    table_descriptions: dict[str, str] = Field(default_factory=dict)
+    # post70: the FRD's key statement (FrdFeed.key_statement) — one of the
+    # explicit key signals codegen.primary_key reads; None = the FRD states none.
+    frd_key_statement: str | None = None
+    # post160: FRD stage tables no STTM field maps, set aside because the STTM
+    # is authoritative for the table set (config contracts.sttm_authoritative_tables).
+    # Never silent: a provenance flag here, and generate_run says one NOTE + one
+    # non-blocking INPUT_NEEDED line. Empty = nothing set aside.
+    frd_tables_set_aside: list[str] = Field(default_factory=list)
 
     @property
     def is_segmented(self) -> bool:
@@ -165,4 +198,5 @@ class ResolvedFeedSpec(BaseModel):
         for segment in self.segments:
             if segment.segment == "Detail":
                 return segment
-        raise ValueError(f"feed '{self.feed_id}' has no Detail segment")
+        raise located(ValueError(f"feed '{self.feed_id}' has no Detail segment"),
+                      Coord("contract"), "sttm.segment")

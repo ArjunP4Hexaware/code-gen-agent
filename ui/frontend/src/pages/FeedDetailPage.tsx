@@ -1,17 +1,23 @@
-import { marked } from "marked";
 import { useCallback, useEffect, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   api,
+  downloadHref,
   type Candidate,
   type Decision,
   type FeedDetail,
 } from "../api";
 import { ClassBadge } from "../components/ClassBadge";
+import { ErrorCard } from "../components/ErrorCard";
 import { lobLabel } from "../lobs";
 import { CodeView } from "../components/CodeView";
+import { DownloadButton } from "../components/DownloadButton";
 import { NotebookView } from "../components/NotebookView";
+import { notebooksOffered } from "../appOptions";
+import { renderMarkdown } from "../markdown";
 import { VerdictChip } from "../components/VerdictChip";
+import { FlagSections } from "../components/FlagSections";
+import { StatTile } from "../components/StatTile";
 
 type TabId = "overview" | "rules" | "candidates" | "notebook" | "code" | "report";
 
@@ -25,7 +31,7 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
     ? (requestedTab as TabId)
     : "overview";
   const [feed, setFeed] = useState<FeedDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [tab, setTab] = useState<TabId>(initialTab);
   const [generating, setGenerating] = useState(false);
 
@@ -34,7 +40,7 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
       setFeed(await api.feed(slug));
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   }, [slug]);
 
@@ -52,17 +58,20 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
       await load();
       onFeedsChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     } finally {
       setGenerating(false);
     }
   };
 
-  if (error) return <div className="error-banner">{error}</div>;
+  if (error) return <ErrorCard error={error} title="This view could not be loaded." />;
   if (!feed) return <div className="empty">Loading…</div>;
 
   // Framework mode emits no notebook — hide the tab rather than 404 it.
-  const hasNotebook = feed.written_files.some((f) => f.endsWith(".ipynb"));
+  // post81: the path the run wrote (v2 = notebook/<slug>.ipynb), from the backend
+  // post91: no notebook surface when the App does not offer notebooks
+  const notebook = notebooksOffered(feed.app_options) ? feed.notebook ?? null : null;
+  const hasNotebook = notebook !== null;
   const tabs: { id: TabId; label: string; count?: number }[] = [
     { id: "overview", label: "Overview" },
     { id: "rules", label: "Rules", count: feed.rule_total },
@@ -79,6 +88,7 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
 
   return (
     <>
+      <Link to="/results" className="back-link">← Results</Link>
       <div className="page-head">
         <div>
           <h1 style={{ fontFamily: "var(--mono)" }}>{feed.feed_slug}</h1>
@@ -115,7 +125,7 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
       {tab === "candidates" && (
         <CandidatesTab feed={feed} onDecided={() => { load(); onFeedsChanged(); }} />
       )}
-      {tab === "notebook" && <NotebookTab slug={feed.feed_slug} />}
+      {tab === "notebook" && notebook && <NotebookTab slug={feed.feed_slug} path={notebook} />}
       {tab === "code" && <CodeTab feed={feed} />}
       {tab === "report" && <ReportTab slug={feed.feed_slug} />}
     </>
@@ -125,184 +135,161 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
 /* ---------- Overview ---------- */
 
 function OverviewTab({ feed }: { feed: FeedDetail }) {
+  // post148: the Results page's layout - counts first, what needs a person as
+  // issue cards, the facts in cards below
+  const failed = feed.checks.filter((c) => !c.passed);
+  const passed = feed.checks.filter((c) => c.passed);
+  const tables = feed.tables.stage.length + (feed.tables.standard ? 1 : 0);
+  const codes = (cols: string[]) => cols.map((c) => <code key={c} style={{ marginRight: 8 }}>{c}</code>);
   return (
     <>
-      <div className="panel">
-        <div className="panel-head">
-          <h2>Gate checks</h2>
-          <span className="hint">verdict computed in code — never by judgment</span>
-        </div>
-        <div className="panel-body">
-          {feed.checks.map((c) => (
-            <div className="check-row" key={c.name}>
-              <span
-                className={`verdict-dot ${c.passed ? "PASS" : "FAIL"}`}
-                style={{ alignSelf: "center" }}
-              />
-              <span className="name">{c.name}</span>
-              <span className="details">{c.details}</span>
-            </div>
-          ))}
-        </div>
+      <div className="run-stats" aria-label="feed summary">
+        <StatTile label="gate checks passed" value={`${passed.length}/${feed.checks.length}`}
+                  tone={failed.length ? "bad" : undefined} />
+        <StatTile label={feed.flags.length === 1 ? "flag to check" : "flags to check"}
+                  value={feed.flags.length} tone={feed.flags.length ? "warn" : undefined} />
+        <StatTile label={tables === 1 ? "target table" : "target tables"} value={tables} />
+        <StatTile label={feed.rule_total === 1 ? "validation rule" : "validation rules"}
+                  value={feed.rule_total} />
       </div>
+
+      <section className="card" aria-label="gate checks">
+        <div className="card-head">
+          <h2>Gate checks</h2>
+          <span className={`card-count${failed.length ? " warn" : ""}`}>
+            {failed.length ? `${failed.length} failed` : `all ${feed.checks.length} passed`}
+          </span>
+        </div>
+        <p className="card-sub">Checked in code, never by judgment. A failed check fails the feed.</p>
+        {failed.map((c) => (
+          <div className="issue bad" key={c.name}>
+            <span className="issue-kind">failed</span>
+            <strong>{c.name}</strong> — {c.details}
+          </div>
+        ))}
+        {passed.length ? (
+          <details className="fold" open={false}>
+            <summary>
+              {passed.length} passed
+              <span className="fold-hint">what each check looked at</span>
+            </summary>
+            <div className="fold-body">
+              {passed.map((c) => (
+                <div className="check-row" key={c.name}>
+                  <span className="pill ok">passed</span>
+                  <span className="name">{c.name}</span>
+                  <span className="details">{c.details}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        ) : null}
+      </section>
 
       {feed.flags.length > 0 && (
-        <div className="panel">
-          <div className="panel-head">
-            <h2>Flags — needs a human</h2>
-            <span className="hint">{feed.flags.length} open</span>
+        <section className="card" aria-label="flags">
+          <div className="card-head">
+            <h2>Flags to check</h2>
+            <span className="card-count warn">{feed.flags.length} open</span>
           </div>
-          <div className="panel-body">
-            {(() => {
-              // M6: housekeeping families collapse behind a count so the
-              // substantive flags are visible without scrolling past them.
-              const families: Record<string, { title: string; items: string[] }> = {
-                faq_unanswered: { title: "Load-pattern FAQ questions unanswered", items: [] },
-                iig_blank: { title: "IIG columns left blank (framework-assigned / unstated)", items: [] },
-                playbook_blank: { title: "Playbook cells left blank (dates, owners, contacts)", items: [] },
-              };
-              const substantive: string[] = [];
-              for (const f of feed.flags) {
-                const family = f.split(":", 1)[0];
-                if (family in families) families[family].items.push(f);
-                else substantive.push(f);
-              }
-              const renderFlag = (f: string) => {
-                // The HITL centerpiece: candidates awaiting a human decision
-                // get called out distinctly from housekeeping flags.
-                const hitl = f.includes("pending engineer approval");
-                return (
-                  <li key={f} className={hitl ? "flag-hitl" : undefined}>
-                    <span className="verdict-dot PASS_WITH_FLAGS fdot" />
-                    <span>
-                      {hitl ? <span className="hitl-tag">PENDING ENGINEER APPROVAL</span> : null}
-                      {f}
-                    </span>
-                  </li>
-                );
-              };
-              return (
-                <>
-                  <ul className="flag-list">{substantive.map(renderFlag)}</ul>
-                  {Object.entries(families)
-                    .filter(([, g]) => g.items.length > 0)
-                    .map(([key, g]) => (
-                      <details key={key} className="shell-block" style={{ marginTop: 8 }}>
-                        <summary>
-                          <code>{key}</code> — {g.title}{" "}
-                          <span className="hint">
-                            ({g.items.length} {key === "iig_blank" ? "sheet" : "item"}
-                            {g.items.length === 1 ? "" : "s"})
-                          </span>
-                        </summary>
-                        <ul className="flag-list">{g.items.map(renderFlag)}</ul>
-                      </details>
-                    ))}
-                </>
-              );
-            })()}
-          </div>
-        </div>
+          <p className="card-sub">
+            What the agent could not settle from the documents. Each flag is written into the run's
+            log; a person checks it before the DDL and the IIG go further.
+          </p>
+          <FlagSections flags={feed.flags} />
+        </section>
       )}
 
-      <div className="panel">
-        <div className="panel-head">
+      <section className="card" aria-label="source contracts">
+        <div className="card-head">
           <h2>Source contracts</h2>
-          <span className="hint">provenance embedded in every generated file</span>
+          <span className="card-count muted">provenance embedded in every generated file</span>
         </div>
-        <div className="panel-body">
-          <dl className="kv">
-            <dt>FRD</dt>
-            <dd>
-              <code>{feed.contracts.frd_name}</code>
-              <div className="sha">sha256 {feed.contracts.frd_sha256}</div>
-            </dd>
-            <dt>STTM</dt>
-            <dd>
-              <code>{feed.contracts.sttm_name}</code>{" "}
-              {feed.contracts.sttm_is_synthetic ? (
-                <span className="tag-synthetic">synthetic</span>
-              ) : null}
-              <div className="sha">sha256 {feed.contracts.sttm_sha256}</div>
-            </dd>
-            <dt>File patterns</dt>
-            <dd>
-              {feed.file_name_patterns.map((p) => (
-                <div key={p}>
-                  <code>{p}</code>
-                </div>
-              ))}
-            </dd>
-            <dt>Delimiter</dt>
-            <dd>
-              <code>{JSON.stringify(feed.delimiter)}</code>
-            </dd>
-            <dt>Lines of business</dt>
-            <dd>{feed.lobs.join(", ")}</dd>
-            {feed.frequency ? (
-              <>
-                <dt>Frequency</dt>
-                <dd>{feed.frequency}</dd>
-              </>
+        <dl className="kv" style={{ marginTop: 12 }}>
+          <dt>FRD</dt>
+          <dd>
+            <code>{feed.contracts.frd_name}</code>
+            <div className="sha">sha256 {feed.contracts.frd_sha256}</div>
+          </dd>
+          <dt>STTM</dt>
+          <dd>
+            <code>{feed.contracts.sttm_name}</code>{" "}
+            {feed.contracts.sttm_is_synthetic ? (
+              <span className="tag-synthetic">synthetic</span>
             ) : null}
-          </dl>
-        </div>
-      </div>
+            <div className="sha">sha256 {feed.contracts.sttm_sha256}</div>
+          </dd>
+          <dt>File patterns</dt>
+          <dd>
+            {feed.file_name_patterns.map((p) => (
+              <div key={p}>
+                <code>{p}</code>
+              </div>
+            ))}
+          </dd>
+          <dt>Delimiter</dt>
+          <dd>
+            <code>{JSON.stringify(feed.delimiter)}</code>
+          </dd>
+          <dt>Lines of business</dt>
+          <dd>{feed.lobs.join(", ")}</dd>
+          {feed.frequency ? (
+            <>
+              <dt>Frequency</dt>
+              <dd>{feed.frequency}</dd>
+            </>
+          ) : null}
+        </dl>
+      </section>
 
-      <div className="panel">
-        <div className="panel-head">
+      <section className="card" aria-label="target tables">
+        <div className="card-head">
           <h2>Target tables</h2>
         </div>
-        <div className="panel-body">
-          <dl className="kv">
-            <dt>Stage</dt>
-            <dd>
-              {feed.tables.stage.map((t) => (
-                <div key={t}>
-                  <code>{t}</code>
-                </div>
-              ))}
-            </dd>
-            <dt>Standard</dt>
-            <dd>{feed.tables.standard ? <code>{feed.tables.standard}</code> : <em>none — stage-only feed (load AS-IS)</em>}</dd>
-            <dt>Errors</dt>
-            <dd><code>{feed.tables.errors}</code></dd>
-            <dt>Recycle</dt>
-            <dd>{feed.tables.recycle ? <code>{feed.tables.recycle}</code> : <em>no recycle rule</em>}</dd>
-            <dt>Processed files</dt>
-            <dd><code>{feed.tables.processed_files}</code></dd>
-          </dl>
-        </div>
-      </div>
+        <dl className="kv" style={{ marginTop: 12 }}>
+          <dt>Stage</dt>
+          <dd>
+            {feed.tables.stage.map((t) => (
+              <div key={t}>
+                <code>{t}</code>
+              </div>
+            ))}
+          </dd>
+          <dt>Standard</dt>
+          <dd>{feed.tables.standard ? <code>{feed.tables.standard}</code> : <em>none — stage-only feed (load AS-IS)</em>}</dd>
+          <dt>Errors</dt>
+          <dd><code>{feed.tables.errors}</code></dd>
+          <dt>Recycle</dt>
+          <dd>{feed.tables.recycle ? <code>{feed.tables.recycle}</code> : <em>no recycle rule</em>}</dd>
+          <dt>Processed files</dt>
+          <dd><code>{feed.tables.processed_files}</code></dd>
+        </dl>
+      </section>
 
-      <div className="panel">
-        <div className="panel-head">
+      <section className="card" aria-label="load semantics">
+        <div className="card-head">
           <h2>Load semantics</h2>
         </div>
-        <div className="panel-body">
-          <dl className="kv">
-            <dt>Natural key</dt>
-            <dd>{feed.natural_key_columns.map((c) => <code key={c} style={{ marginRight: 8 }}>{c}</code>)}</dd>
-            <dt>Not-null columns</dt>
-            <dd>{feed.not_null_columns.length ? feed.not_null_columns.map((c) => <code key={c} style={{ marginRight: 8 }}>{c}</code>) : <em>none</em>}</dd>
-            <dt>PHI columns</dt>
-            <dd>
-              {feed.phi_columns.length
-                ? feed.phi_columns.map((c) => <code key={c} style={{ marginRight: 8 }}>{c}</code>)
-                : <em>none declared</em>}
-              {feed.phi_columns.length ? (
-                <div className="sha">masked to last-4 at every log / report / error egress</div>
-              ) : null}
-            </dd>
-            {feed.load_windows_sla.length ? (
-              <>
-                <dt>Load window / SLA</dt>
-                <dd>{feed.load_windows_sla.join("; ")}</dd>
-              </>
+        <dl className="kv" style={{ marginTop: 12 }}>
+          <dt>Natural key</dt>
+          <dd>{codes(feed.natural_key_columns)}</dd>
+          <dt>Not-null columns</dt>
+          <dd>{feed.not_null_columns.length ? codes(feed.not_null_columns) : <em>none</em>}</dd>
+          <dt>PHI columns</dt>
+          <dd>
+            {feed.phi_columns.length ? codes(feed.phi_columns) : <em>none declared</em>}
+            {feed.phi_columns.length ? (
+              <div className="sha">masked to last-4 at every log / report / error egress</div>
             ) : null}
-          </dl>
-        </div>
-      </div>
+          </dd>
+          {feed.load_windows_sla.length ? (
+            <>
+              <dt>Load window / SLA</dt>
+              <dd>{feed.load_windows_sla.join("; ")}</dd>
+            </>
+          ) : null}
+        </dl>
+      </section>
     </>
   );
 }
@@ -489,27 +476,33 @@ function CandidatesTab({ feed, onDecided }: { feed: FeedDetail; onDecided: () =>
 
 /* ---------- Notebook ---------- */
 
-function NotebookTab({ slug }: { slug: string }) {
+function NotebookTab({ slug, path }: { slug: string; path: string }) {
+  const name = path.slice(path.lastIndexOf("/") + 1);
   const [content, setContent] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   useEffect(() => {
     setContent(null);
     api
-      .file(slug, `${slug}.ipynb`)
+      .file(slug, path)
       .then((r) => setContent(r.content))
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [slug]);
-  if (error) return <div className="error-banner">{error}</div>;
+      .catch((e) => setError(e));
+  }, [slug, path]);
+  if (error) return <ErrorCard error={error} title="This view could not be loaded." />;
   if (content === null) return <div className="empty">Loading notebook…</div>;
   return (
     <div className="panel">
       <div className="panel-head">
         <h2>
-          <code>{slug}.ipynb</code>
+          <code>{name}</code>
         </h2>
         <span className="hint">
           the whole pipeline as one runnable Databricks notebook — the module files stay canonical
         </span>
+        <DownloadButton
+          href={downloadHref(slug, path)}
+          label="Download .ipynb"
+          title={`Download ${name} — the whole pipeline as one notebook`}
+        />
       </div>
       <div className="panel-body">
         <NotebookView content={content} />
@@ -558,8 +551,20 @@ function CodeTab({ feed }: { feed: FeedDetail }) {
     dirs.set(dir, [...(dirs.get(dir) ?? []), f]);
   }
 
+  const notebook = notebooksOffered(feed.app_options) ? feed.notebook ?? null : null;
+
   return (
     <div className="panel">
+      <div className="code-toolbar">
+        <span className="hint">{files.length} file(s)</span>
+        {notebook ? (
+          <DownloadButton
+            href={downloadHref(feed.feed_slug, notebook)}
+            label="Download .ipynb"
+            title={`Download ${notebook} — the whole pipeline as one notebook`}
+          />
+        ) : null}
+      </div>
       <div className="code-layout">
         <div className="file-tree">
           {[...dirs.entries()].map(([dir, paths]) => (
@@ -578,7 +583,11 @@ function CodeTab({ feed }: { feed: FeedDetail }) {
           ))}
         </div>
         {selected ? (
-          <CodeView path={selected} content={content} />
+          <CodeView
+            path={selected}
+            content={content}
+            downloadHref={downloadHref(feed.feed_slug, selected)}
+          />
         ) : (
           <div className="empty" style={{ flex: 1 }}>
             Select a file
@@ -591,12 +600,17 @@ function CodeTab({ feed }: { feed: FeedDetail }) {
 
 /* ---------- Report ---------- */
 
+export function demoteHeadings(html: string): string {
+  return html.replace(/<(\/?)h([1-5])(\b[^>]*)>/g,
+                      (_m, close, level, rest) => `<${close}h${Number(level) + 1}${rest}>`);
+}
+
 function ReportTab({ slug }: { slug: string }) {
   const [html, setHtml] = useState<string | null>(null);
   useEffect(() => {
     api.report(slug).then((r) => {
-      // Generated by our own report writer from contract text — trusted input.
-      setHtml(marked.parse(r.markdown, { async: false }) as string);
+      // post157: one level down (h1 -> h2 ...), so the page keeps ONE h1
+      setHtml(demoteHeadings(renderMarkdown(r.markdown)));
     });
   }, [slug]);
   if (html === null) return <div className="empty">Loading report…</div>;

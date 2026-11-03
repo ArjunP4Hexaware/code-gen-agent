@@ -23,11 +23,71 @@
 # behavior for the ~20s pipeline thread and poll cadence has not been
 # exercised on a real Apps deployment.
 command: ["python", "-m", "ui.backend.main"]
-# MOCK LOCK REMOVED (2026-09-01, Soham's direction): the App now runs live
-# Layer 2 via Databricks FMAPI (reasoning.provider: databricks_fmapi →
-# databricks.serving_endpoint: databricks-claude-opus-5). The original reason
-# for the lock — the SP's CAN_QUERY being unverifiable by CLI — is superseded
-# by the app's declared serving-endpoint RESOURCE (llm-endpoint, CAN_QUERY),
-# which grants the permission declaratively. The UI's own gates stay: an
-# explicit STTM choice, the cost-confirmation dialog, and mock-on-dry-run.
-# To re-lock, set CODEGEN_FORCE_MOCK_PROVIDER=1 here and redeploy.
+# PROVIDER (2026-10-13): ONE explicit switch, CODEGEN_PROVIDER=mock|live, for the
+# layout recognizer AND Layer 2 (codegen.reasoning.mode). Default everywhere is
+# mock; nothing infers live from DATABRICKS_HOST or a configured endpoint. THIS
+# App runs inside ACFC, so the env block below sets it to live. Live goes through
+# Databricks FMAPI (reasoning.provider: databricks_fmapi ->
+# databricks.serving_endpoint, databricks-claude-opus-5-5); the App's service
+# principal needs CAN_QUERY on that endpoint (docs/ACFC_DEPLOY.md §4 — declare it
+# as the App resource `llm-endpoint`, or grant it by CLI). Live with the endpoint
+# unset is a startup error naming the setting (GET /api/health startup_error),
+# never a quiet mock. To run the App on the mock, set CODEGEN_PROVIDER to mock
+# (or CODEGEN_FORCE_MOCK_PROVIDER=1) and redeploy. The UI then says "Mock provider (reason:
+# CODEGEN_FORCE_MOCK_PROVIDER)" — every provider label renders from what the
+# run actually did (codegen.reasoning.usage), never from this file. The UI's
+# own gates stay either way: an explicit STTM choice, the cost confirmation
+# and mock-on-dry-run.
+#
+# Under CODEGEN_PROVIDER=live the layout recognizer can be narrowed on its own:
+# CODEGEN_LAYOUT_PROVIDER=mock (or CODEGEN_FORCE_MOCK_LAYOUT=1) keeps it on the
+# mock while Layer 2 is live; =live keeps it live while Layer 2 is locked
+# (header regions and table labels only, never a data row).
+#
+# Workspace-specific values are App env, never committed here (a user folder
+# path is a workspace identifier). Storage URIs — workspace: = Workspace API,
+# volume: = Files API; the roots must exist and be shared with the App's
+# service principal (docs/ACFC_DEPLOY.md §3):
+#   CODEGEN_EXTRA_INPUT_DIRS   workspace:/Workspace/Users/<user>/codegen/pairs   (';'-separated)
+#   CODEGEN_STORAGE_INPUTS     workspace:/Workspace/Users/<user>/codegen/inputs
+#   CODEGEN_STORAGE_STATE      workspace:/Workspace/Users/<user>/codegen/state
+#   CODEGEN_STORAGE_OUTPUTS    workspace:/Workspace/Users/<user>/codegen/outputs
+#   CODEGEN_CONFIG_OVERLAYS    <extra.overlay.yaml>   (';'-separated; applied ON TOP of
+#                              config/overlays/acfc_env.yaml, which is always applied
+#                              first; CODEGEN_SKIP_ENV_OVERLAY=1 opts out of it.
+#                              The list in effect: startup line + GET /api/health)
+#   CODEGEN_NOTIFICATION_EMAILS  <prod-support DL>
+#   CODEGEN_STATE_DIR          /Volumes/<catalog>/<schema>/<volume>  (post72: the App has no
+#                              /Volumes mount, so the folder is copied read-only through the
+#                              Files API at startup and before every generate request; the
+#                              startup line names the volume and the local copy, [MISSING]
+#                              if absent. A local folder in the deployed tree still works.)
+
+# --- 2026-10-07: a Git deploy is self-sufficient --------------------------
+# ACFC workspace paths are committed HERE on explicit instruction (Soham,
+# 2026-10-07) — the App deployed from Git found no documents because these
+# values lived only in an uncommitted local copy. They are ACFC workspace
+# identifiers; do not merge this block into a branch shared outside ACFC.
+# Names are the ones this branch reads (codegen.storage ENV_OVERRIDES /
+# EXTRA_INPUTS_ENV; docs/ACFC_DEPLOY.md §3). The grants the App's service
+# principal needs, and how to find it: docs/ACFC_APP_ENV.md. If the document
+# chooser is empty it shows every root below with a live probe
+# (GET /api/health).
+env:
+  - name: CODEGEN_PROVIDER
+    value: "live"
+  - name: CODEGEN_EXTRA_INPUT_DIRS
+    value: "workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/frd_sttm_pairs"
+  - name: CODEGEN_STORAGE_INPUTS
+    value: "workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/codegen/inputs"
+  - name: CODEGEN_STORAGE_STATE
+    value: "workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/codegen/state"
+  - name: CODEGEN_STORAGE_OUTPUTS
+    value: "workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/codegen/outputs"
+  # post72: codegen-state (environments/<name>.yaml, overlays/<profile>.yaml) on a UC
+  # volume needs USE CATALOG / USE SCHEMA / READ VOLUME for the App's service principal.
+  # post81: until that grant lands, a copy of the volume's environments/ + overlays/
+  # in the App's workspace state folder (Workspace API, no UC grant). Back to
+  # "/Volumes/d1_dlk/codegen/state" once the grant is in place.
+  - name: CODEGEN_STATE_DIR
+    value: "/Workspace/Users/admz-sb65923@amerihealthcaritas.com/codegen/state/codegen-state"

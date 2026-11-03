@@ -12,13 +12,16 @@ half-covered pipeline.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from codegen.emit.context import TemplateGapError
+from codegen.emit.metadata_inserts import comment1
 from codegen.emit.notebook import build_notebook
+from codegen.run_errors import Coord, located
 
 # The only audit columns the generated audit module knows how to populate.
 _KNOWN_AUDIT_COLUMNS = {
@@ -37,6 +40,38 @@ def _py_literal(value: Any) -> str:
     return json.dumps(value)
 
 
+# Mirrors ``line-length`` in templates/ruff.toml.j2: a generated module must
+# pass the lint config emitted next to it.
+_LINE_LENGTH = 100
+_INDENT = "    "
+
+
+def _py_const(value: str, name: str) -> str:
+    """``NAME = "literal"`` — or, when that line would exceed the emitted ruff
+    line length (a free-text FRD value such as a long 'Data Source' cell), the
+    same literal as a parenthesized implicit concatenation split at word
+    boundaries. The text is transcribed verbatim either way (JSON escaping,
+    exactly what ``tojson`` emitted before)."""
+    literal = json.dumps(value)
+    line = f"{name} = {literal}"
+    if len(line) <= _LINE_LENGTH:
+        return line
+    budget = _LINE_LENGTH - len(_INDENT)
+    words = [w for w in re.split(r"(?<=\s)", value) if w]
+    chunks: list[str] = []
+    current = ""
+    for word in words:
+        if current and len(json.dumps(current + word)) > budget:
+            chunks.append(current)
+            current = word
+        else:
+            current += word
+    if current:
+        chunks.append(current)
+    body = "\n".join(f"{_INDENT}{json.dumps(c)}" for c in chunks)
+    return f"{name} = (\n{body}\n)"
+
+
 def _environment() -> Environment:
     env = Environment(
         loader=PackageLoader("codegen", "templates"),
@@ -46,23 +81,64 @@ def _environment() -> Environment:
         keep_trailing_newline=True,
     )
     env.filters["py"] = _py_literal
+    env.filters["pyconst"] = _py_const
+    # post159 (P1-5): document text in the README's markdown table, made inert
+    from codegen.report.generation_report import md_cell
+
+    env.filters["mdcell"] = lambda v: md_cell(str(v))
+    # post159 (P1-4): document text inside a one-line comment / banner line
+    env.filters["comment1"] = comment1
     return env
 
 
-def _check_gaps(context: dict[str, Any]) -> None:
-    unknown_audit = [
-        name for name, _dtype in context["audit_columns"] if name not in _KNOWN_AUDIT_COLUMNS
-    ]
-    if unknown_audit:
-        raise TemplateGapError(
+def unknown_audit_columns(audit_columns) -> list[str]:
+    """Audit columns (``(name, type)`` pairs or AuditColumn models) no
+    pipeline template knows how to populate."""
+    names = [a[0] if isinstance(a, tuple) else a.column for a in audit_columns]
+    return [name for name in names if name not in _KNOWN_AUDIT_COLUMNS]
+
+
+def _check_gaps(context: dict[str, Any], framework_only: bool = False) -> None:
+    unknown_audit = unknown_audit_columns(context["audit_columns"])
+    if unknown_audit and not framework_only:
+        raise located(TemplateGapError(
             f"no template populates audit column(s) {unknown_audit}; "
-            f"known: {sorted(_KNOWN_AUDIT_COLUMNS)}"
-        )
+            f"known: {sorted(_KNOWN_AUDIT_COLUMNS)} \u2014 the notebook pipeline cannot write "
+            "them; generate --output-mode framework (the framework populates audit columns) "
+            "or rename them in the STTM to a known audit column"
+        ), Coord("contract"), "template.gap")
 
 
-def emit_feed(context: dict[str, Any], output_root: Path) -> list[Path]:
-    """Render every applicable template; returns the written paths."""
-    _check_gaps(context)
+class UnsafeOutputPathError(ValueError):
+    """post158 (pentest PPL-1): an output file name built from document values
+    (schema / table names) would leave its folder - refused, nothing written."""
+
+
+def _inside(folder: Path):
+    """A name -> path function for ``folder`` that refuses a name with a path
+    separator, a NUL or ``..``, or one that resolves outside ``folder``. The
+    resolver already refuses such names (``check_table_names``); this keeps the
+    emitter safe on its own."""
+    root = folder.resolve()
+
+    def child(name: str) -> Path:
+        path = folder / name
+        if ("/" in name or "\\" in name or "\0" in name or ".." in Path(name).parts
+                or Path(name).is_absolute() or not path.resolve().is_relative_to(root)):
+            raise UnsafeOutputPathError(
+                f"output file name {name!r} would leave {folder.name}/ - not written")
+        return path
+    return child
+
+
+def emit_feed(context: dict[str, Any], output_root: Path,
+              framework_only: bool = False) -> list[Path]:
+    """Render every applicable template; returns the written paths.
+    ``framework_only`` (Chunk B): the render is the scratch tree of a
+    framework-mode run (only ddl/ is kept): an audit column no pipeline
+    template populates is carried by the DDL / IIG as the STTM names it (the
+    framework populates audit columns) instead of stopping the run."""
+    _check_gaps(context, framework_only)
     env = _environment()
     feed_dir = output_root / context["feed"]["slug"]
 
@@ -70,12 +146,13 @@ def emit_feed(context: dict[str, Any], output_root: Path) -> list[Path]:
     renders: list[tuple[str, Path, dict[str, Any]]] = []
 
     ddl_dir = feed_dir / "ddl"
+    inside = _inside(ddl_dir)
     qualified_prefix = f"{context['default_catalog']}." if context["default_catalog"] else ""
     for seg in context.get("stage_tables", context["segments"]):
         renders.append(
             (
                 "ddl/stage_table.sql.j2",
-                ddl_dir / f"{context['stage_schema']}.{seg['stage_table']}.sql",
+                inside(f"{context['stage_schema']}.{seg['stage_table']}.sql"),
                 # Per-segment audit columns override the feed-wide set (equal
                 # on flat feeds, so their rendering is byte-identical).
                 {"seg": seg, "qualified_prefix": qualified_prefix,
@@ -85,14 +162,14 @@ def emit_feed(context: dict[str, Any], output_root: Path) -> list[Path]:
     renders.append(
         (
             "ddl/errors_table.sql.j2",
-            ddl_dir / f"{context['stage_schema']}.{context['errors_table']}.sql",
+            inside(f"{context['stage_schema']}.{context['errors_table']}.sql"),
             {"qualified_prefix": qualified_prefix},
         )
     )
     renders.append(
         (
             "ddl/processed_files_table.sql.j2",
-            ddl_dir / f"{context['stage_schema']}.{context['processed_files_table']}.sql",
+            inside(f"{context['stage_schema']}.{context['processed_files_table']}.sql"),
             {"qualified_prefix": qualified_prefix},
         )
     )
@@ -100,7 +177,7 @@ def emit_feed(context: dict[str, Any], output_root: Path) -> list[Path]:
         renders.append(
             (
                 "ddl/recycle_table.sql.j2",
-                ddl_dir / f"{context['stage_schema']}.{context['recycle']['table']}.sql",
+                inside(f"{context['stage_schema']}.{context['recycle']['table']}.sql"),
                 {"qualified_prefix": qualified_prefix},
             )
         )
@@ -111,7 +188,7 @@ def emit_feed(context: dict[str, Any], output_root: Path) -> list[Path]:
         renders.append(
             (
                 "ddl/standard_table.sql.j2",
-                ddl_dir / f"{standard['schema']}.{standard['table']}.standard.sql",
+                inside(f"{standard['schema']}.{standard['table']}.standard.sql"),
                 {"standard": standard, "standard_qualified_prefix": standard_prefix,
                  "audit_columns": standard.get("audit_columns",
                                                context["audit_columns"])},

@@ -1,0 +1,35 @@
+# A SYNTHETIC example of the ACFC-side overlay (2026-10-15) — the shape of
+# codegen-state/overlays/<profile>.yaml (e.g. acfc_prx.yaml), the file that
+# lives OUTSIDE the tracked tree (gitignored; CODEGEN_STATE_OVERLAYS_DIR moves
+# it). load_config applies it right after config/overlays/acfc_env.yaml, keyed
+# by the merged conventions.profile; mappings deep-merge, a list replaces.
+# Field meanings: docs/acfc/OVERLAY_FIELDS.md. Every value here is synthetic
+# (SYN_ in notebook names and paths — the framework's name charset has no "-";
+# SYN-* elsewhere); the real ones are filled in by hand on D1 and never enter git.
+# This file is NOT applied automatically: the tests pass it as an overlay.
+metadata:
+  templates:
+    iig_v2:
+      # a notebook path segment without this root gets it prepended
+      notebook_path_prefix: /Workspace
+      # the EMAIL_TEMPLATE_CONFIG statuses written when the run gives no answer
+      email_status_default: [Success, Failed]
+      corpus_cells:
+        DATABRICKS_NOTEBOOK_DETAILS:
+          DATABRICKS_NOTEBOOK_NAME:
+            values:
+              stg_to_std: SYN_StdNotebook_V9
+              delimited: SYN_StageNotebook_V9
+              delimited_tpl: SYN_TplStageNotebook_V9
+          DATABRICKS_NOTEBOOK_PATH:
+            values:
+              stg_to_std: /SYN_folder/SYN_StdNotebook_V9
+              delimited: /Workspace/SYN_folder/SYN_StageNotebook_V9
+              delimited_tpl: /Workspace/SYN_folder/SYN_generic/SYN_TplStageNotebook_V9
+      # per feed (its feed_id): the status set and the SRC_FILE_NAME style
+      feed_overrides:
+        syn_feed_alpha:
+          email_statuses: [FilesNotReceived, New Files to Process, Success, Failed]
+          src_file_name: prefix_star
+        syn_feed_beta:
+          src_file_name: prefix_middle

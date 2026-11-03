@@ -1,682 +1,537 @@
 # CodeGen / Data Engineer Agent — working notes
 
+**This file holds rules and orientation only — keep it that way.** Session state goes
+elsewhere:
+- **Where the work is now** (state, next up, open items, container recipes):
+  `docs/RESTART.md` — read it first, update it at the end of a session.
+- **What each version did:** `CHANGELOG_ACFC.md`.
+- **Older notes, verbatim:** `docs/CLAUDE_HISTORY.md` (§[H2]–§[H12]; §[H9] = everything
+  this file carried before the 2026-10-23 clean-up, §[H10] = retired RESTART.md blocks).
+  The pre-clean-up file itself: `git show fa79a28:CLAUDE.md`.
+
+A new rule earns a line here only if it stays true across sessions; a dated "after postNN"
+note goes in RESTART.md and then into the history, never here.
+
 ## Purpose & pipeline position
 
-Generates production-shaped Databricks ingestion pipelines (PySpark + Delta
-Lake) from approved machine-readable contracts — one FRD feed contract plus
-one STTM mapping contract per feed. It is the **second agent** in the
-three-agent AI-in-Engineering program at AmeriHealth Caritas: FRD→STTM
-(produces the FRD feed contracts consumed here) → **CodeGen** → Code Review
-(reviews what this repo emits).
+Generates Databricks ingestion artefacts (DDL, the IIG metadata workbook + its insert SQL,
+optionally a PySpark + Delta notebook) from an FRD + STTM pair, optionally with a Vendor
+Data Dictionary. It is the **second agent** of the three-agent AI-in-Engineering program at
+AmeriHealth Caritas (ACFC): FRD→STTM → **CodeGen** → Code Review. BRD→FRD and SQL
+Optimization were dropped (2026-08-21) — do not build them or depend on them.
 
-**Scope cut 2026-08-21:** the program dropped from five agents to three —
-BRD→FRD and SQL Optimization are no longer in scope. Do not build them or
-add dependencies on them.
+**Where this runs:** Hexaware builds, ACFC rebuilds. This repo is the reference
+implementation; the production agent is rebuilt inside ACFC from the contracts, config and
+docs — anything not re-derivable from those does not survive the hand-off. ACFC runs it
+as the Databricks App `codegen-agent` and through the container harness (`docs/RESTART.md`).
 
-**Where this runs:** Hexaware builds, ACFC rebuilds. This repo is the
-Hexaware-side reference implementation; the production agent gets rebuilt
-inside ACFC's own environment with Claude Code, using this as the
-blueprint. Nothing here deploys to ACFC directly — anything that cannot be
-re-derived from the contracts, config, and docs does not survive the
-hand-off. **Current program priority is FRD→STTM's live Databricks App
-(due 2026-08-24), not this repo.**
+## Rules that never bend
 
-Two-layer trust rule (never violate): **Layer 1** is deterministic Jinja2 —
-everything derivable from the contracts, byte-stable, every file stamped
-with a provenance banner carrying the contract names + sha256. **Layer 2**
-is the LLM, mock by default — ONLY free-text `validation_rules` the
-compiler classifies as `unmapped` reach a model; its output lands in a
-review artifact (`out/<feed>/candidates/candidates.json`), never in
-generated modules, and every citation must appear verbatim in the contract
-text. Each feed ends in a computed gate verdict: PASS / PASS_WITH_FLAGS /
-FAIL (semantics in `docs/WORKFLOW.md`).
+- **Two-layer trust.** Layer 1 is deterministic Jinja2: everything derivable from the
+  inputs, byte-stable, every file stamped with a provenance banner (input names +
+  sha256). Layer 2 is the LLM: only free-text `validation_rules` the compiler classifies
+  as `unmapped` reach a model; its output lands in a review artefact
+  (`<feed>/candidates/candidates.json`), never in generated code, and every citation
+  must appear verbatim in the input text. Candidates never affect the verdict.
+- **A value not transcribed from an input is a bug, however plausible.** Every cell /
+  column / DDL value comes from an input document, a cited config constant, or an answer
+  the user gave; the rest stays blank AND flagged. Never synthesize a mapping to make a
+  diff close (the 2026-09 Genie episode: the documents answered it).
+- **Citation rule:** every conflict / assumption / confirm item and provenance note quotes
+  the exact FRD field or STTM cell it rests on (models enforce non-empty citations; tests
+  assert them). Layer scope comes from Load Strategy, never from which schemas a Target
+  Schema block names.
+- **Never invent IDs.** PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID and the other
+  framework-assigned IDs (`always_blank` columns; the run's `_LOG.md` lists them) are
+  assigned by the client's framework or by client instruction — the agent leaves them
+  blank. Connection IDs come from the environment profile, never guessed. A `SYN_`
+  template is never written.
+- **The agent never creates tables, never runs jobs, never writes back** beyond the
+  confirm-gated artefact publish. The only SQL the Databricks seam may send is `EXPLAIN`
+  (`codegen.databricks.explain` enforces the prefix; it wakes the warehouse = DBU spend).
+  Job parameters carry IDs the wrapper resolves, never inline SQL.
+- **Client documents.** A live run sends document content to the model API. Runs on
+  the deployed App are allowed without a per-run ask (Soham, 2026-11-02) - report the
+  pair, outcome and counts only; a live CLI / harness run on client pairs outside the App
+  still follows the client-document process; mock runs need none. Real client documents (and `IIG test cells.xlsx`) are read in place,
+  outputs go to a scratch dir, and only SCORES are reported — never copy client names or
+  values into the repo, commits or replies. `scripts/scrub_check.py` must report zero NEW
+  hits over tracked files (`docs/acfc/LEAK_LEDGER.md` holds the known ones;
+  `tests/test_tracked_scrub.py`). Client terms never in the repo — the leak gate
+  (`codegen.leakgate`) reads its denylist from the state volume.
+- **Anthropic is the sole model vendor.** Claude via the Databricks Foundation Model API
+  is a transport, not a vendor change. The Claude 4.8 / 5 families reject sampling
+  parameters (`temperature` / `top_p` / `top_k` → 400): no temperature knob, and live
+  output is inherently non-deterministic.
+- **No secrets in the repo, ever.** Credentials only via environment / `.env`
+  (gitignored; `.env.example` names them). Offline by default: tests and dry runs pass
+  with zero credentials and zero network.
+- **Byte-stable output:** no timestamps or randomness in generated files (`extract-sttm`
+  takes `--generated-date`; workbooks via `stable_workbook_bytes`). Snapshots
+  (`tests/snapshots/notebook_mode.json`, the pair-1 golden) are regenerated deliberately,
+  never casually.
+
+## Working rules
+
+- **Branches:** `feature/multi-table` = all current work. `feature/iig-first` = the old
+  demo branch `codegen-watch` pulled — never merge into it without Soham's word.
+  `backup/ddl-only` = DDL-only fallback. `staging` / `main` are untouched since the
+  feature branches were cut; nothing merges anywhere without Soham's word.
+- **Others push to this branch from ACFC:** `git fetch` and rebase before work, never
+  force-push.
+- **Stage files explicitly, never `git add -A`.** Gitignored local-only files (never
+  stage): `docs/acfc/denylist_local.txt`, `PROJECT_HANDOFF.md`,
+  `CODEGEN_INDEPENDENT_REVIEW.md`.
+- **Versions:** bump with `python scripts/bump_version.py` (pyproject + the
+  `codegen-version-marker` in requirements.txt move together) whenever `src/` changes —
+  the App caches its env on requirements.txt and `/api/health` must never name two trees
+  with one version. The next version is the last `CHANGELOG_ACFC.md` entry + 1, never
+  from a prompt. Docs-only pushes need no bump. The pre-push guard is
+  `scripts/git-hooks/pre-push`; `scripts/dev_bootstrap.sh` installs it next to this
+  container's global hooks (CI runs it too).
+- **Pushing:** the App deploys from GitHub, so an unpushed commit never reaches it —
+  after a deploy, `/api/health` must name the pushed version. The App deploys FROM
+  `feature/multi-table`, but a push alone does NOT redeploy it (verified 2026-11-02: the
+  App stayed on the old commit until `databricks apps deploy` ran) — never push or
+  deploy right before a demo without asking; local commits are always safe. A push that adds or
+  changes `.github/workflows/` needs the `workflow` scope on the `gh` login (`gh auth
+  refresh -s workflow`, interactive — Soham runs it); never route around a refused push.
+- **Deploying:** Soham is the App's only user, so Claude deploys after every green push
+  (recipe in RESTART.md), then checks `/api/health` names the pushed version and runs the
+  Playwright smoke (Dashboard + Generate: 200, no console errors). For ~30 s after a
+  deploy `/api/health` may answer non-JSON and the Dashboard time out — retry before
+  believing it. A RUN on the deployed App is live (client documents go to the model) —
+  allowed (2026-11-02); a new pair's first layout run costs about 6-8 DBU. The App's API
+  wants an OAuth token (profile `codegen-oaut`, RESTART.md); the DEFAULT PAT can deploy
+  but not call the API. A STOPPED App refuses a deploy ("not in RUNNING
+  state"): starting it bills compute — ask Soham first.
+- **CI** (`.github/workflows/tests.yml`): both venvs' suites, vitest + tsc and the
+  version guard on every push; offline, no secrets. It never replaces the local
+  full-suite run before a push.
+- **`ui/frontend/dist` is tracked:** any `ui/frontend/src` change ships with a rebuilt
+  `dist` (`npm run build`) — the App serves it.
+- **Tests:** run the affected files while working; run the full suite in BOTH venvs once
+  on the locally committed tree and READ the result before `git push` — never chain the
+  push. In parallel: `pytest -n 4 --dist loadgroup` (`.venv` ≈ 7.5 min vs ≈ 12 serial;
+  `tests/conftest.py` groups by module and keeps the App-state modules on one worker —
+  a new test writing a checkout path outside those markers needs one). `--dist load`
+  breaks that grouping; plain `pytest` stays serial. `ruff check src/
+  tests/` stays clean; generated code must be ruff-clean too. Frontend: `cd ui/frontend
+  && npx vitest run` (or `node node_modules/vitest/vitest.mjs run` where `npx` is
+  missing).
+- **Proving a fix:** its test must fail with ONLY the fix reverted (`git show HEAD:<file>`
+  over the fixed file, run, restore) — a failure from a missing import proves nothing.
+  A fix that can change generated output also gets the real-pair check: the container
+  harness, mock, on every pair, old code vs new, comparing outcomes and the artefacts'
+  hashes; client copies go to /tmp and are deleted after; report counts only. The
+  layout cache lives in the state dir and is keyed per code TREE: warm EACH side (one
+  pair-1 run per tree) before the comparison, and compare the contracts' layout
+  `source` before hashes — a cold side differs on every banner sha. Classify any
+  differing file before the copies are deleted — run the classifier INSIDE the check
+  script, before its cleanup (kinds and counts only; a changed contract moves every
+  banner sha256, so separate "sha only" from real changes). A notebook change runs the
+  check in notebook mode (`--output-mode notebook`).
+- **Working while a suite runs:** never edit `src/` or `tests/` under a running suite.
+  Develop the next fix in a worktree (`git worktree add -b wip/<x> /tmp/t/<x> HEAD`, run
+  with `PYTHONPATH=/tmp/t/<x>/src` and `-p no:cacheprovider`), then cherry-pick it onto
+  the branch once the running checks are read, and delete the worktree and branch.
+- **Multi-agent workflows / fan-outs:** never without a hard token budget and effort
+  caps — an uncapped audit burned 1.7M tokens on 7 of 18 finders (2026-10-26).
+  Deterministic tools first (coverage with test contexts, static graph), agents only on
+  the hotspots they rank, every finding verified before it is believed.
+- **`.venv-d1`** mirrors ACFC's D1 environment: Python 3.12, `-e ".[dev,databricks]"`, no
+  `ui` extra, pinned by `constraints/acfc_d1.txt` (pydantic 2.8.2 / openpyxl 3.1.2 /
+  ruff 0.17.0 …; `docs/acfc/ENVIRONMENT_ACFC.md` §0). `model_*` pydantic fields need
+  `protected_namespaces=()`; byte-pinned xlsx fixtures compare cell by cell when openpyxl
+  ≠ 3.1.5; fastapi-only tests `importorskip`. openpyxl 3.1.2 keeps a
+  `load_workbook(path)` file open — read workbooks on the generate path from bytes.
+- **The test suite blocks every live model call** (`tests/conftest.py` sets
+  `CODEGEN_BLOCK_LIVE_MODEL`; `CODEGEN_ALLOW_LIVE_TESTS=1` opts in) and runs WITHOUT the
+  ACFC overlay (`CODEGEN_SKIP_ENV_OVERLAY=1`) on its own synthetic D1 profile
+  (`tests/environment_profiles/d1.yaml`). A test that wants the overlay passes
+  `overlays=[…]`.
+- **`tests/test_remote_run_e2e.py`** is the only run test on remote storage roles —
+  extend it when touching the run path. Nothing may assume a run lives under REPO_ROOT.
+- **Client-facing text names no person** (Soham, 2026-10-29): the App, generated files
+  and the shared spreadsheet never say whose estimate / ask a thing was ("a conservative
+  estimate", not "<name>'s"); the spreadsheet is in Soham's voice ("I", never "Soham").
+- **The shared progress spreadsheet** (SharePoint, sheet `codegen_agent`): Graph is
+  refused by ACFC's Conditional Access (managed devices only) — never route around it.
+  Write an Office Script Soham pastes into Automate: rows found by column A, a missing
+  row = nothing written, a `DRY_RUN` switch, bold in column C = updated today (clear the
+  previous day's bold, the C1 header names the date). Keep it short; detail goes to the
+  day's work.
+- **Never run the CLI from the repo root with outputs in `out/`;** use the harness or a
+  scratch output dir. Shareable runs: `export
+  CODEGEN_NOTIFICATION_EMAILS=syn.dl.prodsupport@synthetic.example` first (the CLI loads
+  the local `.env`, whose DL would leak the client domain into EMAIL_TO).
+- **Gotchas:**
+  - bash heredocs mangle escapes and backticks — write patch scripts with the Write tool
+    and run them as files; write commit messages to a file and `git commit -F`;
+  - `fixtures/** -text` commits raw bytes — patch fixtures with `read_bytes` /
+    `write_bytes`, keep each file's EOL, check `git diff --cached --stat` for churn;
+  - the container harness applies the state volume's `answers/<pair>/answers.yaml`, so a
+    question the App asks (it applies none) may never appear in a harness run — check an
+    App-path fix through the App's API (a local server on a scratch copy, mock);
+  - a worktree has no `ui/frontend/node_modules`: symlink the main tree's for vitest /
+    tsc / `npm run build`, remove the link before committing;
+  - after a container reset, `scripts/dev_bootstrap.sh` rebuilds the venvs, Chromium,
+    the git hooks (repo pre-push + the container's Workspace-sync post-commit, both) and
+    the push login; it prints what needs a person (OAuth);
+  - `isolation: "worktree"` agents branch from the default branch — reset each to the
+    working branch first, cherry-pick back, delete the `worktree-agent-*` branch;
+  - running the App locally inside this container: the container is itself a Databricks
+    App and sets `DATABRICKS_APP_PORT=8000`, which the backend reads before
+    `CODEGEN_UI_PORT` — override `DATABRICKS_APP_PORT` (and point the storage roles at
+    /tmp) or the server fails to bind;
+  - on Windows hosts, `;`-separated path lists get MSYS-converted (`export
+    MSYS2_ENV_CONV_EXCL=CODEGEN_CONFIG_OVERLAYS`), and the symlink test
+    `test_state_volume_mirror.py` fails (WinError 1314) — passes on Linux.
 
 ## Repo layout
 
 ```
-src/codegen/        sharepoint.py (Microsoft Graph transport, stdlib-only),
-                    databricks.py (UC volumes transport, read-only, needs the
-                    [databricks] extra; added 2026-08-27),
-                    demo_sources.py / metadata_sheet.py / input_requirements.py /
-                    governance_checks.py (request-time display+check modules,
-                    all OUTSIDE the generation path; added 2026-08-27),
-                    contracts/ (pydantic models, both dialects + vdd.py, frozen),
-                    layout/ (M2.5 layout recognizer: profile, fingerprint,
-                    discover, validate, model, resolve, frd_profile),
-                    resolve/ (FRD⋈STTM join → ResolvedFeedSpec), extract/
-                    (workbook→STTM incl. generic.py content-driven reader,
-                    frd_docx.py, vdd.py), rules/ (rule classifier),
-                    reasoning/ (Layer 2: providers, verbatim grounding),
-                    emit/ (Jinja2 + notebook assembler; framework.py Option B,
-                    rfc.py the RFC package), gate/ (preflight, tests, verdict,
-                    vdd_check, drag_fill), metadata_template.py (IIG template
-                    versions), report/, templates/, cli.py, config.py
-tests/              offline, no Spark needed; some SKIP when the fixtures they
-                    drive on are absent (see "Fixtures & data rules"); the
-                    demo-UI and SharePoint-route tests also skip when the [ui]
-                    extra (or httpx) isn't installed. Run pytest for the live
-                    count rather than
-                    trusting a number written down here.
-config/config.yaml  every knob — contract pairs (EMPTY since 2026-08-22), extractor layout
-                    (+ discovery / frd / vdd synonym tables), naming, masking, gate, job,
-                    layout, conventions, metadata, rfc, playbook. Overlays:
-                    load_config(path, overlays=[…]) / CODEGEN_CONFIG_OVERLAYS deep-merge
-                    a YAML mapping first — client-shaped vocabulary lives THERE
-                    (fixtures/acfc_shapes/pair_1/config_overlay.yaml), never in the tracked file
-fixtures/           tracked on staging (state as of 2026-09-18, M6): faq/ (per-feed
-                    load-pattern FAQs), reference/ (SCRUBBED SFMC client reference
-                    artefacts incl. the deployment playbook + SCRUB_REPORT),
-                    acfc_shapes/ (the SYNTHETIC fixture universe for ACFC's shapes,
-                    generated by scripts/build_acfc_shapes.py; the aliased pair-1
-                    golden; the pair-1 config overlay), layout_profiles/ (cached
-                    layout profiles + the mock/adversarial answers, generated by
-                    scripts/build_layout_profiles.py), the CV golden contracts +
-                    workbook + replay set (anonymized universe) and
-                    workbooks/synthetic_segmented_golden.xlsx — all via deliberate
-                    per-file .gitignore re-includes. NOT on staging: the MIDS/CAQH
-                    client documents and the SFMC client-derived contract pair
-                    (untracked 2026-09-18; on MAIN they are tracked since b0560af)
-docs/               DESIGN.md, WORKFLOW.md, EXTRACTOR_RECON.md, SEGMENTED_MODE_DESIGN.md,
-                    LIVE_PATH_RECON.md, LIVE_RUN_RECORD.md, DEMO_RUNBOOK.md (client demo script),
-                    EDO_STANDARDS_ALIGNMENT.md (clause-by-clause map of the EDO
-                    naming/coding standards to the generator, incl. deviations),
-                    LAYOUT_RECOGNITION.md (the recognizer), ACFC_DEPLOY.md (stand-up
-                    inside ACFC), acfc/SHAPES_FOR_PORT.md + acfc/rfc_capture/…/
-                    RFC_PACKAGE_SHAPES.md (the documented client shapes) + the pair-1
-                    goldens, media/
-ui/                 demo dashboard: FastAPI (8571) + Vite/React (5173); pip install -e ".[ui]", see ui/README.md
-                    backend/sharepoint_routes.py: picker + confirm-gated publish.
-                    ui/frontend/dist IS TRACKED (M6): rebuild (`npm run build`) and
-                    commit it whenever ui/frontend/src changes — the App serves it
-inputs/sharepoint/  gitignored landing dir for documents pulled from SharePoint
+src/codegen/   cli.py (all commands; `codegen --help`), config.py (models + load_config),
+               contracts/ (pydantic: FRD, STTM, VDD, gold), extract/ (STTM workbooks incl.
+               generic.py, frd_docx.py, vdd.py, segmented.py), layout/ (the layout
+               recognizer + answers), resolve/ (FRD ⋈ STTM → ResolvedFeedSpec, gap fill),
+               rules/ (rule classifier), reasoning/ (Layer 2 + the provider switch),
+               emit/ (Jinja2: framework.py, metadata_inserts.py, dml.py, notebook_v2.py,
+               rfc.py — unreachable, kept with its tests), gate/ (checks + verdict),
+               metadata_template.py (IIG templates), run_artefacts.py (the per-run
+               combined set), generate_run.py / run_stages.py / run_errors.py (outcomes,
+               manifest, error lines), environments.py, input_choices.py, owed_inputs.py,
+               leakgate.py, state_mirror.py, storage/ (local | workspace | volume — an
+               EDGE), sharepoint.py + databricks.py (edge seams), templates/
+ui/            the App: FastAPI backend (ui/backend, port 8571) + React frontend
+               (ui/frontend, dist tracked); ui/README.md
+config/        config.yaml (every knob) + overlays/acfc_env.yaml (ACFC values, always
+               applied first)
+fixtures/      synthetic / scrubbed only, each path re-included deliberately in .gitignore:
+               faq/, reference/ (scrubbed SFMC artefacts), acfc_shapes/ (the synthetic
+               ACFC universe; pair 1 = the aliased client golden), layout_profiles/,
+               workbooks/synthetic_segmented_golden.xlsx
+tests/         offline, no Spark; fixture-driven tests SKIP with a reason when files are
+               absent (conftest `require_fixture_files`)
+tools/ scripts/  iig_diff.py, iig_fill_rate.py, notebook_parity.py, ddl_shape.py;
+               container_harness.py, scrub_check.py, bump_version.py,
+               build_acfc_shapes.py, dev_bootstrap.sh, git-hooks/
+docs/          RESTART.md, DESIGN.md, WORKFLOW.md (verdict semantics), LAYOUT_RECOGNITION.md,
+               SEGMENTED_MODE_DESIGN.md, EDO_STANDARDS_ALIGNMENT.md, ACFC_DEPLOY.md
+               (incl. CLI exit codes), ACFC_APP_ENV.md, acfc/ (SHAPES_FOR_PORT.md,
+               ENVIRONMENT_ACFC.md, OPEN_QUESTIONS.md, OVERLAY_FIELDS.md, LEAK_LEDGER.md,
+               METADATA_DB_SEMANTICS.md, iig_goldens/ — prod goldens exist only on D1)
+acfc_run.py    Databricks notebook source: the one-pair fallback run where the App is
+               not usable
+app.yaml       the App manifest (env: CODEGEN_PROVIDER, storage roles, CODEGEN_STATE_DIR)
 ```
-
-## STTM workbook extractor (codegen extract-sttm)
-
-Deterministic, no LLM, pairing-aware: inputs are (workbook, FRD contract); `feed_id`
-is `normalize_feed_name(FRD feed_name)` — the resolver's join invariant, NOT the
-stage table name — and format/delimiter/standard-target presence come from the FRD side. Recycle validation text stays VERBATIM
-(the resolver also accepts the client "Check with ... FOR ..." phrasing).
-**Segmented (H/D/T) dialect IMPLEMENTED, corrected 2026-09-01 against the
-FRD read verbatim** (`extract/segmented.py`; docs/SEGMENTED_MODE_DESIGN.md):
-segments are TABLES in BOTH layers (FRD acceptance criterion 2 — fields
-carry `record_segment`/`stage_table`/`standard_table`; per-segment
-standard DDL), layer scope comes from **Load Strategy STG/STD, never from
-which schemas the Target Schema block names** (STD catalog/schema/tables
-from the STTM's second target group with a cited provenance note), record
-identification is **DERIVED from the STTM** (trailer static marker quoted
-verbatim as the citation; header positional; FAQ
-`record_type_discriminators` is strictly a confirmed-status override),
-STRING-except-audit in both layers rides an FRD-driven AS-IS switch
-(`spec.load_as_is`), and a keys-None FRD (truncate/append, no MERGE)
-makes empty `natural_key_columns` legitimate. The review layer gets ONE
-soft cited CONFIRM item (`RuleCandidate.kind == "confirm"`), riding the
-existing candidates/decision flow. **Citation rule (2026-09-01 lesson):
-every conflict/assumption/confirm item and provenance note the agent
-raises MUST quote the exact FRD field or STTM cell it rests on — an item
-that cannot cite its evidence is a bug (models enforce non-empty
-citations; tests assert them). And never infer target-layer scope from a
-schema block: "stage-only" was wrongly inferred that way once — read Load
-Strategy.** Header resolution is fuzzy + config-driven (`extractor:` knob);
-trailing `NA` rows → `audit_columns`, never `fields[]`; `Comment` →
-`value_spec`; file-name pairing canonicalizes date placeholders (CCYY→YYYY,
-case-insensitive) and stays fail-loud. The CV/golden pair is byte-tested against
-its committed expected output and can NEVER match the MIDS fixture
-(different universe — docs/EXTRACTOR_RECON.md §4d).
 
 ## Setup / run / test
 
 ```bash
-python -m venv .venv && .venv/bin/pip install -e ".[dev]"   # deps from pyproject
-# Live Layer-2 runs additionally need the Anthropic SDK: -e ".[dev,live]"
-.venv/bin/python -m pytest -q          # no Spark, no network
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev,ui,live,databricks]"
+uv venv --python 3.12 .venv-d1 && uv pip install --python .venv-d1/bin/python -e ".[dev,databricks]" -c constraints/acfc_d1.txt
+.venv/bin/python -m pytest -q             # no Spark, no network
+.venv/bin/ruff check src/ tests/
 
-# Generate everything from the fixture contracts (mock Layer 2, no network)
-.venv/bin/python -m codegen.cli generate-all --config config/config.yaml --dry-run --skip-tests
+# One pair, framework artefacts, mock (outputs in a scratch dir):
+PYTHONUTF8=1 .venv/bin/python -m codegen.cli layout --frd-contract-out … --answers …
+PYTHONUTF8=1 .venv/bin/python -m codegen.cli generate --feed <id> --output-mode framework \
+    --profile acfc_prx --iig-template iig_v2 --skip-tests --dry-run …
 ```
 
-`contracts.pairs` is empty (see "Fixtures & data rules"), so `generate-all`
-refuses loudly; generate via explicit paths (`codegen generate
---frd-contract X --sttm-contract Y`) or the demo UI's golden pair. A feed
-with flagged/notification/unmapped rules verdicts PASS_WITH_FLAGS — correct
-behavior, not a failure. Output lands in `out/<feed_slug>/` (module tree, DDL, tests,
-job JSON, one assembled runnable `.ipynb`) with a markdown report per feed
-in `reports/` — both gitignored. Running the *generated* Spark tests (drop
-`--skip-tests`) needs a JVM: `JAVA_HOME` → Java 17, `PYSPARK_PYTHON` → the
-venv interpreter. `ruff check src/ tests/` must stay clean; generated code
-must be ruff-clean against the same rules (`out/<feed>/ruff.toml` emitted).
+Python ≥ 3.10 is supported (`requires-python`); the venvs above use 3.12. `contracts.pairs`
+is `[]`, so `generate-all` refuses loudly — generate with explicit inputs or the harness.
+Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOME`) and
+`PYSPARK_PYTHON` → the venv interpreter.
+
+## How a run works
+
+- **Inputs:** an FRD `.docx` (or the upstream FRD→STTM contract table, read SELECT-only),
+  an STTM `.xlsx`, optionally a VDD `.xlsx` (feeds only the IIG fixed-width rows and the
+  `vdd_*` gate flags, never the standard layer). Selection-time pairing is automatic
+  among local candidates (`codegen.pairing`: content, ticket number, name role; a
+  `pairing_overrides.yaml` wins); a manual pick is never marked automatic; no match or
+  ambiguity pairs nothing.
+- **Layout recognition** (`src/codegen/layout/`, `docs/LAYOUT_RECOGNITION.md`): a model
+  decides WHERE things are, code copies the values, a validator sits between. Order:
+  cache → synonyms → model → validate → user. The model sees only fingerprint material
+  (header regions, table labels — never a data row) and no model string reaches a
+  contract, DDL or IIG cell. A sheet with no header row (no 3+ cell row in 25: a
+  lookup / valid-values sheet) is CAPPED: the fingerprint hashes it, the model gets its
+  summary line only (`fingerprint.model_region`) — keep the cache key and the prompt
+  separate there. A model claim that validates carries the DOCUMENT's wording (the label
+  cell as written, the inline pair as the cell spells it; `labelled_rule` derived, never
+  the model's flag), and a model FRD claim under a path it was not asked about is
+  dropped. A layout `Rejection` holds coordinates and vocabulary only — never a cell's
+  text, a model string or a model-invented sheet name (it reaches the state log, the
+  REJECTED lines and the "structural labels only" report). Families A, C and E may legitimately leave roles unresolved
+  under synonyms alone (`tests/acfc_shapes/layout_truth.py`) — do not widen the synonym
+  tables to force them; a header seen in a client document is evidence, one invented to
+  close a fixture gap is not.
+- **Documented shapes:** `docs/acfc/SHAPES_FOR_PORT.md` — STTM families A–E, FRD families
+  F1 / F2, VDD patterns V1–V3. The non-`MAPPING-` STTM reader is `extract/generic.py`.
+- **Extraction rules:** `feed_id` = `normalize_feed_name(FRD feed_name)` (the resolver's
+  join invariant, not the stage table). An STTM band's layer comes only from evidence
+  (source by elimination only for the one leftover band; else `UNRESOLVED
+  <sheet>/band[<n>]/layer`). Blank Schema → from the FRD with a NOTE, else a QUESTION;
+  table names are always a QUESTION. Trailing `NA` rows → `audit_columns`. A Length cell
+  is a byte width only when it is an INTEGER. An empty schema never reaches a contract.
+  One non-segmented STTM sheet whose tables are EXACTLY the FRD's (post156): a feed per
+  table (`layout.resolve._split_per_table`, `extract.generic._split_by_table`), every
+  pairing from the documents (standard table from its rows, file pattern by file
+  identity) or blank + flagged - never token overlap. When the FRD names no table
+  (pair_09) it is not split (parked with the RDMS sheet; RESTART.md).
+  **The STTM is authoritative for a feed's table set** (post160, Soham 2026-11-02): FRD
+  stage tables no STTM field maps are set aside, never silently (flag
+  `frd_tables_set_aside:stage` + NOTE + one non-blocking INPUT_NEEDED) - only when that
+  is the feed's one disagreement and the FRD's tables were not copied from the STTM
+  band; everything else stays a contract mismatch (`contracts.sttm_authoritative_tables`).
+  Segmented (H/D/T) files: segments are tables in both layers, identification derived
+  from the STTM (`extract/segmented.py`, `docs/SEGMENTED_MODE_DESIGN.md`). A stated
+  delimiter (any document) is read by `resolver.delimiter_char` (quoted character, else
+  `extractor.delimiter_words`) — never "the character after a word". Recycle Flag
+  cells: a `no_values` word is an unflagged row, every other non-empty cell must be a
+  `Y ( <validation> )` flag; differing rules stop the extraction, never a silent pick.
+- **Agreement between documents** goes through `gapfill.same_value(a, b, words)`: a
+  punctuation-only value normalizes to '' — compare delimiters as characters (pass
+  `extractor.delimiter_words`), never by `normalize` substring tests.
+- **Gap fill** (`resolve/gapfill.py`): each fill is a `frd_unstated:<field>
+  source_used:<cell>` flag; the STTM stage band is authoritative for catalog / schema /
+  tables; the dialog asks only when sources disagree or are ambiguous.
+- **Answers:** QUESTION / UNRESOLVED lines are blocking, INPUT_NEEDED is not, NOTE is
+  informational. Answer lines are `f"{label:<15}{key} — {reason}"` (`cli.answer_line`,
+  key verbatim; printed sheet keys are `sheets[<i>]/<layer>/<role>`); `generate
+  --answers` / the App's dialog fill them. **Proposed is not applied:** a proposal is
+  written only when chosen (`profile_default` values are the exception — written
+  unasked, changeable).
+- **Verdicts and outcomes.** Each feed's gate verdict is PASS / PASS_WITH_FLAGS / FAIL
+  (`docs/WORKFLOW.md`); a flagged feed is PASS_WITH_FLAGS by design, not a failure. The
+  run outcome (`codegen.run_stages.OUTCOMES`; exit codes in `docs/ACFC_DEPLOY.md`):
+  PASS / PASS_WITH_OPEN_INPUTS (workbook written, every open line non-blocking) = exit 0;
+  NEEDS_ANSWERS (any blocking line open) = exit 3; GATE_FAIL (files complete, moved to
+  `<feed>/quarantine/` + `GATE_FAIL.md`), CRASHED (partial files deleted), FAIL (nothing
+  written) = exit 1.
+- **Error lines are two tiers** (`codegen.run_errors`, STABLE — the harness imports it):
+  `first_error_line` = coordinates only (vocabulary + integers), `first_error_line_full`
+  = quoted, written only under the outputs role. A new raise that quotes document text
+  goes through `run_errors.located(exc, Coord(...), "<REASONS code>")`.
+- **Layer 2** is its own stage after the outcome (`codegen.layer2_stage`, one request per
+  feed): `--layer2 now | defer | skip`; config `reasoning.layer2_cli: now`,
+  `reasoning.layer2_app: defer` (pending = `<feed>/candidates/layer2_pending.json`, asked
+  by `codegen layer2` or `POST /api/demo/layer2`). For ACFC it is OFF: the
+  `reasoning:` block at the top of `config/overlays/acfc_env.yaml` sets both to `skip`
+  (Soham, 2026-10-27) — delete that block to turn it back on. Tests that exercise a
+  Layer-2 mode with the ACFC overlay loaded pin the mode on their config.
+- **One generate entry point:** `cli.generate_feed_result` + `codegen.generate_run
+  .GenerateRun`, driven by the CLI and the App alike (the App's
+  `GenerationStore._generate_feed` wraps it); manifests are byte-identical for the same
+  pair (`CODEGEN_STAGES.json`).
 
 ## Config doctrine
 
-- Every knob lives in `config/config.yaml` — contract pairs, extractor
-  layout, naming, masking, segment discriminators, gate, job cluster. No
-  numeric literals in generator logic; the loader is loud on typo'd keys.
-- No secrets in the repo, ever. Credentials only via environment / `.env`
-  (gitignored; `.env.example` documents the names).
-- Program policy: **Anthropic is the sole model vendor** across the
-  AmeriHealth agents program. Mock always wins on dry-run; live selection
-  is transport-dependent (2026-08-28): the tracked config's
-  `reasoning.provider` is **`databricks_fmapi`** (Claude via the workspace
-  serving endpoint `databricks.serving_endpoint` — a transport, not a
-  vendor change; resolves from YAML + workspace auth, no Anthropic key),
-  with `anthropic` (key-gated on `ANTHROPIC_API_KEY`) still available.
-  CAUTION: because FMAPI resolves without any env secret, tests that touch
-  live paths must pin the provider — `tests/test_demo_ui.py`'s `client`
-  fixture does this; a 2026-08-28 pytest run fired real FMAPI calls before
-  that guard existed. First live FMAPI E2E: 2026-08-28 (CV golden pair,
-  candidates verified). Live LLM use is confined to Layer 2
-  (reasoning/review); code generation itself is deterministic Jinja2 by
-  design. Model name lives in config (`reasoning.model`, currently
-  `claude-opus-5`). The Claude 4.8/5 API families reject sampling
-  parameters (`temperature`/`top_p`/`top_k` return a 400), so no
-  temperature knob exists and live Layer-2 output is inherently
-  non-deterministic — do not re-add one. CAUTION (2026-09-01): the
-  endpoint serves extended-thinking Claude, whose `message.content` comes
-  back as a LIST of typed blocks (reasoning + text), not a string —
-  `codegen.databricks.chat` normalizes via `_chat_content_text` (text
-  blocks joined, non-text ignored). Do not "simplify" that back to
-  `content or ""`; that exact regression produced the provider-failure
-  candidates in run demo_20260831_212539 (fixed in e91ec11; post-demo
-  TODO in docs/DESIGN.md §8: provider failures should be their own flag
-  class, not candidate cards).
-- Pydantic v2 models are `frozen=True` + `extra="forbid"`; missing is
-  `None`, never a default. PHI masked to last-4 at every egress.
-- **Client framework doctrine (Aug 26 framework calls, encoded 2026-08-27):**
-  job parameters carry IDs the wrapper resolves from metadata, NEVER inline
-  SQL (~250 KB parameter cap); all new tables managed with
-  `CLUSTER BY AUTO` and CDF on (NOT workspace defaults — must be explicit
-  DDL, per B0 observation); the agent never creates target tables and never
-  runs jobs; Anthropic is the sole model vendor — Databricks FMAPI serving
-  a Claude model (`reasoning.provider: databricks_fmapi`,
-  `databricks.serving_endpoint`) is a transport, not a vendor change. The
-  only SQL shape the seam may send is `EXPLAIN` (`codegen.databricks
-  .explain` enforces the prefix), and an EXPLAIN wakes the auto-stopped
-  warehouse = DBU spend from the shared ~120/month pool.
-- **Engineering standards are REAL as of 2026-08-26** (three-input model
-  input #2 is no longer a stub): the EDO Data Engineering Naming + Coding
-  Standards live as data in `config.yaml engineering_standards:` (WF_/NB_
-  naming patterns + abbreviation tables) and `job:` (prod-support alert DL
-  on success AND failure, `timeout_hours`, Photon, DBR 15.4). The
-  `standards_stub` gate flag is gone for the tracked config; the MODEL
-  defaults keep the stub so a config without the section still degrades
-  honestly. Clause-by-clause map + deviations:
-  `docs/EDO_STANDARDS_ALIGNMENT.md`. The DDL templates emit
-  `CLUSTER BY AUTO` (Liquid Clustering) and `LoadStrategy` accepts
-  `"Upsert"` (the SFMC FRD's standard-layer strategy).
+- **Every knob lives in config;** no numeric literals in generator logic; the loader is
+  loud on typo'd keys. Pydantic v2 models are `frozen=True` + `extra="forbid"`; missing
+  is `None`, never a default. PHI masked to last-4 at every egress. A placeholder a
+  reader stores for "no document states it" (the .docx reader's `unstated` source,
+  `contracts.frd.UNSTATED_SOURCE`) is read through its helper (`stated_source`) — it
+  never reaches an artefact as a value; the cell is blank + flagged.
+- **Overlays:** `config/overlays/acfc_env.yaml` is committed and ALWAYS applied first by
+  `load_config`; `CODEGEN_CONFIG_OVERLAYS` adds on top (later wins); client-shaped
+  vocabulary lives in overlays, never in the tracked config.yaml. It pins the SD / CAQH
+  family for every feed — a PRX-shaped feed needs a feed overlay on top.
+- **State root** (`CODEGEN_STATE_DIR`, `config.state_root()`): `environments/<name>.yaml`
+  (D1 / A2 / PR profiles; exactly one default; a required key unset under mock =
+  `INPUT_NEEDED run.environment.<key>`, under live = fatal before anything is written),
+  `overlays/<profile>.yaml` (notebook names, status sets, per-feed overrides —
+  `docs/acfc/OVERLAY_FIELDS.md`), `answers/`, `leakgate/`. Not in git. On the App,
+  `codegen.state_mirror` copies a workspace / volume state root read-only.
+- **The provider switch** (`codegen/reasoning/mode.py`) — ONE switch, mock | live, never
+  inferred from a configured endpoint or the Databricks runtime. First that answers
+  wins: `--provider` > `CODEGEN_PROVIDER` > `reasoning.mode` (shipped: `mock`) > mock. It
+  governs both model users (layout + Layer 2). `--dry-run` and
+  `CODEGEN_FORCE_MOCK_PROVIDER` / `CODEGEN_FORCE_MOCK_LAYOUT` force the mock (under live
+  that prints a WARNING first); live with its endpoint / key unset fails at startup,
+  never a quiet degrade. `reasoning.provider` (`databricks_fmapi`, endpoint
+  `databricks.serving_endpoint`) picks the live transport; `anthropic` (key-gated) also
+  exists. Model name: `reasoning.model`.
+- **FMAPI responses** from extended-thinking Claude come back as a LIST of typed blocks —
+  `codegen.databricks.chat` normalizes via `_chat_content_text`. Do not "simplify" that
+  to `content or ""`. Model JSON goes through `layout/model.py::parse_json_response` with
+  one retry.
+- **Engineering standards** live as data in `engineering_standards:` (EDO naming
+  patterns + abbreviation tables) and `job:`; clause-by-clause map + deviations in
+  `docs/EDO_STANDARDS_ALIGNMENT.md` (being revisited — RESTART.md).
 
-## SharePoint / Microsoft Graph (added 2026-08-23)
+## Output modes and artefacts
 
-Ported from frd-to-sttm-agent-v2's integration. The document library is the
-program's system of record: STTM workbooks and FRD contracts in, generated
-artifacts out. `src/codegen/sharepoint.py` is the whole transport.
+- `output.mode: notebook | framework | [notebook, framework]` (`codegen/output_modes.py`
+  is the one vocabulary; CLI `--output-mode`, repeatable). The retired spellings `both` /
+  `rfc` / `all` map to notebook + framework with a one-time notice, never an error.
+  `output.profile_mode: {acfc_prx: framework}`; the App offers only `output.app_options:
+  [framework]` and shows `output.app_files`.
+- **Framework mode is what ACFC deploys:** an ADDITION to the client's existing
+  metadata-driven framework. A feed whose FRD states a database-table source
+  (`framework.table_source_formats`) is table ingestion, not built yet (the RDMS sheet):
+  it writes its DDL + test cases and HOLDS the IIG (no IIG / review / config rows /
+  inserts; a flag, a HELD BACK line, one non-blocking NOTE) - never file-ingestion rows
+  for a table (post155). Per feed: the deployment DDL (per conventions profile),
+  the IIG workbook + its BSA review copy, `framework/metadata_inserts.sql` (one INSERT
+  per IIG row; an open cell = unquoted `<<COLUMN#n>>`), `config_rows.xlsx`,
+  `ADDITION.md`, and (acfc_prx) the DDL test cases `<ABBREV>_DDL_TestCases.txt` — a
+  SEPARATE file, never inside the DDL (Venu): read-only SQL the engineer runs after the
+  DDL, gate `ddl_tests_read_only`; the same cases as `<ABBREV>_DDL_TestCases.xlsx` in the
+  client's test-record layout (post154; the tester fills the result columns). Per run and
+  STTM, `<out>/combined/<STTM>_{IIG.xlsx, IIG_REVIEW.xlsx, DDL.txt, DDL_TestCases.txt,
+  DDL_TestCases.xlsx (one sheet per feed), LOG.md}` (`codegen.run_artefacts`; the STTM token is dropped from the name;
+  run-level rows written once, children never merged). Framework mode still renders the
+  full pipeline in a scratch tree so gate verdicts match across modes. The master
+  notebook is ACFC's own — the agent never generates, edits or ships it.
+- **Notebook mode** (Option A, ~10% case): a standalone PySpark pipeline; `acfc_prx` uses
+  notebook v2 (`emit/notebook_v2.py` + `templates/notebook_v2/`, rendered from the IIG
+  rows). It never calls `partitionBy` — the DDL clusters every table (`CLUSTER BY AUTO`)
+  and Delta clustering is incompatible with partitioning; `TGT_PARTITION_COLUMN` /
+  `_VALUE` only scope an Overwrite (`replaceWhere`). Under `acfc_prx` stage columns are
+  typed as the STTM states them (Soham, 2026-10-29) and the DDL is the reference: the
+  notebook casts each stage column to the ADLS row's TGT_DATA_TYPE before the write, and
+  a non-blank value the type cannot read stops the load — never a silent NULL.
+- **Conventions profiles** (`conventions.profile`; default `edo_sfmc`): `edo_sfmc` = two
+  `.txt` DDL files with per-column COMMENTs, CLUSTER BY AUTO + TBLPROPERTIES;
+  `acfc_prx` = ONE combined `<ABBREV>_DDL.txt` (Soham, 2026-10-29: never split per
+  layer), stage columns typed as the STTM states (Soham, 2026-10-29),
+  every whitespace quirk of the pair-1 golden a knob, compared byte for byte; its column
+  / table COMMENT, primary-key note and standard TBLPROPERTIES are knobs too (on in
+  config.yaml, off in the pair-1 overlay so that golden stays exact). To add a
+  profile: a key under `conventions.profiles`, a golden under
+  `fixtures/acfc_shapes/<pair>/golden/`, a byte-identity test like
+  `tests/test_m4_acceptance.py`. A DDL column identifier must match
+  `^[A-Za-z_][A-Za-z0-9_]*$` (gate check `ddl_identifiers`, `gate/ddl_names.py`).
+- **The DDL is RUN by the engineer** (Soham, 2026-10-26), not a reference only: every
+  statement must be safe to re-run against deployed tables (`CREATE TABLE IF NOT EXISTS`,
+  never `CREATE OR REPLACE` there) and terminated — `create_statement` (default `CREATE
+  TABLE IF NOT EXISTS`) feeds BOTH layouts; only the pair-1 fixture overlay pins OR
+  REPLACE for its golden. Two gate checks enforce it: `ddl_parses` (sqlglot, dialect
+  `gate.ddl_parse_dialect`; a parse error, an unrecognised statement or a CREATE OR
+  REPLACE fails; sqlglot is a base dependency, absent = `sqlglot_unavailable`, never
+  FAIL; the pair-1 overlay sets the dialect null — its golden is unterminated) and
+  `ddl_identifiers` (on the table definitions; a name as stated that is no identifier
+  fails, naming layer / table / position — the agent never rewrites it, the STTM is
+  fixed). ACFC's prod DDL template is the
+  target; `tools/ddl_shape.py` scores the agent's DDL structure against it (counts and
+  property names only — prod files read into a scratch dir, never the repo).
+- **DDL string literals** escape a quote with a backslash (`\'`); `''` is no escape in
+  Databricks SQL (DBR 18+ reads `'a''b'` as two chained literals). The `sql_literals`
+  gate fails a doubled quote. A COMMENT is the STTM's description, never a Comments
+  cell (rule text) and never an audit marker (`NA`).
+- **IIG templates** (`metadata.template`): `iig_v1` = the 7-tab SFMC reference; `iig_v2`
+  = the PRX 8-sheet layout, rows from `metadata_template.py`. Every cell is transcribed
+  from an input, a cited constant or an answer; the rest is blank and flagged
+  (`iig_blank:<SHEET>: <columns>`). A corpus value fills a cell only when `patterns.json`
+  states it; anything else is a `<<D1:NAME>>` placeholder kept OPEN, never written. To
+  add a template: a key under `metadata.templates` with `tabs` transcribed from the
+  client's workbook, `always_blank`, the knobs, a `citation`; client inventory rows go in
+  an overlay; pin headers + blank list in a test.
+- **Scoring vs prod goldens:** `tools/iig_diff.py --golden <xlsx> --agent <every feed's
+  *_IIG.xlsx>` with the default `--pair-mode identity` (`--pair-mode key` never for a
+  score); `score.json` / `diff.xlsx` / `routing.csv` carry prod text and are never
+  committed; `--export-scrubbed DIR` must re-scan to 0 hits. Build identity:
+  `codegen.build_info` (`CODEGEN_BUILD.json`; iig_diff refuses a workbook without one).
+- **Gate flags worth knowing:** `drag_fill_suspect` (≥3 adjacent `Decimal(p,s)` stepping
+  p by one — flagged, never altered), `segments_from_sttm` / `file_pattern_from_sttm`,
+  `vdd_*`, `iig_blank`, `iig_single_value` (a list in a single-value cell fails),
+  `decimal_no_precision`, `source_names_repeated`. ruff missing = `ruff_unavailable`,
+  never FAIL.
 
-**It is a seam at the edges, deliberately outside resolve/emit/gate.** The
-generator's inputs and outputs are files on disk; SharePoint attaches before
-(`codegen sharepoint-fetch`) and after (`codegen sharepoint-publish`).
-Keeping the network at the edge is what lets Layer 1 stay deterministic,
-offline and credential-free. **Do not "simplify" this by calling Graph from
-inside `extract-sttm` or the resolver.**
+## Edge seams (network stays at the edges)
 
-Mechanics (stdlib-only transport, app-only credentials via
-`SHAREPOINT_CLIENT_SECRET`, config split, fail-loud rules, the
-publish-is-the-human-gate design, one-folder write scope, qualified publish
-names, UI route status codes):
-`.claude/skills/code-gen-agent/references/sharepoint-seam.md` — read it
-before touching `sharepoint.py`, the publish flow, or the UI routes. No
-secrets in the repo; the `sharepoint:` config section is optional and
-non-secret.
+The generator's inputs and outputs are files on disk; seams attach before and after.
+Keeping the network out of resolve / emit / gate is what keeps Layer 1 deterministic and
+offline — **do not call Graph or Databricks from inside the extractors or the resolver.**
+- **SharePoint** (`sharepoint.py`, stdlib-only): `codegen sharepoint-fetch` /
+  `sharepoint-publish` (publish is the human gate). Read
+  `.claude/skills/code-gen-agent/references/sharepoint-seam.md` before touching it.
+- **Databricks** (`databricks.py`, the `[databricks]` extra): read-only list + download,
+  plus the confirm-gated `publish_artifacts` (every write through `_guarded_full_name` /
+  `WRITABLE_PREFIX`); table / job writes are NOT BUILT. Auth: the named profile unless
+  `DATABRICKS_HOST` is set (the Apps runtime) — never leave a placeholder
+  `DATABRICKS_HOST` in `.env`. Client-construction failures become
+  `DatabricksTransportError` (502).
+- **Storage roles** (`storage/`, `CODEGEN_STORAGE_*`): local | workspace | volume; Can
+  Manage (not Can Edit) on the state / outputs / inputs folders. Health: `GET
+  /api/health` (`ui/backend/health.py`; principal, roots, version).
+- Deliberately NOT ported from frd-to-sttm: `jobs_runner.py`, the `_sharepoint.py` shim,
+  the duplicate-input short-circuit (`.claude/skills/code-gen-agent/references/
+  deep-dive.md`). Running jobs belongs to the client's framework.
 
-## Output modes (Option A / Option B, added 2026-08-27; `rfc` added 2026-09-18)
+## The App
 
-`output.mode: notebook | framework | both | rfc | all` (CLI `--output-mode`;
-the UI shows three toggles — Notebook, Framework artefacts, RFC package —
-plus All, and maps the selection onto one mode: rfc implies framework,
-notebook+rfc = all). `rfc` = framework artefacts + the assembled deployment
-package; `all` = notebook tree + framework + package (see "Conventions
-profiles, IIG / playbook templates, the rfc package"). **Option A** ("notebook", the default) is today's output byte
-for byte — a fresh standalone pipeline, the ~10% case; guarded by
-`tests/snapshots/notebook_mode.json` (sha256 per emitted file for the CV
-pair — regenerate deliberately, never casually). **Option B**
-("framework") is the primary ACFC path per the Aug 25/26 calls: an
-*addition* to the existing metadata-driven ingestion framework (~90% of
-runs) — `out/<slug>/framework/` holds (formats swapped 2026-08-31 per
-Venu's standup direction + the real client reference artefacts, scrubbed
-into `fixtures/reference/` by `scripts/scrub_reference.py`; the raw
-exports live only in gitignored `inputs/reference_raw/`, and
-`scripts/scrub_check.py` is the denylist scanner tests run over every
-emitted artefact): `<slug>_stage_table_creation.txt` +
-`<slug>_standard_table_creation.txt` (deployment-team DDL conformant to
-the reference goldens — CREATE OR REPLACE, per-column COMMENTs, stage
-LOCATION labeled-SYNTHETIC, standard CLUSTER BY AUTO + full TBLPROPERTIES,
-trailing SET TAGS), `config_rows.xlsx` (THE approval artefact; built by
-`codegen.metadata_sheet`, the single source of truth for the row layout —
-now the REAL 7-tab client IIG layout from the scrubbed reference
-workbook) and `config_inserts.xlsx` (one sheet per populated tab, value
-rows + generated INSERT column, sqlserver|lakebase dialect via
-`framework:` config; statements over Excel's cell limit chunk into
-`_PART<n>` columns; plain INSERTs, idempotency belongs to the framework's
-load path) and `ADDITION.md`. **The master notebook is ACFC's own existing notebook
-(clarified 2026-08-27): the DDL scripts and insert SQL are ADD-ONS to it —
-the agent never generates, edits, or ships that notebook.** Framework mode still renders the FULL pipeline into a
-scratch tree so gate checks and verdicts are identical across modes; it
-persists only ddl/ + framework/. **Never-invent-IDs:** `always_blank`
-columns render as `framework.id_placeholder` and are flagged — assigned
-by the client's framework or manually by client instruction, never by the
-agent. Workbook serialization is pinned byte-stable
-(`stable_workbook_bytes`). The FAQ gained `has_header`/`has_trailer`
-companions (NOT questions — banner/flag counts untouched) feeding the
-"from FAQ" badge.
+- Deployed from GitHub (`databricks apps deploy codegen-agent … git_source`; recipe in
+  RESTART.md); every deploy restarts the container and wipes its local run state. The
+  manifest `app.yaml` sets `CODEGEN_PROVIDER=live`, the storage roles and
+  `CODEGEN_STATE_DIR`; re-lock to the mock with `CODEGEN_FORCE_MOCK_PROVIDER=1`.
+- The App opens on the guided run page, "Generate a pipeline" (`/`; the old `/modes`
+  redirects there; Results is `/results`): a step strip (Choose
+  documents → Check the settings → Answer questions → Get the results), a Documents
+  card (drop zone + "Choose documents…", STTM / FRD / VDD rows), a Settings card
+  (Advanced folded), the run card with the questions asked BEFORE generating, then
+  "View results" (Results). The App's API wants an OAuth token, not a PAT.
+- Deprecated, no UI consumer (kept for API compatibility; nothing new may depend on
+  them): `/api/replay/*`, `/api/demo/live-runs`, `/api/demo/input-documents`.
+- **Look:** ACFC's own design tokens (its public style guide: Brand / Text and Accents /
+  UI colours, Open Sans bundled via `@fontsource`) in the guided style of the STTM
+  agent's App (Soham, 2026-10-29: white header, light sidebar, white ROUNDED cards with
+  a soft shadow, plain words, technical detail folded), defined ONCE in
+  `ui/frontend/src/styles.css` `:root`. No hard-coded colour anywhere else (tints are
+  `color-mix` of a token); status colours are reserved for verdicts / checks; every
+  text pair WCAG AA. **Two themes, DARK the default** (post162, Raj via Soham,
+  2026-11-02): `:root` = light, `:root[data-theme="dark"]` = dark (ACFC navy surfaces,
+  ACFC light-blue accent, ACFC status colours lifted), set before first paint by
+  `public/theme-init.js` (a same-origin blocking script - never inline: the CSP), switched
+  by the header toggle (`src/theme.ts`, key `codegen.theme.v1`). A new colour token needs
+  a value in BOTH blocks; a filled token needs its `--on-*` text token;
+  `src/themeContrast.test.ts` checks every pair in both themes. No ACFC logo or name in the repo: the header's top-left logo is
+  read at runtime from the state root, `branding/logo.<png|svg|jpg|webp>` (`GET
+  /api/branding`, post144); without one the header is the wordmark alone.
+  The spec: the UX skill Part 1 "Design pillars" and §4.1. Every page (post157): a
+  loading card until its first answer (never "0 chosen" / "No results yet" before the
+  App knows), no sideways scroll at 390 px, targets of at least 24 px (WCAG 2.2 2.5.8),
+  ONE `h1` (rendered report headings are demoted), the logo is decoration (no tab
+  stop). Check with Playwright against a local mock App before claiming a UI fix.
+- **What the App says about providers:** the header badge = the provider the NEXT run
+  uses (`/api/feeds` `provider`); a banner's LIVE / MOCK RUN word = the provider that
+  answered the served run (`run_provider`). The served `mode` drives behaviour only —
+  never show it as the provider (it read MOCK after every deploy of a live App).
+- Choose documents: a pick applies at once (download, classify, pair); Cancel restores
+  the selection the dialog opened on (`/api/demo/choosing*`), Done keeps it.
+- **Model cost** (`reasoning.dbu_rates`, source: databricks.com/product/pricing/
+  proprietary-foundation-model-serving): Claude Opus 5.5 = 57.143 input / 285.714 output
+  DBU per 1M tokens (+10% with regional processing); $ = the contract's $/DBU x rate
+  (the page's example: $0.07). A cached pair makes no model call; output dominates.
+- Layer-2 approve / reject decisions are recorded (`ui/backend/state/decisions.json`)
+  but never merged into generated code and never gate.
 
-## Layout recognition (added 2026-09-18, M2.5)
+## Known gaps
 
-A model decides WHERE things are, code copies the values: every extractor
-reads through a layout profile (`src/codegen/layout/`), resolved cache →
-synonyms → model → validate → user; the model sees only the fingerprint
-material (header regions / table labels, never a data row), only the
-unresolved remainder is merged out of its answer, every merged claim is
-validated against the document, and no model string can reach a contract,
-DDL or IIG cell. Full description, resolution order, validator checks,
-caches (`fixtures/layout_profiles/`, runtime under `ui/backend/state/`)
-and surfaces: `docs/LAYOUT_RECOGNITION.md`. The Vendor Data Dictionary
-(M3) is the pair's third input through the same machinery
-(`codegen extract-vdd`, `generate --vdd`, `contracts/vdd.py`); it never
-feeds the standard layer — only the IIG fixed-width rows and the
-STTM-vs-VDD gate flags (`gate/vdd_check.py`).
+- `extract-sttm` has never been run on FRD→STTM's own output: its `sheet_per_table`
+  dialect emits no `Comment` / `Recycle Flag` columns (Layer 2's input would be dropped
+  silently) and its `single_sheet` dialect is incompatible. Closing that round trip is a
+  real integration task.
+- `FrdContract._provenance.ambiguities` accepts plain strings AND structured
+  `GatedAmbiguity` objects.
+- Notebook v2's own tests mostly SKIP (their SFMC fixtures were removed 2026-08-22): a
+  notebook change needs its own test on a synthetic pair (pair 4 renders one), and no
+  generated Spark code is executed here (no Java).
+- Generated job JSON cluster shape / schedule is a config guess; output targets plain
+  PySpark + Workflows, structured for a mechanical DLT port.
 
-## Standalone doctrine + ACFC's documented shapes (M0–M6, 2026-09-18)
+## Debugging
 
-**Standalone doctrine (policy commit 25b4b72):** the agent runs from the
-documents themselves — an FRD `.docx`, an STTM `.xlsx`, optionally a Vendor
-Data Dictionary `.xlsx` — with no dependency on the upstream FRD→STTM
-agent's contract table (still supported as an FRD source). Every extractor
-is deterministic and reads through a layout profile (next section).
-
-**The shapes** are documented, not guessed: `docs/acfc/SHAPES_FOR_PORT.md`
-transcribes ACFC's five STTM families (A inline-meta + banded mapping, B
-FILE_DETAILS + `MAPPING-` sheets, C Layout + STTM dual sheets, D single
-mapping sheet, E multi-domain / multi-sheet), two FRD families (F1 six
-metadata section tables with `label: value` rows; F2 Solution-Requirement
-tables with the section label in row 4 and inline `Label: value` pairs)
-and three VDD patterns (V1 full position, V2 length only per file, V3
-database table per sheet); `docs/acfc/rfc_capture/rfc_capture/
-RFC_PACKAGE_SHAPES.md` documents the RFC deployment packages (INGESTION_A
-vs the PRX packages). `fixtures/acfc_shapes/` is the SYNTHETIC universe
-built from those documents (`tests/acfc_shapes/` + `scripts/build_acfc_
-shapes.py`, byte-asserted; alias map in `ALIASES.md`); pair 1 is the one
-pair whose structure (columns, types, fixed-width positions, audit rows)
-is the scrubbed + aliased client golden. **Families A, C and E may
-legitimately leave roles unresolved under synonyms alone — that is pinned
-as expected in `tests/acfc_shapes/layout_truth.py`; do not widen the
-synonym tables to force them.** The client STTM reader for non-`MAPPING-`
-workbooks is `extract/generic.py` (content-driven: band row with stage +
-standard tokens, header beneath, meta rows, auxiliary sheets by signature,
-segments from a Segment column or banner rows).
-
-**Layout recognizer principle:** a model decides WHERE things are, code
-copies the values, and a validator sits between them — the model sees only
-the fingerprint material (header regions, table labels; never a data row),
-only the unresolved remainder is merged out of its answer, every merged
-claim is re-validated against the document, and no model string can reach
-a contract, DDL or IIG cell. Order: cache → synonyms → model → validate →
-user (the UI's `needs_layout` dialog, radios over candidate columns / FRD
-cells). Full description: `docs/LAYOUT_RECOGNITION.md`.
-
-## Conventions profiles, IIG / playbook templates, the `rfc` package (M4–M5)
-
-- `conventions.profile` selects how the deployment DDL is laid out.
-  `edo_sfmc` (default) = today's two `.txt` files exactly; `acfc_prx` = ONE
-  combined `<ABBREV>_DDL.txt` with `--stage table` / `--standard table`
-  banners, stage columns TYPED as the STTM stage band states them, audit
-  types in the profile's casing, standard = the stage column list, and
-  every whitespace quirk of the pair-1 golden as a knob (the golden is
-  compared byte for byte). **To add a profile:** a new key under
-  `conventions.profiles` (all knobs on `ConventionsProfileConfig`), a
-  golden under `fixtures/acfc_shapes/<pair>/golden/`, and a byte-identity
-  test like `tests/test_m4_acceptance.py`. A new layout kind (beyond
-  two_files / combined) is a new Jinja template under
-  `templates/framework/` + a branch in `emit/framework.py`.
-- `metadata.template` selects the IIG workbook version. `iig_v1` =
-  `demo.metadata_sheet` (the 7-tab SFMC reference, byte for byte); `iig_v2`
-  = the PRX 8-sheet layout, headers transcribed from the aliased golden in
-  its order, rows built by `metadata_template.py` from derivation knobs
-  (positional `SRC_COLUMNS`, base-type pairs, one object per file pattern,
-  fixed-width handler rows from the STTM positions + FAQ discriminators,
-  DateFormat / DataTypeCast DQ rules from the STTM load rules, per-sheet
-  path shapes, framework-vocabulary constants WITH a citation). Every cell
-  is transcribed from an input or a cited constant; the rest is blank AND
-  flagged (`iig_blank:<SHEET>: <columns>`, one flag per sheet). **To add a
-  template:** a key under `metadata.templates` with `tabs` transcribed from
-  the client's workbook, `always_blank`, the knobs, a `citation`; client
-  inventory rows go in a config OVERLAY, not the tracked yaml; pin
-  headers + blank list in a test.
-- `playbook.template` (rfc mode): `sfmc_7sheet` reads the scrubbed
-  reference workbook for its structure and blanks every value it carried
-  (`playbook_blank:<sheet>.<header>` flags); `main_single` is the PRX
-  one-sheet `Main`. Task rows come only from `playbook.tasks` (per profile,
-  `default` fallback), phrased over the package's own artefacts. **To add
-  one:** a key under `playbook.templates` (`kind`, sheet/header knobs) and
-  a `tasks.<profile>` list; nothing else may fill a playbook cell.
-- **`rfc` output mode** writes `out/<slug>/RFC{rfc_number}_{feed}/`: the
-  profile's DDL, `<FEED>_IIG.xlsx` (template sheets only — provenance stays
-  in `framework/config_rows.xlsx`), the playbook, `FILE_LOG_INFORMATION.txt`
-  (documented T-SQL shape, `rfc.file_log_information`), `MANIFEST.md`
-  (every file, its source artefact, the flags that apply; Runbook / TDD
-  named out of scope). RFC number = FAQ companion `rfc_number`, feed token
-  = FAQ `feed_abbreviation`, else the documented `######` placeholder /
-  the sanitized slug, each flagged. FAQ companions (not questions):
-  `process_name`, `feed_abbreviation`, `rfc_number`.
-- Gate additions: `drag_fill_suspect` (≥3 adjacent `Decimal(p,s)` columns
-  stepping p by one — flagged, never altered; the client golden carries
-  exactly such a run), `segments_from_sttm` / `file_pattern_from_sttm`
-  (a docx FRD names neither; the STTM supplies them, flagged), `vdd_*`
-  cross-check flags, `iig_blank`, `playbook_blank`, `rfc_*`.
-- **Known inconsistency (accepted, Option A shelved):** under `acfc_prx`
-  the deployment DDL types the stage columns as the STTM states them
-  (`Decimal(17,2)`, `Date`), while the generated PySpark pipeline still
-  lands every stage column as STRING (the notebook-mode contract). The two
-  disagree by design until the Option A pipeline is revisited; the
-  framework path (Option B / rfc) is what ACFC deploys.
-- **Open questions for the framework team** (cells the pair-1 golden fills
-  that no input document determines): the semantics of `HEADER_FLAG`
-  (`Y` in the golden for a fixed-width file whose first record is a header
-  SEGMENT, while the FAQ's `has_header` means a column-header row); the
-  stage leg's `TGT_LOAD_OPTION` / `TGT_REFRESH_TYPE` = `Overwrite` in the
-  golden while the FRD's Load Strategy STG says `Append`; `LOB` blank in
-  the golden while the FRD states `ALL`; the derivation of the STGDELTA
-  row's `OBJECT_NAME` (`Accumulator_accumclient`) and `SOURCE` (the feed
-  name, not the vendor). Until answered these cells follow the inputs and
-  differ from the golden.
-- **The Genie episode (2026-09, three lines):** a Genie-assisted diagnosis
-  claimed the pair-1 mismatch was a "field spec" problem — it was wrong; the
-  documents answered it, and the fix was to read the STTM's stage band as
-  written. Never synthesize a mapping to make a diff close: a value not
-  transcribed from an input is a bug, however plausible. When a
-  plan-completion agent runs unattended, give it a rules file (this file +
-  the milestone brief) and explicit stop conditions (byte-identical
-  baselines, zero scrub hits, one commit per milestone, stop for
-  go-ahead) — the rules, not the agent's judgement, decide when it is done.
-
-## FRD pairing + upstream contracts (added 2026-08-28)
-
-The run takes an **(STTM, FRD) pair**. FRD contracts come from the
-upstream FRD→STTM agent's Delta table
-(`soham_workspace.sttm_agent.frd_contracts`, read via the allowlisted
-SELECT-only `read_table_rows`; first read wakes the warehouse = DBU
-spend) **or, since 2026-09-18 (standalone doctrine), from the FRD .docx
-itself**: `codegen extract-frd` / `codegen.extract.frd_docx` reads the
-F1/F2 document families deterministically (stdlib docx, label synonyms in
-`extractor.frd`, per-field provenance), the UI chooser and upload accept
-a `.docx` alongside a `.contract.json`, and the runner extracts a docx
-selection into the run's own `frd.contract.json`. The earlier "no
-docx→contract extractor here" rule is retired.
-Pairing precedence: explicit `demo.pairing_map` (canonical stems; ships
-MIDS) → shared ticket number (CAQH `1005034`) → the ≥3-token content-stem
-match (role tokens `frd`/`sttm` and a `.contract` suffix ignored; unique
-both ways). **Since 2026-09-18 pairing is automatic at selection time**:
-choosing an STTM selects its associated FRD among the LOCAL candidates
-(contracts dir + the three inboxes; no network) and the status carries
-`frd_auto_paired {frd, rule}`; the same happens for the Vendor Data
-Dictionary among the listed workbooks (`demo.vdd_pairing_map` → ticket →
-name stem; `vdd_auto_paired`); the chooser still lets the person override,
-a manual pick is never marked automatic, and clearing the STTM clears an
-automatic pair. No match or ambiguity pairs nothing. Defaults are
-unchanged (golden STTM + golden FRD, snapshot byte-identical), a
-mismatched pick shows a warning chip, and feed-match failures name the
-FRD used and offer the paired candidate — nothing auto-retries. **Client-document rule:** the MIDS/CAQH artefacts are real
-client documents, and a LIVE run sends their content to the model API —
-live runs on client STTM/FRD pairs are permitted only per the program's
-client-document process (Venu's email approval); the demo CV golden
-remains the default rehearsal pair, and mock runs need no approval.
-**Live runs are self-contained (View-results fix, 2026-08-28):** every
-live run copies its FRD into `out/demo_<ts>/frd.contract.json` and writes
-`run_meta.json` (frd_label / sttm_workbook / output_mode); the past-run
-loader reloads with the run's OWN pair and recorded output mode (older
-dirs fall back to the demo golden + inferred mode). Run completeness keys
-on emitted artefacts (README / ddl / framework / candidates.json) — a
-feed with ZERO Layer-2 candidates (all rules compiled deterministically,
-e.g. MIDS) is complete and replays with an empty candidate list.
-
-## Databricks volumes seam (added 2026-08-27)
-
-`src/codegen/databricks.py` — the UC-volumes twin of the SharePoint seam,
-READ-ONLY (list + download), same edge doctrine: fetch documents to local
-disk (`codegen databricks-fetch` → `inputs/databricks/`, also the UI's
-per-file Fetch in the STTM chooser), then generation proceeds from disk.
-The client's raw documents live in `soham_workspace.codegen_agent.frd_raw`
-/ `.sttm_raw` (uploaded 2026-08-27, un-anonymized, on explicit user
-instruction — Databricks volumes are allowed to hold client documents;
-this REPO still is not). Non-secret knobs in `config/config.yaml`
-`databricks:` (profile/catalog/schema/volumes; env `DATABRICKS_*` >
-YAML); auth resolves from the named profile (CLI OAuth keyring) — except
-when `DATABRICKS_HOST` is set in the env (a Databricks Apps runtime),
-where `_client()` lets the SDK's unified auth resolve the injected
-credentials instead of a profile. `databricks-sdk` via the optional
-`[databricks]` extra, keyless import. CAUTION: never leave a placeholder
-`DATABRICKS_HOST` uncommented in `.env` — the SDK prefers env over
-profile and will try to reach it. The FMAPI provider (`chat()` here +
-`reasoning/providers/databricks_provider.py`) got its explicit go and is
-LIVE as of 2026-08-28. **Artifact publish got its explicit go
-2026-08-28 too**: `publish_artifacts` (+ generalized `ensure_volume`) is
-the human-gated outbound half — the UC twin of `sharepoint-publish` —
-targeting `databricks.output_volume` (default `generated`), per-feed
-directories, confirm-gated over HTTP (`POST /api/databricks/publish`),
-no `--confirm` on the CLI (`codegen databricks-publish`) because running
-it IS the gate. The UI's publish panel (Dashboard) lets the user pick
-any catalog.schema.volume, but every write resolves through
-`_guarded_full_name` — `WRITABLE_PREFIX` refusal is enforced in code,
-and the governance "never writes back" check sanctions exactly
-{ensure_volume, upload_file, publish_artifacts}. Everything else
-write-shaped (tables, jobs) stays NOT BUILT pending explicit go; the
-check flips if any other write-shaped function appears (an FMAPI query
-is a read).
-
-**Databricks App deployment (2026-08-28; mock-locked 0.3.2–0.3.3, live
-FMAPI since 0.3.4, currently 0.3.5):** the demo UI runs as the workspace app `codegen-agent`
-(https://codegen-agent-7405617821962942.2.azure.databricksapps.com).
-Deploy from a STAGED TREE (repo files + the gitignored
-`ui/frontend/dist` and fixtures — never `inputs/`): `databricks sync
---full <staged tree> /Workspace/Users/2000198474@hexaware.com/
-codegen-agent-app` then `databricks apps deploy codegen-agent
---source-code-path <that path>`. `requirements.txt` (`.[ui,databricks]`)
-is the Apps pip install; the runtime CACHES the installed env keyed on
-it, so bump the pyproject version AND the `codegen-version-marker`
-comment in requirements.txt whenever `src/` changes or the App serves
-stale code. **The mock lock was REMOVED 2026-09-01 (Soham's direction,
-0.3.4)**: the App runs live Layer 2 via FMAPI
-(`databricks-claude-opus-5`). The original reason for the lock — the
-SP's CAN_QUERY being unverifiable by CLI — is superseded by the app's
-declared serving-endpoint RESOURCE (`llm-endpoint`, CAN_QUERY), which
-grants the permission declaratively. The UI's own gates remain (explicit
-STTM choice, cost confirmation, mock on dry-run); re-lock by setting
-`CODEGEN_FORCE_MOCK_PROVIDER=1` in app.yaml and redeploying. App
-container restarts wipe
-`inputs/databricks/` + `inputs/uploads/` fetches, runner state and the
-output-mode selection (back to `notebook`) — re-fetch and re-select after
-a restart. **First live run from inside the App: 2026-09-04**
-(`demo_20260904_150435`, CV golden pair, 3 feeds PASS_WITH_FLAGS, 3/3
-grounded via `databricks_fmapi`); volume fetch, upstream CAQH pairing,
-decision writes and past-run reload verified the same day. **0.3.5 App
-debugging lessons (2026-09-04):** (1) `WorkspaceClient` CONSTRUCTION
-raises when auth cannot resolve (expired CLI refresh token locally; an
-SP whose credentials don't resolve on the App) — `codegen.databricks
-._client` now wraps it in `DatabricksTransportError`, so the routes
-answer 502 with the SDK's message instead of a bare 500; (2) the UI no
-longer hides a 502 on the volumes listing as "unconfigured" (only 503
-hides the section) — the chooser shows the message + Retry; (3)
-`/api/demo/live-available` carries the provider-specific `reason` and
-the UI shows it (the old hardwired "no ANTHROPIC_API_KEY" text was wrong
-on the FMAPI App); (4) the from-device upload endpoint (0.3.4's
-`POST /api/demo/upload`) finally has UI buttons in the STTM chooser.
-The deployed tree ALSO carries `inputs/standards/` (the six reference
-documents the documents card lists as present: the SFMC FRD, the three
-decks, the two EDO standards) — that directory no longer exists in the
-local checkout, so redeploy with `databricks sync` WITHOUT `--full`
-(never deletes remote files); `--full` would wipe it. **`databricks
-sync` honours a `.gitignore` in the source dir** — a staged tree that
-still carries the repo's `.gitignore` silently skips `ui/frontend/dist`,
-`fixtures/contracts`, the golden workbook and the replay set (the
-2026-09-04 first deploy shipped the OLD bundle that way): delete
-`.gitignore` from the staged tree before syncing, then check the remote
-`dist/index.html` names the freshly built hash. Every deploy restarts
-the container, so past live runs under `out/` vanish with it.
-
-## Demo panels + reference-document checks (added 2026-08-27, display/check only; UI trimmed 2026-09-18)
-
-**UI state after the ACFC trim (2026-09-18):** the frontend has ONE page
-for runs — "Generate" (`/modes`): a single "Choose documents…" modal
-(STTM / FRD / VDD sections, a Clear per input), the output mode + the
-conventions / IIG / playbook selectors, the Generate button and run
-progress, then the two request-time check tables — which render ONLY when
-`demo.input_documents` resolves to existing files (their endpoints carry
-`configured: false` otherwise). Removed from the UI: the reference-
-documents card + attach modal, the "Demo FRD" gap block, the Replay card,
-the Past-live-runs list, the Demo-mode page, the metadata-sheet preview on
-the Generate page (the Dashboard keeps it). **Deprecated, no UI consumer:**
-`/api/replay/*`, `/api/demo/live-runs`, `/api/demo/input-documents`
-(`/api/demo/load-live-run` survives for the post-run View-results button);
-they stay for API compatibility and their tests, nothing new may depend on
-them. The Layer-2 transport a run uses is decided once in
-`codegen.reasoning.transport` (mock lock → Databricks runtime forces the
-Foundation Model endpoint → configured provider → mock degrade) and the
-card badge / confirm dialog word themselves from `/api/demo/live-available`.
-
-The Run-modes card (now "Generate") grew config-driven panels — documents card
-(`demo.input_documents`, env `CODEGEN_INPUT_DOCS_DIR` override),
-source-files table + convention check (real FRD docx read live),
-synthetic `databricks fs ls` block (`demo.databricks_paths` placeholders,
-Option A), metadata-sheet preview for ACFC's metadata-driven framework
-(`demo.metadata_sheet`, provenance-badged cells + xlsx download), and the
-reference-document checks: the input-requirements deck's eleven rows
-evaluated against the demo contract AND the real FRD document, plus the
-two architecture decks' stated controls evaluated against the loaded run.
-All of it reads documents at request time, caches nothing, commits
-nothing, and NONE of it alters generated output — the generation path is
-untouched and byte-stable (verified against tags `pre-demo-2026-08-27` /
-`post-mgr-demo`). CLI twins: `demo-source-files`, `demo-metadata-sheet`.
-
-### Deliberately NOT ported
-
-Three frd-to-sttm features are deliberately absent (`jobs_runner.py`, the
-`_sharepoint.py` shim, the duplicate-input short-circuit) — rationale in
-`.claude/skills/code-gen-agent/references/deep-dive.md` § "Deliberately
-NOT ported"; read it before porting anything from that repo. Running jobs
-belongs to the client's framework, never to the agent.
-
-## Branching model
-
-All development on `staging`; `main` is the deployment branch — `staging`
-merges to `main` only after testing.
-
-## Fixtures & data rules
-
-**No FRD/STTM material is in this repo — as of 2026-08-22.** On Arjun's
-instruction that no client documents (raw or derived) live in any repo,
-`fixtures/contracts/` (two of which were contracts derived from *real*
-client FRDs, plus the MIDS STTM, the synthetic CAQH STTM and the CV/golden
-pair), `fixtures/workbooks/`, `fixtures/replay/`, and the gitignored `out/`
-and `reports/` (generated pipelines embedding CAQH/MIDS field names) were
-deleted from the working tree and `git rm`'d. They remain in git history
-until a purge is decided. What changed to keep the repo coherent:
-`config.contracts.pairs` is `[]` (the model no longer requires ≥1 pair);
-`codegen generate-all` and the demo UI's startup generate refuse loudly on an
-empty list; `codegen generate --frd-contract X --sttm-contract Y` still works
-with explicit paths; the `demo:` config section keeps its (anonymized-universe)
-file names but the files are absent, so Live/Replay fail with file-not-found
-until anonymized copies are restored; every fixture-driven test skips with an
-explicit reason rather than failing (`tests/conftest.py` `require_fixture_files`
-/ `_pair_paths`). Restoring anonymized fixtures at the configured paths
-re-enables the full test suite unchanged. The anonymized CV/golden set
-(demo FRD + STTM contracts, golden workbook, and the `live_e2e_20260807`
-replay set) survives at `044752e^` and may be restored **working-tree-only**
-with `git show "044752e^:<path>" > <path>` — never `git checkout`, which
-would stage and re-track the paths (done locally 2026-08-25; the MIDS/CAQH
-client-derived contracts must NOT be restored **on staging**).
-
-**The 2026-08-22 removal was partially reversed — differently per branch.**
-On **staging**, three fixture families are tracked again by deliberate
-`.gitignore` re-includes: `fixtures/faq/` (per-feed load-pattern FAQs),
-`fixtures/reference/` (the SCRUBBED SFMC client reference artefacts +
-`SCRUB_REPORT.md`; raw exports live only in gitignored
-`inputs/reference_raw/`, `scripts/scrub_check.py` is the denylist
-scanner) and `fixtures/workbooks/synthetic_segmented_golden.xlsx`; the
-client documents themselves stay untracked (root-anchored `.gitignore`
-guards block stray `*FRD*`/`*STTM*`/`*CAQH*`/`*MIDS*`/`*SFMC*`/`*RFC*`
-files at the repo root). On **main**, commit `b0560af` (2026-08-28,
-"Track FRD/STTM documents and contracts in the repo") reverses the
-removal outright on a program go-ahead (reported by Soham, 2026-08-28,
-reconfirmed in-session 2026-08-31 — the commit message is the only
-in-repo record): main tracks the MIDS/CAQH client FRD/STTM documents,
-the CV-golden demo fixtures, the sfmc contracts and the
-`live_e2e_20260807` replay set. The branches therefore DISAGREE about
-client documents. **Reconciled at the 2026-09-01 staging→main merge
-(Soham):** main KEEPS its b0560af-tracked client documents and fixtures
-(the program go-ahead stands) while taking staging's `.gitignore`
-(gitignore patterns never untrack already-tracked files, so the tracked
-documents survive under staging's guards — they only block NEW strays);
-staging itself continues to hold no client documents. Apply the same
-resolution at future merges unless the program policy changes.
-
-**2026-09-18 (M6):** b0560af's merge had left the four root-level MIDS/CAQH
-client documents and the SFMC client-derived contract pair tracked on
-staging; `git rm` / `git rm --cached` removed them (the SFMC FRD contract
-carried the client prod-support DL — the one scrub hit no other fix could
-clear). MAIN still tracks all six by the program go-ahead; apply the same
-removal there if policy requires. `scripts/scrub_check.py` over every
-tracked file is now zero hits and must stay so.
-
-Offline fixtures only — tests and dry-run generation must pass with zero
-credentials and zero network. No real client data, ever (on staging); any
-new fixture material must be anonymized/scrubbed first AND tracked by a
-deliberate decision — every current re-include (faq/, reference/, the
-synthetic segmented golden) was added that way, one path at a time, never
-a directory blanket.
-Generated output is byte-stable by design — no timestamps or randomness in
-generated files; keep it that way (extract-sttm: inject `--generated-date`).
-
-## Known gaps / cautions
-
-- **There is no live-credential `.env` in this repo** (an earlier claim in
-  this file that one existed was stale).
-- **`extract-sttm` has never been run on FRD→STTM's own output.** It is
-  validated against *client* workbooks (the CV/golden pair is byte-tested),
-  not against what `04_sttm_render` emits upstream. Checked 2026-08-21: the
-  upstream `sheet_per_table` dialect does match this extractor's sheet
-  names, band labels and header synonyms — but it emits no `Comment` column
-  (→ `value_spec` empty) and no `Recycle Flag` column (→ the verbatim
-  validation text, i.e. this repo's entire Layer-2 input, is dropped
-  *silently*), and its `single_sheet` CAQH dialect is incompatible outright
-  (no `MAPPING-` prefix, `Source Layout` vs `Source File Layout`, different
-  header dialect). Closing that round trip is a real integration task; do
-  not assume the pipeline joins up.
-- **CAQH extracts for real (corrected 2026-09-01)** — segments as tables
-  in both layers, identification derived from the STTM, recycle from the
-  FRD's DQ requirement; the historical synthetic CAQH STTM contract is
-  obsolete and the 2026-08-31 "two open source-team questions" are
-  RETRACTED (the documents answer both — docs/SEGMENTED_MODE_DESIGN.md
-  quotes them). TWO soft CONFIRM items remain, both cited: positional
-  identification (STTM trailer marker) and per-segment audit-column
-  scope (HDR/TRL follow the STTM's fewer audit rows, not the FRD's
-  feed-wide wording). The generated segments module renders the DERIVED
-  identification (trailer-marker + positional header) when
-  `segmented_extraction` is present; `config.segments` discriminators
-  are the legacy branch. The CAQH FAQ
-  (`fixtures/faq/caqh_tpl_inbound_files.faq.yaml`) carries seven
-  FRD-cited answers as of 2026-09-01 (load_frequency, has_header/
-  has_trailer, dedup_within_file, existing_record_policy,
-  data_integrity_checks, reject_threshold); is_master_file and
-  target_tables_exist stay honestly unanswered → CAQH verdicts
-  PASS_WITH_FLAGS with 10 flags. The MIDS STTM contract still predates
-  the extractor.
-- `FrdContract._provenance.ambiguities` accepts plain strings (older
-  contracts) AND the structured `GatedAmbiguity` objects current
-  frd-to-sttm output emits; absent context keys there are not drift.
-- Layer-2 candidate **approval merge is deliberately v2**: the UI records
-  approve/reject decisions (`ui/backend/state/decisions.json`, gitignored),
-  but merging into generated code stays manual; decisions don't gate.
-- `ui/backend/service.py::GenerationStore._generate_feed` mirrors
-  `cli._generate_feed` step for step — keep them in sync if CLI
-  orchestration changes. UI runs are always dry-run + skip-tests.
-- Generated job JSON cluster shape/schedule is a config guess; only "Weekly
-  Monday 8 PM" compiles to cron, MIDS ships unscheduled. The client's
-  pipeline stack is unknown — output targets plain PySpark + Workflows,
-  structured for a mechanical DLT port.
+After two failed fix attempts on the same problem, follow the spiral-breaker skill
+(.claude/skills/spiral-breaker/SKILL.md) before trying anything else. When extracting
+facts from FRD/STTM documents, apply its Pattern C citation rules. Log resolved
+spirals in docs/spiral-log.md.
+If I say a past problem was a spiral that wasn't caught, log it with the
+spiral-breaker Step 3 template, Caught by skill: no, including the known-causes
+entry and replay scenario.
+If the spiral-detector hook reports a signal, treat it as coming from me: stop
+fix attempts and follow the spiral-breaker skill before the next change.

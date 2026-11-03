@@ -3,20 +3,21 @@ dry-run is off (see ``build_provider``); ``anthropic`` is imported lazily so
 the package is not a hard dependency of the deterministic path (install the
 ``live`` extra to get it).
 
-The model is asked for a single JSON object matching CandidateResponse. Each
-invalid attempt is retried with the validation error appended, up to
-``config.reasoning.max_attempts`` total attempts, then ProviderError.
+The model is asked for a single JSON object matching CandidateResponse,
+through the shared ask loop (:mod:`codegen.reasoning.providers.ask`): the
+tolerant JSON parser, each invalid attempt retried with "JSON only, no fences"
+(and the validation error), up to ``config.reasoning.max_attempts`` total
+attempts, then ProviderError; every failed attempt is recorded.
 """
 
 from __future__ import annotations
 
 import json
 
-from pydantic import ValidationError
-
 from codegen.config import Config
-from codegen.reasoning.providers import ProviderError
-from codegen.reasoning.schema import CandidateResponse, ContextPack
+from codegen.reasoning.providers.ask import AttemptFailure, ask_batch, ask_candidate
+from codegen.reasoning.schema import CandidateResponse, ContextPack, batch_pack
+from codegen.reasoning.usage import add_tokens, message_tokens, timed
 
 _SYSTEM_PROMPT = (
     "You are a data-engineering assistant proposing a REVIEW CANDIDATE for one "
@@ -40,46 +41,37 @@ _SYSTEM_PROMPT = (
     "Use only columns listed in the pack."
 )
 
-
-def _first_balanced_object(text: str) -> str | None:
-    """Return the first ``{...}`` block with balanced, string-aware braces."""
-    start = text.find("{")
-    if start == -1:
-        return None
-    depth = 0
-    in_string = False
-    escaped = False
-    for index in range(start, len(text)):
-        char = text[index]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-        elif char == '"':
-            in_string = True
-        elif char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : index + 1]
-    return None
+# post76: ONE request per feed — every unmapped rule of the feed in one pack.
+_BATCH_SYSTEM_PROMPT = (
+    "You are a data-engineering assistant proposing REVIEW CANDIDATES for the "
+    "free-text validation rules of one ingestion feed. Your output is never "
+    "deployed directly; an engineer reviews it.\n"
+    "The context pack's \"rules\" list numbers the rules (\"rule\": 1, 2, ...). "
+    "Respond with exactly one JSON object and nothing else — no preamble, no "
+    "markdown fences, no commentary after it — of the form "
+    '{"candidates": [...]}, with ONE entry per rule. Each entry must contain '
+    "exactly these five keys, always all present, and no others:\n"
+    '  "rule": the rule\'s number from the pack\n'
+    '  "classification": one of "mappable", "orchestration_config", '
+    '"notification", "out_of_scope"\n'
+    '  "code_candidate": a short PySpark sketch as a string, or the JSON '
+    "literal null for non-code classifications (never omit the key)\n"
+    '  "rationale": why this classification and sketch\n'
+    '  "citations": a non-empty list of EXACT verbatim substrings copied from '
+    "that rule's rule_text or the contract_excerpts entries ONLY — these are the "
+    "only citable material. The column lists (available_source_columns, "
+    "available_stage_columns, audit_columns) are context, not citable material: "
+    "never use a bare column name as a citation.\n"
+    "Ground every claim in the provided context pack only. Citations that are "
+    "not exact substrings of the rule's rule_text or the contract_excerpts are "
+    "rejected. Use only columns listed in the pack."
+)
 
 
-def _extract_json(text: str) -> str:
-    """Isolate the JSON object from a response that may carry prose or fences.
-
-    Never raises: with no object present the stripped text is returned as-is
-    and the schema validation downstream turns it into a normal retry.
-    """
-    stripped = text.strip()
-    if stripped.startswith("{") and stripped.endswith("}"):
-        return stripped
-    candidate = _first_balanced_object(stripped)
-    return candidate if candidate is not None else stripped
+def batch_prompt(packs: list[ContextPack]) -> str:
+    """The user prompt of a feed's batched request (both live providers)."""
+    return "Context pack (the only citable text):\n" + json.dumps(
+        batch_pack(packs).model_dump(), indent=2)
 
 
 class AnthropicProvider:
@@ -88,35 +80,68 @@ class AnthropicProvider:
     def __init__(self, config: Config) -> None:
         import anthropic
 
+        from codegen.reasoning.mode import guard_live_call
+
+        guard_live_call("Layer 2 (Anthropic API)", sdk_module=anthropic)
         self._client = anthropic.Anthropic()
         self._model = config.reasoning.model
+        # What the run record reads (codegen.reasoning.usage).
+        self.model = self._model
+        self.endpoint: str | None = None
+        self.calls = 0
+        self.seconds = 0.0
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.cache_read_tokens = 0
         self._max_tokens = config.reasoning.max_tokens
         self._max_attempts = config.reasoning.max_attempts
+        self._truncation_max_tokens = config.reasoning.truncation_max_tokens
+        self._limits = config.reasoning.response_limits
+        self.requests = 0
+        self.failures: list[AttemptFailure] = []
 
     def complete(self, pack: ContextPack) -> CandidateResponse:
         user_prompt = "Context pack (the only citable text):\n" + json.dumps(
             pack.model_dump(), indent=2
         )
-        errors: list[str] = []
-        for _ in range(self._max_attempts):
+        self.requests += 1
+
+        def send(prompt: str, max_tokens: int) -> str:
             # No sampling params: claude-opus-4-8 rejects temperature/top_p/top_k
             # with a 400 (removed on Opus 4.7+) — proven by the first live run.
+            self.calls += 1
             message = self._client.messages.create(
                 model=self._model,
-                max_tokens=self._max_tokens,
+                max_tokens=max_tokens,
                 system=_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
+                messages=[{"role": "user", "content": prompt}],
             )
-            text = "".join(block.text for block in message.content if block.type == "text")
-            try:
-                return CandidateResponse.model_validate_json(_extract_json(text))
-            except ValidationError as exc:
-                errors.append(str(exc))
-                user_prompt += (
-                    "\n\nYour previous response failed schema validation:\n"
-                    f"{exc}\nRespond again with ONLY the corrected JSON object."
-                )
-        raise ProviderError(
-            f"no schema-valid response after {self._max_attempts} attempt(s); "
-            f"last error: {errors[-1]}"
-        )
+            add_tokens(self, message_tokens(message))
+            return "".join(block.text for block in message.content if block.type == "text")
+
+        return ask_candidate(timed(self, send), user_prompt, max_attempts=self._max_attempts,
+                             max_tokens=self._max_tokens,
+                             truncation_max_tokens=self._truncation_max_tokens,
+                             failures=self.failures, request=self.requests,
+                         limits=self._limits)
+
+    def complete_batch(self, packs: list[ContextPack]) -> dict[int, CandidateResponse]:
+        """post76: every unmapped rule of a feed in ONE request (rule n = packs[n-1])."""
+        self.requests += 1
+
+        def send(prompt: str, max_tokens: int) -> str:
+            self.calls += 1
+            message = self._client.messages.create(
+                model=self._model,
+                max_tokens=max_tokens,
+                system=_BATCH_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            add_tokens(self, message_tokens(message))
+            return "".join(block.text for block in message.content if block.type == "text")
+
+        return ask_batch(timed(self, send), batch_prompt(packs), len(packs),
+                         max_attempts=self._max_attempts, max_tokens=self._max_tokens,
+                         truncation_max_tokens=self._truncation_max_tokens,
+                         failures=self.failures, request=self.requests,
+                         limits=self._limits)

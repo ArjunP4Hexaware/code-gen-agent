@@ -24,16 +24,15 @@ from pydantic import BaseModel, ConfigDict
 
 from codegen.config import Config, load_config
 from codegen.contracts.resolved import ResolvedFeedSpec
-from codegen.emit.context import TemplateGapError, build_context
-from codegen.emit.emitter import emit_feed
-from codegen.faq import faq_for_spec
-from codegen.gate import compute_verdict, run_generated_tests, run_preflight
+from codegen.emit.context import TemplateGapError
 from codegen.gate.verdict import GateResult
-from codegen.reasoning import build_provider, run_reasoning
-from codegen.reasoning.engine import RuleCandidate, segmented_review_items
-from codegen.report import write_generation_report
+
+# post60: the feed pipeline is codegen.cli.generate_feed_result (the CLI's);
+# build_provider stays importable here for callers that patch it.
+from codegen.reasoning import build_provider  # noqa: F401
+from codegen.reasoning.engine import RuleCandidate
 from codegen.resolve.resolver import ContractMismatchError, resolve_pair
-from codegen.rules.compiler import RuleOutcome, compile_rules
+from codegen.rules.compiler import RuleOutcome
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -50,9 +49,13 @@ RunMode = Literal["mock", "live", "replay"]
 
 
 class FeedRun(BaseModel):
-    """Everything one generation run produced for one feed."""
+    """Everything one generation run produced for one feed.
 
-    model_config = _MODEL_CONFIG
+    D1 post51: under pydantic < 2.10 the ``model_usage`` field (an API key the
+    frontend reads, so not renamed) printed a protected-namespace UserWarning on
+    import; ``protected_namespaces=()`` silences it for this model only."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", protected_namespaces=())
 
     spec: ResolvedFeedSpec
     outcomes: list[RuleOutcome]
@@ -60,9 +63,29 @@ class FeedRun(BaseModel):
     gate: GateResult
     written_files: list[str]  # repo-relative, posix
     error: str | None = None
-    # Option B artefact summary (framework/both modes): file names, row
+    # Option B artefact summary (framework mode): file names, row
     # counts per tab, badge coverage, framework-assigned blank columns.
     framework: dict | None = None
+    # What this feed's run did with a model, per stage
+    # (codegen.reasoning.usage.StageUsage.as_dict — carries the label).
+    model_usage: list[dict] | None = None
+    # post76: the Layer-2 stage for this feed — {mode, review_candidates, rules};
+    # review_candidates = pending | done | skipped | none (the manifest's)
+    layer2: dict | None = None
+
+
+def with_layer2(run: FeedRun, candidates: list, usage, block: dict) -> FeedRun:
+    """post76: a FeedRun with its Layer-2 stage's results (candidates, usage,
+    the manifest block's row for the feed)."""
+    state = {"deferred": "pending", "skipped": "skipped"}.get(
+        usage.provider, "done" if usage.requests else "none")
+    return run.model_copy(update={
+        "candidates": candidates,
+        "model_usage": [*[u for u in run.model_usage or [] if u.get("stage") != "layer2"],
+                        usage.as_dict()],
+        "layer2": {"mode": block.get("mode"), "review_candidates": state,
+                   "rules": usage.requests},
+    })
 
 
 class FailedRun(BaseModel):
@@ -78,6 +101,33 @@ class NothingToGenerateError(RuntimeError):
     """Raised when a generate is requested but config lists no contract pairs."""
 
 
+def display_path(path: Path) -> str:
+    """A generated file as the UI shows it: repo-relative when the run lives
+    under the checkout, the absolute path otherwise.
+
+    With a REMOTE outputs role (M8.1) a run's working copy is a temp directory
+    — ``/tmp/codegen_storage/outputs_<id>/…`` — which is NOT under REPO_ROOT,
+    and ``relative_to`` then raises ``'…' is not in the subpath of '…'``. That
+    killed every feed of a live run inside the ACFC App ("live run produced no
+    feeds"). The UI only needs the ``/<feed_slug>/`` segment, which both forms
+    carry.
+    """
+    try:
+        return path.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def provider_of(config: Config) -> str:
+    """post136: ``live`` when a run would call a model (the transport resolves to
+    Databricks FMAPI or the Anthropic API), else ``mock`` - the same resolution
+    the Generate card shows (``codegen.reasoning.transport``)."""
+    from codegen.reasoning.transport import resolve_transport
+
+    return "live" if resolve_transport(config).kind in ("databricks_fmapi", "anthropic") \
+        else "mock"
+
+
 class GenerationStore:
     """In-memory results of the latest run, plus persisted review decisions."""
 
@@ -91,8 +141,29 @@ class GenerationStore:
         # from their own isolated roots; mock is the default.
         self.mode: RunMode = "mock"
         self.label: str | None = None
+        # post136: the provider the served run used ("live" | "mock"; None = no
+        # demo run served, or a replay). ``mode`` says what KIND of result set
+        # is served and drives behaviour; this only labels it truthfully - a
+        # Generate-page run under the mock lock is mode "live", provider "mock".
+        self.run_provider: str | None = None
         self.out_root: Path = REPO_ROOT / self.config.output.dir
         self.reports_root: Path = REPO_ROOT / self.config.output.reports_dir
+        # The served run's layout-stage record (None: the run started from
+        # contracts, no layout stage ran). Layer 2 is merged from the feeds.
+        self.layout_usage = None
+        # The IIG template version the served run used (None = the config
+        # default; IIG-first M2). The preview that read it was removed in post65.
+        self.iig_template: str | None = None
+
+    @property
+    def model_usage(self) -> list[dict]:
+        """What the served run did with a model, per stage — every provider
+        label the UI shows for the run renders from this."""
+        from codegen.reasoning.usage import run_usage
+
+        if not self.runs:
+            return []
+        return run_usage([r.model_usage or [] for r in self.runs.values()], self.layout_usage)
 
     def adopt(
         self,
@@ -103,9 +174,15 @@ class GenerationStore:
         label: str | None,
         out_root: Path,
         reports_root: Path,
+        layout_usage=None,
+        iig_template: str | None = None,
+        run_provider: str | None = None,
     ) -> None:
         """Atomically swap the served state for a demo (live/replay) run."""
         with self._lock:
+            self.run_provider = run_provider
+            self.layout_usage = layout_usage
+            self.iig_template = iig_template
             self.runs = runs
             self.failures = failures
             self.mode = mode
@@ -113,6 +190,36 @@ class GenerationStore:
             self.out_root = out_root
             self.reports_root = reports_root
             self.has_run = True
+
+    def apply_layer2(self, results: dict, block: dict) -> int:
+        """post76: the Layer-2 stage's results (``{feed_id: (candidates, usage)}``)
+        on the served runs; returns how many feeds changed."""
+        with self._lock:
+            changed = 0
+            for slug, run in list(self.runs.items()):
+                if run.spec.feed_id not in results:
+                    continue
+                self.runs[slug] = with_layer2(run, *results[run.spec.feed_id], block)
+                changed += 1
+            return changed
+
+    def forget_runs(self, labels: list[str]) -> bool:
+        """The served run's folder was deleted: serve nothing rather than a
+        run whose files are gone. True when the loaded run was among them."""
+        with self._lock:
+            if self.label is None or self.label not in labels:
+                return False
+            self.runs = {}
+            self.failures = []
+            self.mode = "mock"
+            self.label = None
+            self.run_provider = None
+            self.layout_usage = None
+            self.iig_template = None
+            self.out_root = REPO_ROOT / self.config.output.dir
+            self.reports_root = REPO_ROOT / self.config.output.reports_dir
+            self.has_run = False
+            return True
 
     # -- generation ---------------------------------------------------------
 
@@ -122,7 +229,7 @@ class GenerationStore:
         only_slug: str | None = None,
         dry_run: bool = True,
         skip_tests: bool = True,
-        output_mode: str | None = None,
+        output_mode: str | list[str] | None = None,
     ) -> None:
         with self._lock:
             # Refuse loudly BEFORE touching state (mirrors the CLI): with no
@@ -136,6 +243,9 @@ class GenerationStore:
             # A plain generate returns the UI to mock state and default roots.
             self.mode = "mock"
             self.label = None
+            self.run_provider = None
+            self.layout_usage = None
+            self.iig_template = None
             self.out_root = REPO_ROOT / self.config.output.dir
             self.reports_root = REPO_ROOT / self.config.output.reports_dir
             contracts_dir = REPO_ROOT / self.config.contracts.dir
@@ -176,174 +286,70 @@ class GenerationStore:
         reports_dir: Path | None = None,
         candidates_override: list[RuleCandidate] | None = None,
         on_stage: Callable[[str], None] | None = None,
-        output_mode: str | None = None,
+        output_mode: str | list[str] | None = None,
         extra_flags: list[str] | None = None,
         conventions_profile: str | None = None,
         iig_template: str | None = None,
         playbook_template: str | None = None,
+        layout_usage=None,
+        environment=None,
+        faq_answers: dict | None = None,
+        frd_path: Path | None = None,
+        sttm_path: Path | None = None,
+        layer2: str = "now",
+        layer2_jobs: dict | None = None,
+        framework_out: dict | None = None,
     ) -> FeedRun:
-        # Mirrors codegen.cli._generate_feed step for step — keep in sync.
-        from codegen.gate.drag_fill import drag_fill_flags
-        from codegen.gate.vdd_check import vdd_cross_check
-
-        vdd_flags, vdd_check = vdd_cross_check(spec, self.config)
-        extra_flags = [*(extra_flags or []), *spec.provenance_flags, *drag_fill_flags(spec),
-                       *vdd_flags]
+        # post76: ``layer2="later"`` leaves the Layer-2 stage to the run (its job
+        # lands in ``layer2_jobs`` by feed_id — DemoRunner runs it after the outcome).
+        # post60: THE feed pipeline is codegen.cli.generate_feed_result — the
+        # CLI's own (no mirror to keep in sync); this wraps it in a FeedRun.
+        # 2026-10-14: ``environment`` = the run's (codegen.environments; None =
+        # the default) — the framework emit reads it from the config it is given.
         # out_root/reports_dir isolate demo runs; candidates_override replays
         # a recorded Layer-2 result instead of calling any provider.
-        stage = on_stage or (lambda _detail: None)
-        out_root = out_root if out_root is not None else REPO_ROOT / self.config.output.dir
-        reports_dir = (
-            reports_dir if reports_dir is not None else REPO_ROOT / self.config.output.reports_dir
-        )
-        feed_dir = out_root / spec.feed_slug
+        from codegen.cli import generate_feed_result
+        from codegen.environments import with_environment
+        from codegen.metadata_template import EMPTY_BY_RULE_LABELS
 
-        stage("compiling rules")
-        outcomes = compile_rules(spec)
-        if candidates_override is not None:
-            candidates = candidates_override
-        else:
-            stage("Layer-2 reasoning" + ("" if dry_run else " (live)"))
-            provider = build_provider(self.config, dry_run)
-            candidates = run_reasoning(spec, outcomes, provider)
-            # Segmented-extraction review items join the same review flow;
-            # replayed candidate sets already carry them (they are written
-            # into candidates.json), so only the fresh path adds them.
-            candidates = [*segmented_review_items(spec), *candidates]
-        stage("emitting code")
-        # Three-input model: mirrors cli._generate_feed — FAQ file answers
-        # plus contract prefills; missing file => defaults, flagged by gate.
-        faq = faq_for_spec(spec, self.config, base_dir=REPO_ROOT)
-
-        duplicate_outcome = next(
-            (o for o in outcomes if o.feature == "allow_duplicate_file_name"), None
-        )
-        context = build_context(
-            spec,
-            self.config,
-            allow_duplicate_file_name=True,
-            duplicate_rule_text=(
-                duplicate_outcome.rule_text if duplicate_outcome is not None else None
-            ),
-            notification_rule_texts=[
-                o.rule_text for o in outcomes if o.classification == "notification"
-            ],
-            faq=faq,
-        )
-        # Option A/B branch — MIRRORS cli._generate_feed (its helpers are
-        # reused directly so the two cannot drift).
-        from codegen.cli import _emit_framework_only, _read_ddl_sources, _run_emit_framework
-
-        effective_mode = output_mode or self.config.output.mode
-        framework_artefacts = None
-        rfc_artefacts = None
-        checks = None
-        tests_skipped = skip_tests or not self.config.gate.run_generated_tests
-        if effective_mode in ("framework", "rfc"):
-            stage("framework artefacts")
-            written, checks, tests_skipped, ddl_sources = _emit_framework_only(
-                context, spec, self.config, feed_dir, skip_tests
-            )
-            framework_artefacts = _run_emit_framework(
-                spec, faq, ddl_sources, self.config, out_root, outcomes,
-                base_dir=REPO_ROOT, conventions_profile=conventions_profile,
-                iig_template=iig_template,
-            )
-            written = [*written, *framework_artefacts.files]
-            if effective_mode == "rfc":
-                stage("RFC package")
-                from codegen.emit.rfc import emit_rfc_package
-
-                rfc_artefacts = emit_rfc_package(
-                    spec, faq, self.config, out_root, framework_artefacts,
-                    flags_so_far=[*extra_flags, *framework_artefacts.flags],
-                    conventions_profile=conventions_profile, iig_template=iig_template,
-                    playbook_template=playbook_template, base_dir=REPO_ROOT,
-                )
-                written = [*written, *rfc_artefacts.files]
-        else:
-            written = emit_feed(context, out_root)
-            if effective_mode in ("both", "all"):
-                stage("framework artefacts")
-                ddl_sources = _read_ddl_sources(feed_dir)
-                framework_artefacts = _run_emit_framework(
-                    spec, faq, ddl_sources, self.config, out_root, outcomes,
-                    base_dir=REPO_ROOT, conventions_profile=conventions_profile,
-                    iig_template=iig_template,
-                )
-                written = [*written, *framework_artefacts.files]
-                if effective_mode == "all":
-                    stage("RFC package")
-                    from codegen.emit.rfc import emit_rfc_package
-
-                    rfc_artefacts = emit_rfc_package(
-                        spec, faq, self.config, out_root, framework_artefacts,
-                        flags_so_far=[*extra_flags, *framework_artefacts.flags],
-                        conventions_profile=conventions_profile, iig_template=iig_template,
-                        playbook_template=playbook_template, base_dir=REPO_ROOT,
-                    )
-                    written = [*written, *rfc_artefacts.files]
-        if framework_artefacts is not None:
-            extra_flags = [*extra_flags, *framework_artefacts.flags]
-        if rfc_artefacts is not None:
-            extra_flags = [*extra_flags, *rfc_artefacts.flags]
-        self._write_candidates_artifact(candidates, feed_dir)
-
-        stage("gate")
-        if checks is None:
-            checks = run_preflight(feed_dir, self.config)
-        if vdd_check is not None:
-            checks = [*checks, vdd_check]
-            if not tests_skipped:
-                checks = [
-                    *checks,
-                    run_generated_tests(feed_dir, self.config.gate.pytest_tail_lines),
-                ]
-
-        gate = compute_verdict(
-            spec.feed_id,
-            outcomes,
-            candidates,
-            checks,
-            tests_skipped,
-            faq=faq,
-            standards=self.config.engineering_standards,
-            extra_flags=extra_flags,
-        )
-        write_generation_report(
-            spec,
-            written,
-            outcomes,
-            candidates,
-            gate,
-            reports_dir,
-            out_root,
-            inputs_summary=context["provenance"]["inputs"],
-        )
+        result = generate_feed_result(
+            spec, with_environment(self.config, environment), dry_run=dry_run,
+            skip_tests=skip_tests, output_mode=output_mode, extra_flags=extra_flags,
+            conventions_profile=conventions_profile, iig_template=iig_template,
+            playbook_template=playbook_template, layout_usage=layout_usage,
+            faq_answers=faq_answers,
+            out_root=out_root if out_root is not None else REPO_ROOT / self.config.output.dir,
+            reports_dir=(reports_dir if reports_dir is not None
+                         else REPO_ROOT / self.config.output.reports_dir),
+            base_dir=REPO_ROOT, on_stage=on_stage, candidates_override=candidates_override,
+            console=False, frd_path=frd_path, sttm_path=sttm_path, layer2=layer2)
+        if layer2_jobs is not None and result.layer2_job is not None:
+            layer2_jobs[spec.feed_id] = result.layer2_job
         framework_summary = None
-        if framework_artefacts is not None:
-            from codegen.emit.framework import report_section
-
-            with open(reports_dir / f"{spec.feed_slug}.md", "a",
-                      encoding="utf-8", newline="\n") as handle:
-                handle.write(report_section(framework_artefacts))
-                if rfc_artefacts is not None:
-                    from codegen.emit.rfc import report_section as rfc_report_section
-
-                    handle.write(rfc_report_section(rfc_artefacts))
+        artefacts = result.framework_artefacts
+        if framework_out is not None and artefacts is not None:
+            framework_out[spec.feed_id] = artefacts     # post91: the run's combined set
+        if artefacts is not None:
             framework_summary = {
-                "files": [p.name for p in framework_artefacts.files],
-                "row_counts": framework_artefacts.row_counts,
-                "coverage": framework_artefacts.coverage,
-                "flagged_blank_columns": framework_artefacts.flagged_blank_columns,
+                "files": [p.name for p in artefacts.files],
+                "groups": artefacts.groups,
+                "row_counts": artefacts.row_counts,
+                "coverage": artefacts.coverage,
+                "flagged_blank_columns": artefacts.flagged_blank_columns,
+                # post66: the review summary's "empty by rule" part
+                "empty_by_rule": [
+                    {"sheet": sheet, "label": EMPTY_BY_RULE_LABELS.get(sheet, sheet),
+                     "reason": reason}
+                    for sheet, reason in artefacts.empty_by_rule.items()],
             }
         return FeedRun(
-            spec=spec,
-            outcomes=outcomes,
-            candidates=candidates,
-            gate=gate,
-            written_files=[p.relative_to(REPO_ROOT).as_posix() for p in written],
+            spec=result.spec or spec,          # post84: with a profile landing applied
+            outcomes=result.outcomes,
+            candidates=result.candidates,
+            gate=result.gate,
+            written_files=[display_path(p) for p in result.written],
             framework=framework_summary,
+            model_usage=[u.as_dict() for u in result.model_usage],
         )
 
     @staticmethod
@@ -373,22 +379,30 @@ class GenerationStore:
         """Identity of the currently loaded run: decisions are scoped to it."""
         return self.label or "mock"
 
-    @staticmethod
-    def _load_all_decisions() -> dict[str, dict[str, dict[str, dict]]]:
-        if not DECISIONS_PATH.is_file():
+    def _decisions_path(self) -> Path:
+        from ui.backend import stores
+
+        return stores.state_file(self.config, "decisions.json", DECISIONS_PATH)
+
+    def _load_all_decisions(self) -> dict[str, dict[str, dict[str, dict]]]:
+        path = self._decisions_path()
+        if not path.is_file():
             return {}
-        payload = json.loads(DECISIONS_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict) or payload.get("version") != DECISIONS_VERSION:
             # Pre-v2 shape was keyed by rule alone and bled across runs and
             # modes — disposable dev state, deliberately discarded.
             return {}
         return payload.get("runs", {})
 
-    @staticmethod
-    def _write_all_decisions(runs: dict) -> None:
-        STATE_DIR.mkdir(parents=True, exist_ok=True)
+    def _write_all_decisions(self, runs: dict) -> None:
+        from ui.backend import stores
+
+        path = self._decisions_path()
+        path.parent.mkdir(parents=True, exist_ok=True)   # repo dir or local scratch
         payload = {"version": DECISIONS_VERSION, "runs": runs}
-        DECISIONS_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        stores.push_state(self.config, "decisions.json")
 
     def load_decisions(self) -> dict[str, dict[str, dict]]:
         """Decisions for the CURRENT run only — each run starts pending."""

@@ -1,0 +1,8 @@
+# IIG-first (2026-10-02): emit_dml ships false. Tests that pin the DML
+# deliverable through the CLI apply this overlay (CODEGEN_CONFIG_OVERLAYS).
+conventions:
+  profiles:
+    acfc_prx:
+      emit_dml: true
+dml:
+  enabled: true

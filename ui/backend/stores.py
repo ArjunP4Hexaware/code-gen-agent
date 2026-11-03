@@ -1,0 +1,160 @@
+"""The UI backend's storage roles (M8.1): inputs / state / outputs + the
+extra input roots, opened once from the store's config and the environment.
+
+Every route and the runner resolve their directories here. With the default
+(local) roles each helper returns exactly the pre-M8 path — the module
+constants tests patch (``FETCH_DIR``, ``INPUTS_DIR``, ``DECISIONS_PATH``)
+keep working — and the push / pull calls are no-ops. With a remote role the
+path is the role's local working copy and the helper moves the bytes.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import re
+from pathlib import Path
+
+from codegen.storage import RoleStore, StorageNotFound, StorageSet, open_storage
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_INPUTS = REPO_ROOT / "inputs"
+_DEFAULT_STATE = Path(__file__).resolve().parent / "state"
+
+# One StorageSet per config OBJECT (identity). It used to be one process-wide
+# slot rebuilt whenever a different config object asked — so two runners alive
+# at once (the App module's and a test's; a test's leftover background thread
+# and the next test's) rebuilt each other's roles on every call, and a thread
+# whose fixture patch was already undone fell back to the DEFAULT local roles
+# and wrote fake-workspace verdicts into the checkout's
+# ui/backend/state/document_index.json (M15e).
+_stores_by_config: dict[int, tuple[object, StorageSet]] = {}
+
+
+def get_stores(config) -> StorageSet:
+    """The role stores for this config object (opened once per object)."""
+    entry = _stores_by_config.get(id(config))
+    if entry is None or entry[0] is not config:
+        entry = (config, open_storage(config, REPO_ROOT))
+        _stores_by_config[id(config)] = entry
+    return entry[1]
+
+
+def reset_stores() -> None:
+    """Kept for the tests that call it; a no-op since the cache became per
+    config object. Every test builds its own config, so a new config never
+    sees an old config's stores — and CLEARING would let a runner still alive
+    (a background index / pusher / recorder thread outliving its test) rebuild
+    its roles through whatever ``open_storage`` is current at that moment:
+    the unpatched one, i.e. the DEFAULT local roles in the checkout."""
+    return None
+
+
+def _is_default(store: RoleStore, default: Path) -> bool:
+    return store.is_local and store.workdir == default
+
+
+def inbox_dir(config, sub: str, default: Path) -> Path:
+    """Local directory an inbox (``sharepoint`` / ``databricks`` / ``uploads``)
+    is written to: ``default`` under the default inputs role, else the inputs
+    role's working copy of ``<sub>/``."""
+    store = get_stores(config).inputs
+    return default if _is_default(store, _DEFAULT_INPUTS) else store.local_path(sub)
+
+
+def push_input(config, sub: str, name: str) -> None:
+    """After a document landed in an inbox's local directory: send it up."""
+    get_stores(config).inputs.push(f"{sub}/{name}")
+
+
+def state_file(config, name: str, default: Path) -> Path:
+    """Local path of a state file; a remote state role is pulled first."""
+    store = get_stores(config).state
+    if _is_default(store, _DEFAULT_STATE):
+        return default
+    if not store.is_local:
+        with contextlib.suppress(StorageNotFound):     # first write creates it
+            store.fetch(name)
+    return store.local_path(name)
+
+
+def state_local_path(config, name: str, default: Path) -> Path:
+    """Local path of a state file WITHOUT pulling it first — for a writer that
+    is about to overwrite it whole (M15.1: the pull was discarded unread, one
+    Workspace export per write)."""
+    store = get_stores(config).state
+    return default if _is_default(store, _DEFAULT_STATE) else store.local_path(name)
+
+
+def state_is_default(config) -> bool:
+    """True under the default (local, in-checkout) state role."""
+    return _is_default(get_stores(config).state, _DEFAULT_STATE)
+
+
+def push_state(config, name: str) -> None:
+    store = get_stores(config).state
+    if not _is_default(store, _DEFAULT_STATE):
+        store.push(name)
+
+
+def layout_cache_dir(config) -> Path:
+    """The runtime layout-profile cache directory, pulled from a remote
+    state role; ``layout.runtime_cache_dir`` under the default state role."""
+    from codegen.storage import runtime_layout_cache
+
+    return runtime_layout_cache(config, REPO_ROOT, stores=get_stores(config))[0]
+
+
+def push_layout_cache(config) -> None:
+    store = get_stores(config).state
+    if not _is_default(store, _DEFAULT_STATE) and store.local_path("layout_profiles").is_dir():
+        store.push_tree("layout_profiles")
+
+
+def outputs_root(config) -> Path:
+    """Local directory run folders are generated into."""
+    return get_stores(config).outputs.workdir
+
+
+def push_run(config, label: str) -> list[str]:
+    return get_stores(config).outputs.push_tree(label)
+
+
+def pull_run(config, label: str) -> Path:
+    return get_stores(config).outputs.fetch_tree(label)
+
+
+# A run folder, and nothing else: the live runner names them
+# demo_<YYYYMMDD>_<HHMMSS> (DemoRunner._execute). Clearing runs deletes only
+# names of exactly this shape — never the outputs root, never a sibling
+# (handoff/, a feed directory, anything a person put there).
+RUN_FOLDER = re.compile(r"demo_\d{8}_\d{6}")
+
+
+def run_labels(config) -> list[str]:
+    """Every run folder the outputs role holds — its local working copy and,
+    for a remote role, the remote listing — newest first. Listing only."""
+    store = get_stores(config).outputs
+    names = set()
+    if store.workdir.is_dir():
+        names.update(p.name for p in store.workdir.iterdir() if p.is_dir())
+    if not store.is_local:
+        names.update(e.name for e in store.list("") if e.is_dir)
+    return sorted((n for n in names if RUN_FOLDER.fullmatch(n)), reverse=True)
+
+
+def clear_runs(config) -> list[str]:
+    """Delete every run folder (remote copy and working copy); the labels deleted."""
+    store = get_stores(config).outputs
+    labels = run_labels(config)
+    for label in labels:
+        store.delete_tree(label)
+    return labels
+
+
+def remote_run_labels(config, prefix: str = "demo_") -> list[str]:
+    """Run folders that exist only in a remote outputs role (a restarted App
+    container lost its local copies); ``[]`` for a local role."""
+    store = get_stores(config).outputs
+    if store.is_local:
+        return []
+    return [e.name for e in store.list("") if e.is_dir and e.name.startswith(prefix)]

@@ -2,23 +2,28 @@
 
 Program policy: Anthropic is the sole model vendor; inside a Databricks
 workspace the intended transport is the **Databricks Foundation Model
-serving endpoint** (``databricks.serving_endpoint``, a Claude Opus 5
+serving endpoint** (``databricks.serving_endpoint``, a Claude Opus 5.5
 endpoint) — a transport, not a vendor change. This module is the ONE place
 that decides:
 
-* ``mock_locked``   — ``CODEGEN_FORCE_MOCK_PROVIDER`` is set: zero model calls.
-* ``databricks_fmapi`` — configured, OR the process runs inside Databricks
-  (an Apps runtime injects ``DATABRICKS_APP_PORT`` / ``DATABRICKS_HOST``; a
-  cluster sets ``DATABRICKS_RUNTIME_VERSION``). Inside Databricks the
-  endpoint is REQUIRED: a config that still says ``anthropic`` is
-  overridden and the override is reported, never silent.
-* ``anthropic``     — local, configured ``anthropic``, key present.
-* ``mock``          — the safe degrade when the chosen transport cannot
-  resolve; ``reason`` names the remedy.
+* ``mock_locked``   — ``CODEGEN_FORCE_MOCK_PROVIDER`` is set, OR the provider
+  switch says mock (``codegen.reasoning.mode`` — the default everywhere):
+  the mock answers and its reason says ``provider=mock (<source>)``.
+* ``databricks_fmapi`` — the switch says LIVE and ``reasoning.provider`` is
+  ``databricks_fmapi``.
+* ``anthropic``     — the switch says LIVE, configured ``anthropic``, key present.
+* ``mock``          — LIVE was asked for and the transport cannot run (the
+  key unset): ``available`` False; the builders RAISE, never answer from it.
+
+2026-10-13: the Databricks runtime (``DATABRICKS_HOST`` / the App's port) no
+longer decides anything — it is detected and reported, never inferred into
+"live" (a D1 run answered from the mock and read like a real one).
 
 Both provider builders (Layer 2 reasoning, layout recognizer) and the UI's
 ``/api/demo/live-available`` read this, so the code path and what the
-screen says can never disagree.
+screen says can never disagree. ``label`` is what a run WOULD use, in the
+same words as the per-run record (``codegen.reasoning.usage``), minus the
+call count — what a run actually did is that record, not this.
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ from dataclasses import asdict, dataclass
 from typing import Literal
 
 from codegen.config import Config
+from codegen.reasoning.usage import model_display_name
 
 Runtime = Literal["databricks_app", "databricks", "local"]
 Kind = Literal["mock_locked", "databricks_fmapi", "anthropic", "mock"]
@@ -87,7 +93,8 @@ def _fmapi(config: Config, configured: str, runtime: Runtime, detected_by: str,
     problems: list[str] = []
     config_resolves = True
     try:
-        endpoint = config_for(config.databricks).serving_endpoint or None
+        # The endpoint needs no document volume (those ship blank).
+        endpoint = config_for(config.databricks, require=()).serving_endpoint or None
         if endpoint is None:
             problems.append(
                 "inside Databricks the Layer-2 transport is the Foundation Model serving "
@@ -96,11 +103,8 @@ def _fmapi(config: Config, configured: str, runtime: Runtime, detected_by: str,
     except DatabricksConfigError as exc:
         config_resolves = False
         problems.append(f"Databricks workspace config does not resolve: {exc}")
-    if overridden:
-        problems.append(f"config reasoning.provider is {configured!r}; inside Databricks the "
-                        "Foundation Model endpoint is used instead")
-    label = (f"Databricks Foundation Model endpoint {endpoint} ({model})" if endpoint
-             else "Databricks Foundation Model endpoint (unconfigured)")
+    label = (f"{model_display_name(model)} ({endpoint})" if endpoint
+             else f"{model_display_name(model)} (serving endpoint unconfigured)")
     return Layer2Transport(kind="databricks_fmapi", configured=configured, runtime=runtime,
                            detected_by=detected_by, endpoint=endpoint, model=model,
                            available=endpoint is not None, reason="; ".join(problems),
@@ -116,22 +120,28 @@ def resolve_transport(config: Config, env=None) -> Layer2Transport:
         return Layer2Transport(kind="mock_locked", configured=configured, runtime=runtime,
                                detected_by="CODEGEN_FORCE_MOCK_PROVIDER", endpoint=None,
                                model=model, available=True, reason="",
-                               label="mock provider (locked) — zero model calls")
-    if runtime != "local":
-        # Inside Databricks the endpoint is the transport, whatever the yaml says.
-        return _fmapi(config, configured, runtime, marker,
-                      overridden=configured != "databricks_fmapi")
+                               label="Mock provider (reason: CODEGEN_FORCE_MOCK_PROVIDER)")
+    from codegen.reasoning.mode import provider_mode
+
+    mode = provider_mode(config, env)
+    if not mode.live:
+        return Layer2Transport(kind="mock_locked", configured=configured, runtime=runtime,
+                               detected_by=mode.text(), endpoint=None, model=model,
+                               available=True, reason="",
+                               label=f"Mock provider (reason: {mode.text()})")
     if configured == "databricks_fmapi":
-        return _fmapi(config, configured, runtime, "config reasoning.provider", overridden=False)
+        return _fmapi(config, configured, runtime, mode.text(), overridden=False)
     if not env.get("ANTHROPIC_API_KEY"):
         return Layer2Transport(kind="mock", configured=configured, runtime=runtime,
-                               detected_by="config reasoning.provider", endpoint=None,
+                               detected_by=mode.text(), endpoint=None,
                                model=model, available=False,
-                               reason="no ANTHROPIC_API_KEY in the backend env",
-                               label="Anthropic API (no key — mock)")
+                               reason=f"{mode.text()} with reasoning.provider anthropic but "
+                                      "ANTHROPIC_API_KEY is unset",
+                               label="No model provider (ANTHROPIC_API_KEY is unset)")
     return Layer2Transport(kind="anthropic", configured=configured, runtime=runtime,
-                           detected_by="config reasoning.provider", endpoint=None, model=model,
-                           available=True, reason="", label=f"Anthropic API ({model})")
+                           detected_by=mode.text(), endpoint=None, model=model,
+                           available=True, reason="",
+                           label=f"{model_display_name(model)} (Anthropic API, {model})")
 
 
 __all__ = ["Layer2Transport", "detect_runtime", "resolve_transport"]

@@ -1,0 +1,669 @@
+# ACFC environment overlay (IIG-first, 2026-10-07). Deep-merged onto
+# config/config.yaml by codegen.config.load_config, ALWAYS and FIRST (every
+# entry point); CODEGEN_CONFIG_OVERLAYS adds overlays on top; opt out only with
+# CODEGEN_SKIP_ENV_OVERLAY=1 (docs/ACFC_DEPLOY.md "ACFC environment overlay").
+# Values: the ACFC
+# environment's catalogs and the framework's connection ids / containers as
+# the real ADLS_DELTA_INGESTION_DETAILS rows carry them — environment
+# constants, not per-feed values. always_blank REPLACES the template's list
+# (lists are not merged): the six columns filled below leave it.
+#
+# DEFAULTS (Chunk D, 2026-10-09): acfc_prx (conventions.profile) and iig_v2
+# (metadata.template) are the defaults of every run that loads this overlay —
+# the App's selectors and every CLI run without --profile / --iig-template.
+# The suite (CODEGEN_SKIP_ENV_OVERLAY=1) stays on the shipped edo_sfmc / iig_v1.
+# Every CLI command's first line and `codegen doctor` name the active profile
+# and template.
+# 2026-10-14: the deployment ENVIRONMENTS a run chooses from — container names,
+# the storage account and other workspace-scoped values are a run input, never
+# silent constants (codegen.environments). CLI --environment <name> /
+# --environment-file <yaml>; the App's run form (the default preselected, or
+# "Other"). With neither, the default is used and INPUT_NEEDED run.environment
+# records it. Every cell filled from here carries an iig_env NOTE naming the
+# environment; the report header prints "environment: D1 (default)". Exactly one
+# entry is marked default. D1 is the only populated one; A2 / PR are
+# placeholders until their values are known.
+# 2026-10-14 (post47): the catalogs (catalog_map: the STTM's logical catalog ->
+# this environment's; default_catalog: the fallback per layer) and the
+# framework's connection ids moved here too (were conventions.catalog_map, the
+# acfc_prx profile's default_catalog and ADLS constants). A NAMED environment
+# with a key unset (blank / a placeholder): under provider=live the run fails
+# naming the unset keys, nothing written; under provider=mock each is an
+# INPUT_NEEDED run.environment.<key> line and its cells stay empty
+# (tests/test_d1_placeholders.py is the live-only check). A custom environment (--environment-file / the
+# App's "Other") inherits nothing: each key it leaves out is an INPUT_NEEDED line
+# and its cells stay empty.
+# 2026-10-15 (D1 post50 item 2): environment PROFILES (d1 / a2 / pr). The blocks
+# below are each profile's per-field defaults; the per-workspace values live in
+# codegen-state/environments/<name>.yaml (outside the tracked tree, gitignored),
+# laid over the block. Resolution: --environment-file > --environment <name> (else
+# the default name) > INPUT_NEEDED. A REQUIRED key (environment_schema.required:
+# the storage account and the containers — the Oct 14 rule: never a silent
+# default, never from the STTM) still blank or a placeholder is a QUESTION
+# run.environment.<key>: exit 3 (NEEDS_ANSWERS), its cells written open.
+# Synthetic example profile: config/environments/example.yaml.
+# LAYER-2 REVIEW: OFF (Soham, 2026-10-27). The AI suggestions for FRD rules the
+# compiler cannot map (candidates.json + the App's review panel) are not prepared or
+# asked, in the App or the CLI; they never changed the DDL / IIG / log. TO TURN IT
+# BACK ON: delete this `reasoning:` block (back to the config.yaml defaults: App
+# `defer`, CLI `now`), bump, push, redeploy.
+reasoning:
+  layer2_app: skip
+  layer2_cli: skip
+
+environment_schema:
+  required: [storage_account, containers.landing, containers.stage, containers.standard]
+  fields:
+    containers.landing: "the ADLS container files land in (the ADLS leg's source)"
+    containers.stage: "the stage container (the ADLS leg's target, the stage -> standard leg's source)"
+    containers.standard: "the standard container (the stage -> standard leg's target)"
+    storage_account: "the ADLS storage account (abfss://<container>@<account>...)"
+    catalog_map.PR_DLK: "the STTM's logical stage catalog -> this environment's"
+    catalog_map.PR_STD: "the STTM's logical standard catalog -> this environment's"
+    default_catalog.stage: "the stage catalog for a band whose Catalog is blank"
+    default_catalog.standard: "the standard catalog for a band whose Catalog is blank"
+    connection_ids.src_adls: "the framework's ADLS source connection id"
+    connection_ids.metadata: "the framework's metadata DB connection id"
+    connection_ids.target: "the framework's target connection id"
+environments:
+  D1:
+    default: true
+    description: "ACFC D1 workspace (the SD prod rows' containers, round 6 / 7; the CAQH golden)"
+    containers:
+      # ADLS leg: files land in the landing container, the stage table is written
+      # to the stage container (SD prod rows, the SFMC reference IIG, the pair-1
+      # golden ADLS_DELTA!Z2 / AD2); the stage -> standard leg reads the stage
+      # container and writes the standard one (acfc-results round7 pair_2)
+      landing: mftlanding
+      stage: z-use-d1-dlk-stage-01
+      standard: z-use-d1-dlk-std-01
+    # TODO D1: the stage storage account (the CAQH golden's abfss://<container>@<account>...)
+    storage_account: "<<D1:STORAGE_ACCOUNT>>"
+    # Multi-table rule 7 (docs/acfc/MULTI_TABLE_DESIGN.md): the STTM bands state
+    # LOGICAL catalogs; D1's map, applied to every emitted catalog (cited in the
+    # cell NOTE). default_catalog: the fallback for a band with Catalog blank.
+    catalog_map: {PR_DLK: d1_dlk, PR_STD: d1_std}
+    default_catalog: {stage: d1_dlk, standard: d1_std}
+    # the framework's connection ids as the real ADLS_DELTA_INGESTION_DETAILS rows
+    # carry them (SRC_ADLS / METADATA / TGT_CONNECTION_ID)
+    connection_ids: {src_adls: "7", metadata: "4", target: "2"}
+    # post99: shown in the App under "Where these values come from" (display only)
+    provenance:
+      containers.landing: "Copied from real D1 production IIG rows (the file -> stage row's source container: the SD prod rows, the SFMC reference IIG, the pair-1 golden). In the repo since 2026-10-14."
+      containers.stage: "Copied from real D1 production IIG rows (the file -> stage row's target container: the SD prod rows, the SFMC reference IIG, the pair-1 golden). In the repo since 2026-10-14."
+      containers.standard: "From the round-7 pair_2 results (the stage -> standard row's target container). In the repo since 2026-10-14."
+      storage_account: "Not in the repo: set per workspace in the state file environments/d1.yaml (volume + workspace copy). D1's value is the demo value given on 2026-10-21, being re-confirmed; the earlier value is kept in d1.yaml.bak_20261021_pre_storage_account."
+      catalog_map.PR_DLK: "The owners' multi-table rule (2026-10-07): STTMs name the production catalogs (PR_DLK, PR_STD) and each environment maps them to its own; D1's catalogs are d1_dlk and d1_std."
+      catalog_map.PR_STD: "The owners' multi-table rule (2026-10-07): STTMs name the production catalogs (PR_DLK, PR_STD) and each environment maps them to its own; D1's catalogs are d1_dlk and d1_std."
+      default_catalog.stage: "The same D1 stage catalog, used when an STTM leaves the Catalog cell blank (multi-table rule, 2026-10-07)."
+      default_catalog.standard: "The same D1 standard catalog, used when an STTM leaves the Catalog cell blank (multi-table rule, 2026-10-07)."
+      connection_ids.src_adls: "Copied from real D1 ADLS_DELTA_INGESTION_DETAILS rows (SRC_ADLS_CONNECTION_ID). In the repo since 2026-10-07."
+      connection_ids.metadata: "Copied from real D1 ADLS_DELTA_INGESTION_DETAILS rows (METADATA_CONNECTION_ID). In the repo since 2026-10-07."
+      connection_ids.target: "Copied from real D1 ADLS_DELTA_INGESTION_DETAILS rows (TGT_CONNECTION_ID). In the repo since 2026-10-07."
+  A2:
+    description: "A2 — values not known yet"
+    containers: {landing: "<<A2:CONTAINER.landing>>", stage: "<<A2:CONTAINER.stage>>", standard: "<<A2:CONTAINER.standard>>"}
+    storage_account: "<<A2:STORAGE_ACCOUNT>>"
+    catalog_map: {PR_DLK: "<<A2:CATALOG.PR_DLK>>", PR_STD: "<<A2:CATALOG.PR_STD>>"}
+    default_catalog: {stage: "<<A2:CATALOG.stage>>", standard: "<<A2:CATALOG.standard>>"}
+    connection_ids: {src_adls: "<<A2:CONNECTION_ID.src_adls>>", metadata: "<<A2:CONNECTION_ID.metadata>>", target: "<<A2:CONNECTION_ID.target>>"}
+  PR:
+    description: "PR (production) — values not known yet"
+    containers: {landing: "<<PR:CONTAINER.landing>>", stage: "<<PR:CONTAINER.stage>>", standard: "<<PR:CONTAINER.standard>>"}
+    storage_account: "<<PR:STORAGE_ACCOUNT>>"
+    catalog_map: {PR_DLK: "<<PR:CATALOG.PR_DLK>>", PR_STD: "<<PR:CATALOG.PR_STD>>"}
+    default_catalog: {stage: "<<PR:CATALOG.stage>>", standard: "<<PR:CATALOG.standard>>"}
+    connection_ids: {src_adls: "<<PR:CONNECTION_ID.src_adls>>", metadata: "<<PR:CONNECTION_ID.metadata>>", target: "<<PR:CONNECTION_ID.target>>"}
+conventions:
+  profile: acfc_prx
+  profiles:
+    acfc_prx:
+      # post59: the goldens a PIPELINE_NAME proposal must not collide with (every
+      # PIPELINE_NAME column of the .xlsx under it; D1 only — empty at home)
+      pipeline_name_corpus: [docs/acfc/iig_goldens]
+      # post79 (Venu, 2026-10-20): pipeline names default to the naming convention,
+      # written unasked; "Change pipeline names" (App) / an answers-file
+      # `choice: naming_standard` overrides one. Only a REAL template autosets — the
+      # templates themselves are client conventions and live in the ACFC overlay
+      # (codegen-state/overlays/acfc_prx.yaml, pipeline_name_templates); with only the
+      # shipped SYN_ placeholders every name is still asked, never written.
+      pipeline_name_autoset: true
+      # post85 (Nikshit, 2026-10-21: "go by the document for now"): the EDO Data
+      # Engineering Naming Standards' patterns, verbatim —
+      #   master: PL_<Pipeline Type>_<Product>_<Sub-Product>_<Sources>_<Domain>_
+      #           <Subdomain>_<Region/LOB>_<Frequency> (type GMSTR / MSTR)
+      #   child:  PL_CHLD_<Product>_<Sub-Product>_<Source>_TO_<Target>_<Load Strategy>,
+      #           Source / Target = the DATA LAYERS (RAW / STG / STD), not tables
+      # through the document's abbreviation tables (engineering_standards:). Replaces
+      # post81's interim prod-reconstructed convention. The ACFC overlay may override a
+      # flow.
+      pipeline_name_templates:
+        grand_master: 'PL_GMSTR_{product_code}_{sub_product_code}_{source_std}_{domain_std}_{subdomain_std}_{lob_std}_{frequency_code}'
+        master: 'PL_MSTR_{product_code}_{sub_product_code}_{source_std}_{domain_std}_{subdomain_std}_{lob_std}_{frequency_code}'
+        file_to_stg: 'PL_CHLD_{product_code}_{sub_product_code}_RAW_TO_STG_{load_std}'
+        stg_to_std: 'PL_CHLD_{product_code}_{sub_product_code}_STG_TO_STD_{load_std}'
+      # post81: the key an explicit signal states (STTM Primary Key cells, the FRD's
+      # key statement, the FAQ) is written unasked; no signal is still a QUESTION
+      primary_key_autoset: true
+  # catalog_map / the acfc_prx default_catalog: per environment (environments: above)
+  # 2026-10-14 (D1 pair_12): the client-wide plan id -> LOB code table, the LOB
+  # lookup's third source (after the FRD LOB table's plan-id and region
+  # columns). TODO D1: no document at home carries it (the CAQH FRD's table is
+  # region -> LOB, no plan ids) — the D1 overlay replaces this placeholder.
+  lob_reference: {"<<D1:LOB_REFERENCE.plan_id>>": "<<D1:LOB_REFERENCE.lob>>"}
+metadata:
+  template: iig_v2
+  templates:
+    iig_v2:
+      # post70: TGT_PRIMARY_KEY proposed from an explicit key signal only (never the
+      # not-null list), written when the BSA confirms (codegen.primary_key)
+      primary_key_input: true
+      # Feed-family conventions (docs/acfc/MULTI_TABLE_DESIGN.md, 2026-10-08): the
+      # CAQH-style family — LOB codes, an unknown STGDELTA primary key left blank
+      # (open), STGDELTA OBJECT_NAME = the generalized file pattern. This is the
+      # convention observed in the newest real sheet; whether it is current for new
+      # feeds is on the Friday checklist (§7a). The pair-1 (PRX) family stays
+      # selectable per feed: a feed overlay on top of this one sets
+      # {lob: blank, stgdelta_unknown_primary_key: "NA", stgdelta_object_name: ...}.
+      family_conventions:
+        lob: codes
+        stgdelta_unknown_primary_key: ""
+        stgdelta_object_name: generalized_file_pattern
+        # SCHEMA_DRIFT_FLAG N (post71, 2026-10-18): the SD PROD rows, the SFMC
+        # reference IIG and the pair-1 golden (ADLS_DELTA!AB2) all say N; the Y was
+        # the SD test-cells sheet only (post70 briefly set Y). Still a question for
+        # Aruna (docs/acfc/OPEN_QUESTIONS.md §6). A feed whose golden says Y sets
+        # feed_overrides.<feed_id>.schema_drift_flag: Y (the ACFC-side overlay).
+        schema_drift_flag: "N"
+        # First real-row scorecard (2026-10-08, the three SD rows): SRC_FILE_NAME
+        # is the name prefix + '*'; the audit columns are LOB, SRC_FILE_NAME,
+        # REC_CREATION_TIME, REC_UPDATED_TIME, typed in the data columns'
+        # casing. RECYCL_* with no recycle stated (round 6, 2026-10-13): N / NA / NA
+        # — the SD prod rows of both recycle-less files, the pair-1 golden
+        # (ADLS_DELTA!AT2:AV5) and the SD test-cells sheet agree (was: open).
+        src_file_name: prefix_star
+        audit_columns: [LOB, SRC_FILE_NAME, REC_CREATION_TIME, REC_UPDATED_TIME]
+        audit_type_case: data
+        recycle_unstated: "N"
+        # STGDELTA OBJECT_ID (owner brief 2026-10-09): per (group, file) — the
+        # row takes the ADLS row's OBJECT_ID of the one file that feeds its
+        # table; several files feed it -> open, with a note.
+        stgdelta_object_id: from_file
+        citation: "ACFC environment overlay — the CAQH-style family, observed in the newest real sheet (Friday checklist); SD rows (first real-row scorecard, 2026-10-08)"
+      constants:
+        ADLS_DELTA_INGESTION_DETAILS:
+          # the connection ids: per environment (environments:, environment_cells)
+          # Round 6 (2026-10-13): the same in the SD prod rows, the SFMC reference
+          # IIG and the pair-1 golden (ADLS_DELTA!Z2 / AD2); a FAQ has_header /
+          # has_trailer answer still wins (derived cells are never overwritten).
+          HEADER_FLAG: "Y"
+          FILE_FOOTER_FLAG: "N"
+        # 2026-10-14 (D1 post43 item 3b): the corpus is 100% one value and it is
+        # a datetime - the D1 pair_2 golden rows read '9999-12-31 00:00:00'
+        # (acfc-results round5 pair_2 mismatches.md); the shipped '9999-12-31'
+        # (the IIG workbooks' spelling) was 6 mismatches.
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          ACTIVE_END_DATE: "9999-12-31 00:00:00"
+        # 2026-10-14 (D1 post43 item 4): the stage -> standard leg reads the stage
+        # container (the ADLS TGT_CONTAINER_NAME above) and writes the standard
+        # one - the SD prod rows <prefix>-stage-01 / <prefix>-std-01 (acfc-results
+        # round7 pair_2 mismatches.md), the CAQH golden the same pair in prod.
+        # 2026-10-14: the containers moved to the run's environment (environments:
+        # above, environment_cells below).
+      environment_cells:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_CONTAINER_NAME: containers.landing
+          TGT_CONTAINER_NAME: containers.stage
+          SRC_ADLS_CONNECTION_ID: connection_ids.src_adls
+          METADATA_CONNECTION_ID: connection_ids.metadata
+          TGT_CONNECTION_ID: connection_ids.target
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_CONTAINER_NAME: containers.stage
+          TGT_CONTAINER_NAME: containers.standard
+      constant_citations:
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          ACTIVE_END_DATE: "the IIG corpus (D1, 2026-10-14): ACTIVE_END_DATE 100% one value; the pair_2 golden rows '9999-12-31 00:00:00' (acfc-results round5 pair_2)"
+        ADLS_DELTA_INGESTION_DETAILS:
+          HEADER_FLAG: &refs "both reference IIGs agree (fixtures/reference/SFMC_IIG.xlsx, fixtures/acfc_shapes/pair_1/golden/RFC_ACCUMULATORS_IIG.xlsx ADLS_DELTA_INGESTION_DETAILS) and so do the SD prod rows (round 6)"
+          FILE_FOOTER_FLAG: *refs
+      # Stage -> standard (2026-10-09): no document and no real row stated this
+      # sheet's containers or connection ids, so they stayed OPEN (Friday
+      # checklist 2 / 13) and the stage container rode only as an offer.
+      # 2026-10-14 (D1 post43 item 4): the SD prod rows (acfc-results round7
+      # pair_2) and the CAQH golden state both containers - the stage container
+      # in, the standard container out: constants (above). Connection ids stay open.
+      # SDOH-shaped (Socially Determined, 2026-10-07): applies to EVERY feed
+      # until this overlay is split per source family — a PRX-shaped feed
+      # (pair 1) gets these paths too.
+      src_columns_style: named
+      # 2026-10-14 (framework owner's rule 3): FILE_ADLS_INGESTION_DETAILS is EMPTY for
+      # an MFT-landed feed (headers only + an iig_file_adls_mft NOTE) - MFT = the
+      # landing path / container names mftlanding as a path segment (SD and CAQH
+      # both); any other feed gets one FILE_ADLS row per ADLS_DELTA row (its file).
+      file_adls_rows: per_file
+      mft_landing_markers: [mftlanding]
+      # post74 (D1 post73 pair_11): an FRD that states no inbound path (the Pyx FRD)
+      # leaves SRC_ADLS_PATH / SRC_ADLS_ARCHVL_PATH / TGT_RJT_ADLS_PATH open: ONE
+      # question per feed, feeds[<i>].src_adls_path (workbook and notebook alike), with
+      # this convention shown as the agent's proposal - never written unanswered.
+      # post84 (Soham): WRITTEN by default (landing_autoset), changeable in the App's
+      # "Change defaults" or under inputs.feeds[<i>].src_adls_path; a stated landing
+      # always wins. CAUTION: the corpus's top landing shape is only ~50% of rows.
+      # TODO D1: confirm against the corpus's SRC_ADLS_PATH values (patterns.json).
+      landing_proposal: "/inbound/{domain}/{sub_domain}/{source}/"
+      landing_autoset: true
+      landing_proposal_citation: "the landing convention the FRD Structural Metadata states (demo.source_files.landing_root_template: <landing container>/inbound/<domain>/<sub domain>/<source>), container-relative"
+      path_patterns:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_PATH: "{landing_rel}"
+          SRC_ADLS_ARCHVL_PATH: "{landing_rel}Archive/"
+          TGT_ADLS_PATH: "/{domain_path}Processed/{stage_table}"
+          TGT_RJT_ADLS_PATH: "/{domain_path}Reject/{reject_table}"
+          # Written only when a document states the recycle (else open, the
+          # shape offered in the tooltip).
+          RECYCL_ADLS_PATH: "/{domain_path}Recycle/{stage_table}"
+        # Stage -> standard (Chunk D, owner brief 2026-10-09; the first ACFC
+        # run wrote these in the LANDING shape, /<landing container>/inbound/…).
+        # Paths are container-relative — the container is its own column:
+        # source = the stage side's Processed folder (the folder of the ADLS
+        # row's TGT_ADLS_PATH above, no container segment); target / reject in
+        # the standard container, the same shape as the stage container's
+        # ({stage_table} here = this row's target table, {reject_table} = it +
+        # _reject). SRC_ADLS_ARCHVL_PATH keeps the template's shape.
+        # Round 6 (2026-10-13): the stage -> standard leg READS the stage table's
+        # processed folder (= the ADLS row's TGT_ADLS_PATH) and WRITES the
+        # processed directory; its archive sits beside Processed/ — the SD prod
+        # rows and the SFMC reference IIG (STGDELTA!N2 / AA2 / U2) agree; the
+        # pair-1 PRX golden has the opposite reading (its own family).
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_ADLS_PATH: "/{domain_path}Processed/{stage_table}"
+          SRC_ADLS_ARCHVL_PATH: "/{domain_path}Archive/"
+          TGT_ADLS_PATH: "/{domain_path}Processed/"
+          TGT_RJT_ADLS_PATH: "/{domain_path}Reject/{reject_table}"
+      path_citations:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_PATH: &acfc "ACFC environment overlay (config/overlays/acfc_env.yaml)"
+          SRC_ADLS_ARCHVL_PATH: *acfc
+          TGT_ADLS_PATH: *acfc
+          TGT_RJT_ADLS_PATH: *acfc
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_ADLS_PATH: &stgstd "ACFC environment overlay (config/overlays/acfc_env.yaml) — stage -> standard paths, container-relative (owner brief 2026-10-09); source = the stage table's processed folder, target = the processed directory, archive beside Processed/ (SD prod rows, round 6; SFMC reference IIG STGDELTA!N2 / AA2 / U2)"
+          SRC_ADLS_ARCHVL_PATH: *stgstd
+          TGT_ADLS_PATH: *stgstd
+          TGT_RJT_ADLS_PATH: *stgstd
+      # post86: path conventions other than path_patterns above (= family
+      # "default": the SD prod rows, the SFMC reference IIG). per_table = one
+      # folder per table under Processed / Reject / Recycle, with a trailing slash,
+      # and the stage -> standard leg's archive inside the table's Processed folder
+      # (all 4 rows of the pair_11 prod golden IIG on D1, both sheets). Which feeds
+      # use a family: path_family_by_source / feed_overrides.<feed>.path_family -
+      # the source names are client terms, so they live in the ACFC overlay
+      # (codegen-state/overlays/acfc_prx.yaml), never here.
+      path_families:
+        per_table:
+          citation: "the pair_11 prod golden IIG (D1 frd_sttm_pairs/pair_11): ADLS_DELTA + STGDELTA rows, 4 of 4"
+          path_patterns:
+            ADLS_DELTA_INGESTION_DETAILS:
+              TGT_ADLS_PATH: "/{domain_path}Processed/{stage_table}/"
+              TGT_RJT_ADLS_PATH: "/{domain_path}Reject/{stage_table}/"
+              RECYCL_ADLS_PATH: "/{domain_path}Recycle/{stage_table}/"
+            STGDELTA_STDDELTA_INGESTION_DET:
+              SRC_ADLS_PATH: "/{domain_path}Processed/{stage_table}/"
+              SRC_ADLS_ARCHVL_PATH: "/{domain_path}Processed/{stage_table}/Archive/"
+              TGT_ADLS_PATH: "/{domain_path}Processed/{stage_table}/"
+              TGT_RJT_ADLS_PATH: "/{domain_path}Reject/{stage_table}/"
+      # Round 4 (2026-10-12): one notebook row per leg, the framework's generic
+      # notebooks, named as TWO independent references name them: the SFMC IIG
+      # (fixtures/reference/SFMC_IIG.xlsx DATABRICKS_NOTEBOOK_DETAILS!L2 / L3) and the
+      # SD prod rows (codegen-outputs/iig_validation/round3/pair_2/score.json, the
+      # golden's notebook keys). The pair-1 family names its stage notebook _V1 (its
+      # own overlay). 2026-10-13: PIPELINE_NAME = the schedule's name of the row's
+      # leg (_pipeline_role; the same {feed} token the schedule rows use).
+      # 2026-10-14 (D1 post44 item 2): the notebook NAME / PATH per flow come from
+      # corpus_cells (below) - the SFMC / round-3 names (FileInvokeDQDeltaTable_V0.1,
+      # DeltaInvokeDQStandardDeltaTable_V2) were the home references, not the corpus.
+      # D1 post45 item 4: one EMAIL_TEMPLATE_CONFIG row per status the corpus uses on
+      # file-ingestion pipelines - 4 per feed (patterns_post45 email: FilesNotReceived /
+      # New Files to Process on 293, Success / Failed on 349 file-ingestion pipelines;
+      # 293 pipelines carry all four), in the corpus's order.
+      # 2026-10-14 (framework owner): the email status set varies in the corpus (4
+      # statuses: 293 pipelines; 2: 56; 1: 256; the CAQH golden 2, SD 4) - all four by
+      # default, a run-level INPUT_NEEDED run.email_statuses so the BSA can trim it.
+      email_status_input:
+        faq: email_statuses
+        scope: run
+        default: "all four"
+        # post61: the profile's set (or the overlay's email_status_default) is
+        # written when unanswered - a profile default, still changeable
+        default_kind: profile_default
+        question: "the EMAIL_TEMPLATE_CONFIG status set (comma-separated: FilesNotReceived, New Files to Process, Success, Failed): the corpus writes 4 statuses on 293 pipelines, 2 on 56, 1 on 256"
+      template_rows:
+        DATABRICKS_NOTEBOOK_DETAILS:
+          - {_layer: stage, _pipeline_role: file_to_stage, _citation: &nb "one framework notebook row per leg (SFMC IIG DATABRICKS_NOTEBOOK_DETAILS rows 2 / 3; 2 rows per workbook in the corpus: 378 rows / 189 workbooks)"}
+          - {_layer: standard, _pipeline_role: stage_to_standard, _citation: *nb}
+        EMAIL_TEMPLATE_CONFIG:
+          - {STATUS: FilesNotReceived}
+          - {STATUS: New Files to Process}
+          - {STATUS: Success}
+          - {STATUS: Failed}
+      # 2026-10-13 — the IIG corpus's fill rate (tools/iig_fill_rate.py; at home:
+      # the SFMC reference IIG, the pair-1 golden and the CAQH golden; on D1 the
+      # 199-IIG corpus): columns filled in >90% of corpus rows that the agent left
+      # blank, filled from the inputs (or the corpus's dominant constant), each
+      # with a NOTE (iig_derived). IDs, the workspace URL / secret / cluster ids,
+      # the audit stamps stay always_blank: assigned, never invented.
+      # ACTIVE_START_DATE (a per-RFC go-live date: no document states it, no value
+      # dominates) and BODY_QUERY (one golden, a feed-specific query) stay open.
+      # 2026-10-14 (D1 post43 item 3b): schedule APPLICATION_NAME (corpus dominant
+      # 38.8%) and notebook PROCESS_NAME (19.6%) are per-feed in prod, not the
+      # home goldens' shapes - taken back to blank (pending_cells, below) until
+      # the corpus patterns report says how prod builds them.
+      # 2026-10-14 (framework owner's rule 1): PIPELINE_NAME is BSA-assigned - no
+      # longer derived from the schedule's generated name (pipeline_roles below
+      # carry no name; owed_cells ask for it per flow row).
+      derived_cells:
+        EMAIL_TEMPLATE_CONFIG:
+          TEMPLATE_NAME: "{source}"
+          PROCESS_NAME: "{source}"
+      derived_citations:
+        EMAIL_TEMPLATE_CONFIG:
+          TEMPLATE_NAME: "corpus fill rate 2026-10-13: the process label (SFMC / CAQH goldens: the schedule's PROCESS_NAME, '<source> <subprocess>' - the documents state the source only); an FAQ process_name wins"
+          PROCESS_NAME: "corpus fill rate 2026-10-13: the process label (as TEMPLATE_NAME); an FAQ process_name wins"
+      # 2026-10-14 (D1 post45): cells from the FULL patterns report
+      # (acfc-pairing-check codegen-outputs/pairing_check/patterns_post45/patterns.json,
+      # 1 255 workbooks; per-flow tables, the file-ingestion STATUS x SUBJECT x BODY
+      # table, the DQ rule classes). Every value carries its corpus share in the NOTE
+      # (iig_corpus:<TAB>.<HEADER>). A value the corpus still scrubs as a G-token —
+      # the handler-name prefix (G16_G17 fixed-width, G17 pipe), the workspace folder
+      # G73, the email body word G564, the sender / recipient addresses, the webhook
+      # URL — is a <<D1:...>> placeholder (here or in corpus_tokens): the cell stays
+      # open with an iig_d1_placeholder NOTE and tests/test_d1_placeholders.py FAILS on
+      # D1 while one survives (the D1 overlay on top sets them).
+      # Tokens: {application} = the schedule's APPLICATION_NAME (the FAQ / answers
+      # application_name, default the feed's SOURCE — INPUT_NEEDED with that default),
+      # the corpus's G1; {template_name} = the email row's TEMPLATE_NAME; {freq} = the
+      # feed's FREQUENCY (Daily / Weekly / Monthly); {domain}, {lob}.
+      corpus_tokens:
+        # patterns.json slots the fixed-width prefix as {domain} and the pipe one as
+        # {source}; kept as placeholders until D1 confirms what the prefix is
+        handler_prefix: "<<D1:NB.HANDLER_PREFIX>>"
+        pipe_handler_prefix: "<<D1:NB.PIPE_HANDLER_PREFIX>>"
+        workspace_folder: "<<D1:NB.WORKSPACE_FOLDER>>"
+        email_files_word: "<<D1:EMAIL.G564>>"
+      # A TPL subdomain selects the TPL_FileInvokeDQDeltaTable notebook (CAQH: "Third
+      # Party Liability").
+      tpl_subdomains: ["TPL", "Third Party Liability"]
+      # 2026-10-15 (D1 post50 item 3): every DATABRICKS_NOTEBOOK_PATH segment starts
+      # with the workspace root (the pair_12 golden's paths do; the corpus's stg_to_std
+      # value below lacked it) - prepended in code, said in the cell NOTE. The notebook
+      # names / versions themselves are overlay values: the ACFC-side overlay
+      # (codegen-state/overlays/acfc_prx.yaml, docs/acfc/OVERLAY_FIELDS.md) sets them.
+      notebook_path_prefix: /Workspace
+      # 2026-10-14 (framework owner): the two-notebook handler forms (FixedWidthHandler /
+      # PIPE_DELIMITED_SEGMENT_HNDLR + FileInvokeDQDeltaTable) are the EDI 834 feeds' -
+      # the corpus's handler prefixes are EDI_834Prop / 834PROP only. Applied only when
+      # the feed's source, a file pattern or its name names 834 / EDI; every other
+      # file_to_stg feed runs the single notebook (FileInvokeDQDeltaTable_V0.1, or
+      # TPL_FileInvokeDQDeltaTable for a TPL subdomain). The notebook NOTE says which
+      # rule fired.
+      edi_feed_patterns: ["(?<![0-9])834(?![0-9])", "(?<![A-Za-z])EDI(?![A-Za-z])"]
+      corpus_cells:
+        EMAIL_TEMPLATE_CONFIG:
+          SUBJECT:
+            by: status
+            values:
+              FilesNotReceived: "{template_name} {freq} File Not Received -"
+              New Files to Process: "{template_name} {freq} File Received -"
+              Success: "{template_name} {freq} Load Completed -"
+              Failed: "{template_name} {freq} Load  Failed -"
+            share: "the file-ingestion STATUS x SUBJECT x BODY table (patterns_post45 email.combinations): '<TEMPLATE_NAME> <Freq> ...' per status — the top combination (G135 G499 G555 Daily) 2.3% of the 3 844 file-ingestion rows each, the same shape for History 2.0%; 'Load  Failed' has two spaces in the corpus"
+          BODY:
+            by: status
+            values:
+              FilesNotReceived: "{template_name} {freq} File Not Received"
+              New Files to Process: "Received The {email_files_word} Files for {template_name} {freq}"
+              Success: "{template_name} {freq} Data Load Successful"
+              Failed: "{template_name} {freq} Data Load Failed"
+            share: "the file-ingestion STATUS x SUBJECT x BODY table (patterns_post45): the BODY of the same combinations, 2.3% each; New Files to Process carries a scrubbed word (G564)"
+            todo: "the word G564 of the 'Received The <G564> Files for ...' body (corpus_tokens.email_files_word)"
+          ACTIVE_FLAG: {value: "Y", share: "Y in 100.0% of filled corpus rows (2 668)"}
+          SENDER_NAME: {value: "dbo", share: "dbo in 97.8% of filled corpus rows (DBO 2.2%)"}
+          SENDER_EMAIL:
+            value: "<<D1:EMAIL.SENDER_EMAIL>>"
+            share: "one address in 97.7% of filled corpus rows (scrubbed G571@<LOCAL_DENYLIST>.G572)"
+            todo: "the dominant sender address"
+          EMAIL_NOTIFICATION_URL:
+            value: "<<D1:EMAIL.EMAIL_NOTIFICATION_URL>>"
+            share: "one webhook in 95.4% of corpus rows (scrubbed host <REAL_WEBHOOK_HOST>)"
+            todo: "the dominant webhook URL"
+        DATABRICKS_NOTEBOOK_DETAILS:
+          DATABRICKS_NOTEBOOK_NAME:
+            by: notebook_kind
+            values:
+              stg_to_std: DeltaInvokeDQStandardDeltaTable_V4
+              fixed_width: "{handler_prefix}_FixedWidthHandler,FileInvokeDQDeltaTable"
+              fixed_width_tpl: "{handler_prefix}_FixedWidthHandler,TPL_FileInvokeDQDeltaTable"
+              pipe_segmented: "{pipe_handler_prefix}_PIPE_DELIMITED_SEGMENT_HNDLR,FileInvokeDQDeltaTable"
+              pipe_segmented_tpl: "{pipe_handler_prefix}_PIPE_DELIMITED_SEGMENT_HNDLR,TPL_FileInvokeDQDeltaTable"
+              delimited: FileInvokeDQDeltaTable_V0.1
+              delimited_tpl: TPL_FileInvokeDQDeltaTable
+            share: "patterns_post45 per-flow DATABRICKS_NOTEBOOK_NAME"
+            shares:
+              stg_to_std: "stg_to_std: DeltaInvokeDQStandardDeltaTable_V4 86.2% of 130 rows (V2 10.8%)"
+              fixed_width: "file_to_stg: G16_G17_FixedWidthHandler,FileInvokeDQDeltaTable 30.6% of 248 rows (the fixed-width two-notebook form)"
+              fixed_width_tpl: "file_to_stg: G16_G17_FixedWidthHandler,TPL_FileInvokeDQDeltaTable 9.7% of 248 rows (the TPL variant)"
+              pipe_segmented: "file_to_stg: G17_PIPE_DELIMITED_SEGMENT_HNDLR,FileInvokeDQDeltaTable 13.7% of 248 rows (the pipe-delimited segment form)"
+              pipe_segmented_tpl: "file_to_stg: the pipe-delimited segment form (13.7%) with the TPL notebook of the TPL variant (9.7%) — the corpus has the TPL variant only with the fixed-width handler: confirm on D1"
+              delimited: "file_to_stg: the single-notebook form FileInvokeDQDeltaTable_V0.1 7.3% of 248 rows (V0.2 4.0% — V0.1 picked; which version is current is to be confirmed); every non-EDI file_to_stg feed"
+              delimited_tpl: "file_to_stg: the single-notebook form's TPL variant TPL_FileInvokeDQDeltaTable (9.7%, there with the EDI fixed-width handler) for a non-EDI TPL feed: confirm on D1"
+            todo: "the handler-name prefix (corpus_tokens.handler_prefix / pipe_handler_prefix; patterns.json slots it as {domain} / {source})"
+          DATABRICKS_NOTEBOOK_PATH:
+            by: notebook_kind
+            values:
+              stg_to_std: /iig/DeltaInvokeDQStandardDeltaTable_V4
+              fixed_width: "/Workspace/{workspace_folder}/{handler_prefix}_FixedWidthHandler,/Workspace/{workspace_folder}/FileInvokeDQDeltaTable"
+              fixed_width_tpl: "/Workspace/{workspace_folder}/{handler_prefix}_FixedWidthHandler,/Workspace/{workspace_folder}/TPL_FileInvokeDQDeltaTable"
+              pipe_segmented: "/Workspace/{workspace_folder}/{pipe_handler_prefix}_PIPE_DELIMITED_SEGMENT_HNDLR,/Workspace/{workspace_folder}/FileInvokeDQDeltaTable"
+              pipe_segmented_tpl: "/Workspace/{workspace_folder}/{pipe_handler_prefix}_PIPE_DELIMITED_SEGMENT_HNDLR,/Workspace/{workspace_folder}/TPL_FileInvokeDQDeltaTable"
+              delimited: /Workspace/iig/FileInvokeDQDeltaTable_V0.1
+              delimited_tpl: "/Workspace/{workspace_folder}/TPL_FileInvokeDQDeltaTable"
+            share: "patterns_post45 per-flow DATABRICKS_NOTEBOOK_PATH"
+            shares:
+              stg_to_std: "stg_to_std: /iig/DeltaInvokeDQStandardDeltaTable_V4 76.9% of 130 rows"
+              fixed_width: "file_to_stg: /Workspace/G73/G16_G17_FixedWidthHandler,/Workspace/G73/FileInvokeDQDeltaTable 27.4% of 248 rows"
+              fixed_width_tpl: "file_to_stg: /Workspace/G73/G16_G17_FixedWidthHandler,/Workspace/G73/TPL_FileInvokeDQDeltaTable 12.9% of 248 rows"
+              pipe_segmented: "file_to_stg: /Workspace/G73/G17_PIPE_DELIMITED_SEGMENT_HNDLR,/Workspace/G73/FileInvokeDQDeltaTable 13.7% of 248 rows"
+              pipe_segmented_tpl: "the pipe-delimited segment path (13.7%) with the TPL notebook's (12.9%) — not a corpus row: confirm on D1"
+              delimited: "file_to_stg: /Workspace/iig/FileInvokeDQDeltaTable_V0.1 4.8% of 248 rows (/iig/... 2.4%; V0.2 4.0%)"
+              delimited_tpl: "the TPL notebook in the workspace folder (12.9%, there with the fixed-width handler) — not a corpus row: confirm on D1"
+            todo: "the workspace folder G73 and the handler-name prefix (corpus_tokens)"
+          PROCESS_NAME:
+            by: flow
+            values:
+              file_to_stg: "{application}  Raw to stage load"
+              stg_to_std: "{application}  stage to std load"
+            share: "patterns_post45 per-flow PROCESS_NAME (the double space is the corpus's)"
+            shares:
+              file_to_stg: "file_to_stg: 'G1  Raw to stage load' 29.8% of 248 rows (G1 = the application)"
+              stg_to_std: "stg_to_std: 'G1  stage to std load' 56.9% of 130 rows (G1 = the application)"
+          SEQ_NM: {value: "1", share: "1 in 64.6% of corpus rows"}
+          ACTIVE_FLAG: {value: "Y", share: "Y in 98.9% of corpus rows"}
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          # 2026-10-14 (framework owner's rule 2): the DETAILED corpus shapes are the
+          # default; the short "{application} Stage Load" forms are alternatives named
+          # in the NOTE. The slot filling is provisional (implemented against the
+          # patterns_post45 shapes; the pair_2 / pair_12 goldens' cells come from a D1
+          # dump) - every shape here is overlay-editable. {domain} = the FRD domain
+          # (patterns.json slots it so), {freq} = Daily / Weekly / Monthly,
+          # {application} = APPLICATION_NAME, {lob} = one LOB code.
+          # A feed that fans out per LOB has ONE file_to_stg row while prod runs one
+          # pipeline per LOB: that cell is left open, its NOTE listing each LOB's
+          # description (per_lob); a feed with one LOB / none omits the LOB segment.
+          PIPELINE_DESCRIPTION:
+            by: flow
+            values:
+              file_to_stg: "{domain} {freq} File Pipeline Incremental Load to STAGE"
+              stg_to_std: "{application} {domain} Regular STANDARD Load"
+              grand_master: "{domain} {freq} Grand Master Pipeline"
+              master: "{domain} Master Pipeline for RAW to Stage Regular load"
+            share: "patterns_post45 per-flow PIPELINE_DESCRIPTION, the detailed shapes (framework owner's rule 2)"
+            shares:
+              file_to_stg: "file_to_stg: the '{domain} <LOB> LOB <Freq> File Pipeline Incremental Load to STAGE' family, ~1.4-2.1% per LOB x frequency (the top detailed pattern), the LOB segment omitted for a feed with no LOB fan-out"
+              stg_to_std: "stg_to_std: 'G1 G66 Regular STANDARD Load' 1.7% each of 10 514 rows (the detailed family; G1 = the application)"
+              grand_master: "grand_master: '... Daily / Weekly / Monthly Grand Master Pipeline' 5.1% each of 2 922 rows"
+              master: "master: '... Master Pipeline for RAW to Stage Regular load' 9.6% each of 1 850 rows"
+            per_lob:
+              file_to_stg: "{domain} {lob} LOB {freq} File Pipeline Incremental Load to STAGE"
+            per_lob_share: "e.g. '{domain} 0550 LOB Daily File Pipeline Incremental Load to STAGE' 2.1%, one pipeline per LOB"
+            alternatives:
+              file_to_stg: "{application} Stage Load"
+              stg_to_std: "{application} Standard Load"
+              grand_master: "{application} Grand Master Pipeline"
+              master: "{application} Master Pipeline"
+            alternative_shares:
+              file_to_stg: "'G1 Stage Load' 33.3% of 20 212 rows"
+              stg_to_std: "'G1 Standard Load' 64.0% of 10 514 rows"
+              grand_master: "'G1 Grand Master Pipeline' 6.2% of 2 922 rows"
+              master: "'G1 Master Pipeline' 9.8% of 1 850 rows"
+          DAY_OF_SCHEDULE:
+            by: frequency
+            values: {Weekly: "0"}
+            share: "filled in 3.5% of corpus rows; Daily 0.0% filled, Weekly 29.8% filled with '0' the dominant (14.9% of Weekly rows; WEEKLY: 26.8%)"
+          LAYER_NAME:
+            by: flow
+            values: {file_to_stg: STAGE, stg_to_std: STANDARD}
+            share: "filled in 38.4% of corpus rows: STAGE 88.7%, STANDARD 7.3%"
+          ACTIVE_FLAG: {value: "Y", share: "Y in 97.5% of corpus rows"}
+          NO_OF_CYCLE_PER_DAY: {value: "1", share: "1 in 98.2% of corpus rows"}
+      # Owed cells: the person owes them, nothing waits on them (INPUT_NEEDED, never
+      # QUESTION; answers under inputs: with generate --answers, or the FAQ companion).
+      # ACTIVE_START_DATE: the per-RFC go-live date — no document states it, no value
+      # dominates (19.4%): written empty. D1 post45: APPLICATION_NAME and EMAIL_TO are
+      # written WITH a default (the feed's SOURCE; the corpus's dominant recipient, a
+      # D1 placeholder) so the BSA can change them; the NullCheckRule /
+      # DeDuplicationRule INPUT_PARAM shape is in no home golden: open until the D1
+      # dump supplies it.
+      # 2026-10-14 (framework owner's rule 1): PIPELINE_NAME is BSA-assigned - blank on
+      # every sheet that carries it (schedule, notebook; the iig_v2 email sheet has no
+      # such column), one feed-level INPUT_NEEDED feeds.<feed>.pipeline_name.<flow>
+      # per flow row (per_flow; the notebook row of a flow takes the same answer).
+      pipeline_roles:
+        # post102 (Soham, the pair_11 golden): ONE Daily grand master + master per
+        # run; the children keep their feed's schedule (identical master rows are
+        # then written once in the combined IIG, combined.dedup_rows)
+        - {role: grand_master, description: "Grand master", frequency: Daily}
+        - {role: master, description: "Master", parent: grand_master, frequency: Daily}
+        - {role: file_to_stage, description: "File to Stage", parent: master}
+        - {role: stage_to_standard, description: "Stage to Standard", parent: master}
+      owed_cells:
+        DATABRICKS_NOTEBOOK_DETAILS:
+          PIPELINE_NAME: &bsa_pipeline_name
+            faq: pipeline_name
+            per_flow: true
+            question: "the pipeline name (PIPELINE_NAME) of this flow's row - from the naming convention (pipeline_name_templates, written unasked under pipeline_name_autoset); asked only while no real template is loaded"
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          PIPELINE_NAME: *bsa_pipeline_name
+          ACTIVE_START_DATE:
+            faq: active_start_date
+            question: "the go-live date of this RFC's pipelines (ACTIVE_START_DATE, 'YYYY-MM-DD 00:00:00' as the corpus writes it): no document states it and no corpus value dominates (19.4%)"
+            # post81 (Soham): the run date by default, written unasked; changed in the
+            # App ("Change defaults") or under inputs.feeds.<feed>.active_start_date
+            default: "{run_date} 00:00:00"
+            default_share: "the run date"
+            default_kind: profile_default
+          APPLICATION_NAME:
+            faq: application_name
+            scope: run
+            question: "the application name (APPLICATION_NAME, the {application} of every PIPELINE_DESCRIPTION / PROCESS_NAME): the corpus's G1, 27 values, the dominant 38.8%"
+            default: "{source}"
+            default_share: "the feed's SOURCE, the vendor / source system the FRD states"
+            # post81 (Soham): written unasked by default (post61 had it proposal-only);
+            # changed in the App ("Change defaults") or under inputs.run.application_name
+            default_kind: profile_default
+        EMAIL_TEMPLATE_CONFIG:
+          EMAIL_TO:
+            faq: email_to
+            scope: run
+            question: "the alert recipients (EMAIL_TO): the corpus's dominant recipient is 47.6% of filled rows (24 values) — not a majority, confirm per feed"
+            default: "<<D1:EMAIL.EMAIL_TO>>"
+            # post61: the overlay's value - written when unanswered (open while a
+            # placeholder), still changeable
+            default_kind: profile_default
+            default_share: "the corpus's dominant recipient, 47.6% (scrubbed G576@<LOCAL_DENYLIST>.G572)"
+        # 2026-10-14 (framework owner): the NullCheckRule / DeDuplicationRule INPUT_PARAM
+        # is the target table's FQN <catalog>.<schema>.<table> (the pair_9 goldens) -
+        # derived (metadata_template._target_fqn_cell), no longer an owed input; open
+        # only while the environment's catalog is unset (its own INPUT_NEEDED asks).
+      # 2026-10-14 (D1 post45 item 1): DATA_QUALITY_RULES from the STTM, the corpus's
+      # classes (patterns_post45 rule_classes): the baseline per feed NullCheckRule
+      # (Predefined, 186 rows / 114 workbooks), DeDuplicationRule (Predefined, 160 / 90
+      # — the second Predefined class; post44 had AddCustomColumnsRule there, 38 / 4),
+      # LRTrimRule (STDDelta, 180 / 104); DataTypeCastRule / DateConversionRule
+      # (STDDelta) when the STTM types call for them; AddCustomColumnsRule and
+      # LoadHeaderAndTrailerToSeparateTablesRule only for header / trailer feeds;
+      # ReferentialCheckRule (Custom) only on a named lookup. Parameter formats: the
+      # CAQH golden (split / AddCustomColumns / Referential) and the SFMC reference IIG.
+      dq_rules: [header_trailer_split, add_custom_columns, null_check, dedup, referential_check, lr_trim, std_date_conversion, std_data_type_cast]
+      dq_rule_classes: {header_trailer_split: LoadHeaderAndTrailerToSeparateTablesRule, add_custom_columns: AddCustomColumnsRule, null_check: NullCheckRule, dedup: DeDuplicationRule, referential_check: ReferentialCheckRule, lr_trim: LRTrimRule, std_date_conversion: DateConversionRule, std_data_type_cast: DataTypeCastRule}
+      dq_rule_types: {header_trailer_split: Predefined, add_custom_columns: Predefined, null_check: Predefined, dedup: Predefined, referential_check: Custom, lr_trim: STDDelta, std_date_conversion: STDDelta, std_data_type_cast: STDDelta}
+      dq_params:
+        header_trailer_split: {INPUT_PARAM: SRC_FILE_NAME}
+        add_custom_columns: {INPUT_PARAM: literal}
+        referential_check: {INPUT_PARAM: stg_files.REF_RULE_VIEW, TARGET_COLUMN: REF_RULE_COL}
+        lr_trim: {INPUT_PARAM: ""}
+      dq_citations:
+        header_trailer_split: &dqcaqh "the CAQH golden's DATA_QUALITY_RULES rows (Predefined; INPUT_PARAM SRC_FILE_NAME, SOURCE_COLUMN header|trailer columns, TARGET_COLUMN catalog,schema,table,location per table); the corpus 36 rows / 2 workbooks"
+        add_custom_columns: "the CAQH golden's AddCustomColumnsRule rows (Predefined; a header / trailer feed's audit literal); the corpus 38 rows / 4 workbooks"
+        null_check: "the corpus's top Predefined class (patterns_post45 rule_classes: NullCheckRule 186 rows / 114 workbooks); the pair_2 golden's NullCheckRule rows"
+        dedup: "the corpus's second Predefined class (patterns_post45 rule_classes: DeDuplicationRule 160 rows / 90 workbooks); SOURCE_COLUMN = the detail table's key columns, INPUT_PARAM owed"
+        referential_check: "the CAQH golden and fixtures/reference/SFMC_IIG.xlsx DATA_QUALITY_RULES (Custom; INPUT_PARAM stg_files.REF_RULE_VIEW, TARGET_COLUMN REF_RULE_COL); the corpus 52 rows / 16 workbooks"
+        lr_trim: &dqsfmc "fixtures/reference/SFMC_IIG.xlsx DATA_QUALITY_RULES STDDelta rows (SOURCE_COLUMN = TARGET_COLUMN the standard columns); the corpus LRTrimRule 180 rows / 104 workbooks"
+        std_date_conversion: *dqsfmc
+        std_data_type_cast: *dqsfmc
+      dq_split_style: header_and_trailer
+      # {container} = the environment's stage container, {storage_account} its storage
+      # account (environments: above; D1's is still a placeholder).
+      dq_split_location: "abfss://{container}@{storage_account}.dfs.core.windows.net/{domain_path}Processed/{table}/"
+      # 2026-10-14 (D1 post43 item 4): the prod ADLS_DELTA_INGESTION_DETAILS table
+      # has a 55th column, FILE_METADATA - NULL on every SD prod row, blank in the
+      # SFMC / CAQH IIGs; the iig_v2 template (from the pair-1 RFC package) lacks
+      # it, so every row scored missing. The ACFC sheet carries it, decided blank
+      # (metadata_inserts.sql writes NULL). A list replaces: the shipped headers +
+      # FILE_METADATA.
+      # 2026-10-14 (D1 post44 items 1 / 3): the corpus's DATA_FACTORY_PIPELINE_SCHEDULE
+      # and EMAIL_TEMPLATE_CONFIG column sets (patterns.md): the schedule's PROCESS_NAME
+      # ... IsFileCopyReqFlag and the email's EMAIL_NOTIFICATION_URL were not iig_v2
+      # columns.
+      tabs:
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          headers: [PIPELINE_ID, PIPELINE_NAME, PARENT_PIPELINE_ID, PIPELINE_DESCRIPTION, PIPELINE_FREQUENCY, NO_OF_CYCLE_PER_DAY, DAY_OF_SCHEDULE, ACTIVE_FLAG, ACTIVE_START_DATE, ACTIVE_END_DATE, ESTIMATED_START_TIME, APPLICATION_NAME, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE, PROCESS_NAME, SUBPROCESS_NAME, LAYER_NAME, COMPLETION_SLA, RUNTIME_SLA, CRITICAL_PROCESSING_PERIOD, UDF1, UDF2, UDF3, UDF4, UDF5, IsFileCopyReqFlag]
+        EMAIL_TEMPLATE_CONFIG:
+          headers: [TEMPLATE_ID, TEMPLATE_NAME, PROCESS_NAME, STATUS, ACTIVE_FLAG, SUBJECT, BODY, BODY_QUERY, SENDER_NAME, SENDER_EMAIL, EMAIL_TO, EMAIL_CC, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE, EMAIL_NOTIFICATION_URL]
+        ADLS_DELTA_INGESTION_DETAILS:
+          headers: [GROUP_ID, OBJECT_ID, OBJECT_NAME, DOMAIN, SUBDOMAIN, PIPELINE_ID, SOURCE, FREQUENCY, LOB, CLAIM_TYPE_ID, ACTIVE_FLAG, SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, SRC_CONTAINER_NAME, SRC_ADLS_PATH, SRC_FILE_NAME, SRC_FORMAT, SRC_COLUMNS, SRC_DATA_TYPE, SRC_FILE_DELIMITER, SRC_REC_LNGTH, SRC_COL_LNGTH, SRC_COL_STRT_END_INDX, SRC_ADLS_ARCHVL_PATH, SRC_COMPRESSION, HEADER_FLAG, MULTILINE_FLAG, SCHEMA_DRIFT_FLAG, FILE_HEADER_FLAG, FILE_FOOTER_FLAG, MANDATORY_FIELD_LIST, TGT_CONNECTION_ID, TGT_DATABASE_NAME, TGT_TABLE_NAME, TGT_CONTAINER_NAME, TGT_ADLS_PATH, TGT_COLUMN_NAMES, TGT_FORMAT, TGT_DATA_TYPE, TGT_LOAD_OPTION, TGT_RJT_TABLE_NAME, TGT_RJT_ADLS_PATH, TGT_PARTITION_COLUMN, TGT_PARTITION_VALUE, TGT_PRIMARY_KEY, RECYCL_ENBL_FLG, RECYCL_TBL_NM, RECYCL_ADLS_PATH, RECYCL_RETN_DAYS, MAPPING_EXPRESSION, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE, FILE_METADATA]
+      deliberate_blanks:
+        ADLS_DELTA_INGESTION_DETAILS:
+          FILE_METADATA: "NULL on every prod row (SD pair_2 golden, acfc-results round7; docs/acfc/QUESTIONS_pair_2.md item 4), blank in the SFMC / CAQH IIGs"
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          PROCESS_NAME: "the corpus fills it in 60.9% of rows with one EDI process (59.0%) - not generalizable to a new feed (D1 post44 item 3)"
+          SUBPROCESS_NAME: "the corpus fills it in 53.8% of rows, 51 patterns, the dominant 7.3% - not generalizable (D1 post44 item 3)"
+          COMPLETION_SLA: &zero "the IIG corpus fills it in 0.0% of rows (patterns.json, D1 post44)"
+          RUNTIME_SLA: *zero
+          CRITICAL_PROCESSING_PERIOD: *zero
+          UDF1: *zero
+          UDF2: *zero
+          UDF3: *zero
+          UDF4: *zero
+          UDF5: *zero
+          IsFileCopyReqFlag: "the IIG corpus fills it in 4.4% of rows (patterns.json, D1 post44)"
+      # FILE_HEADER_FLAG with no FAQ has_header answer: the file's format decides -
+      # delimited 'Y' (SD prod, SFMC, CAQH), fixed-width 'N' (the pair-1 golden).
+      file_header_flag_by_format: {delimited: "Y", fixed_width: "N"}
+      file_header_flag_citation: "every golden at hand: delimited files Y (SD prod rows, acfc-results round7 pair_2; SFMC IIG ADLS_DELTA!AC2; CAQH golden), the fixed-width pair-1 golden N"
+      # STGDELTA SRC_DATA_TYPE keeps the stated precision: SD prod
+      # 'String:Decimal(10,2)' (acfc-results round7 pair_2); the shipped 'base'
+      # ('String:Decimal') is the pair-1 golden's.
+      data_type_style: full
+      always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, SRC_CONNECTION_ID,
+        TGT_STORAGE_ACCOUNT_NAME, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET,
+        DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID, TEMPLATE_ID, CREATED_DATE, UPDATED_DATE]

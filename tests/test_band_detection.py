@@ -1,0 +1,735 @@
+"""Chunk A (2026-10-09) — STTM bands located by their LABEL GROUP, their layer
+only from EVIDENCE.
+
+A band is found wherever its label group (Schema / TableName / ColumnName /
+DataType, optional Catalog, Mandatory, Primary Key — the ``roles.target``
+synonyms) sits in the header row: any order, any offset, any count of bands,
+never fixed columns. Its LAYER comes from an answer, the band title row, a
+layer word in its own header texts, its Catalog values, its Schema values —
+column order is never evidence. A band nothing names, or two bands naming one
+layer, is ``UNRESOLVED <sheet>/band[<n>]/layer`` and its feed waits for the
+answer (source | stage | standard). A band missing TableName is
+``UNRESOLVED <sheet>/<layer>/table`` — never a blank.
+
+Shapes: ``tests/acfc_shapes/bands.py`` (synthetic, built in code) plus the
+ACFC family fixtures A–E, whose profiles are pinned elsewhere and must not move.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+import yaml
+
+from acfc_shapes import bands
+from acfc_shapes.common import xlsx_bytes
+from codegen import cli
+from codegen.extract.workbook import WorkbookParseError, parse_workbook
+from codegen.layout.classify import classify_workbook
+from codegen.layout.discover import discover, label_groups, normalize, text
+from codegen.layout.resolve import parse_answers, resolve_workbook
+from test_harness_answer_lines import _NEEDED_KEY_RE
+
+REPO = Path(__file__).resolve().parents[1]
+STTM = REPO / "fixtures" / "acfc_shapes" / "sttm"
+SHEET = bands.SHEET
+LOCATION = ("catalog", "schema", "table", "column", "target_type")
+
+
+def _write(tmp_path: Path, name: str, workbook) -> Path:
+    path = tmp_path / f"{name}.xlsx"
+    path.write_bytes(xlsx_bytes(workbook))
+    return path
+
+
+def _bands(profile, sheet: str = SHEET) -> dict[str, tuple[int, int, dict, str | None]]:
+    sp = profile.sheet(sheet)
+    return {b.layer: (b.col_start, b.col_end, dict(b.roles), b.layer_evidence) for b in sp.bands}
+
+
+def _open(profile) -> list[str]:
+    return [f"{u.sheet}/{u.layer}/{u.role}" for u in profile.unresolved]
+
+
+# ------------------------------------------------- the five ACFC families (A–E)
+
+FAMILY_FIXTURES = sorted(p.name for p in STTM.glob("pair_*_family_*.xlsx"))
+
+
+@pytest.mark.parametrize("name", FAMILY_FIXTURES)
+def test_every_family_target_band_is_its_label_group(name, config):
+    """Families A–E: every stage / standard band the pinned profile places
+    (three or more location roles) is exactly one label group of its header
+    row — the group reading agrees with the band row, so the profile stays
+    the one read before (pinned in test_layout_discovery / the repo cache)."""
+    found = discover(STTM / name, config.extractor)
+    checked = 0
+    for sp in found.profile.mapping_sheets:
+        ws = found.workbook[sp.name]
+        header = list(next(ws.iter_rows(min_row=sp.header_row, max_row=sp.header_row,
+                                        values_only=True)))
+        groups = label_groups(header, config.extractor.discovery)
+        for band in sp.bands:
+            located = {r: c for r, c in band.roles.items() if r in LOCATION}
+            if band.layer not in ("stage", "standard") or len(located) < 3:
+                continue
+            matching = [g for g in groups
+                        if {r: c for r, c in g.roles.items() if r in LOCATION} == located]
+            assert len(matching) == 1, (name, sp.name, band.layer, located,
+                                        [g.roles for g in groups])
+            checked += 1
+        assert all(b.layer_evidence is None for b in sp.bands), "legacy reading kept"
+    assert checked >= 1 or name == "pair_7_family_e.xlsx", name
+
+
+def test_families_cover_a_to_e():
+    assert {n.split("_family_")[1][0] for n in FAMILY_FIXTURES} == set("abcde")
+
+
+# ------------------------------------------------------------------ SD shape
+
+
+@pytest.mark.parametrize("narrow", [False, True], ids=["aligned_titles", "titles_over_I-J_N-O"])
+def test_sd_shape_stage_i_j_standard_n_o_no_catalog(narrow, config, tmp_path):
+    """SD-feed shape: stage Schema/TableName at I/J, standard at N/O, no
+    Catalog. With the title merges covering only I–J / N–O the titles
+    disagree with the header groups: the groups decide the spans, the
+    titles the layers."""
+    path = _write(tmp_path, "sd", bands.sd_shaped(narrow_titles=narrow))
+    profile = discover(path, config.extractor).profile
+    got = _bands(profile)
+    assert got["stage"][:3] == (9, 12, {"schema": 9, "table": 10, "column": 11, "target_type": 12})
+    assert got["standard"][:3] == (14, 17, {"schema": 14, "table": 15, "column": 16,
+                                            "target_type": 17})
+    assert "catalog" not in got["stage"][2] and "catalog" not in got["standard"][2]
+    assert got["source"][2]["field_name"] == 1
+    assert profile.unresolved == []
+    assert got["stage"][3] == ("title" if narrow else None)
+
+
+# --------------------------------------------------------- evidence, one band
+
+
+def test_one_band_titled_reads_stage(config, tmp_path):
+    profile = discover(_write(tmp_path, "one", bands.one_band(title="Staging Layer")),
+                       config.extractor).profile
+    got = _bands(profile)
+    assert got["stage"] == (5, 8, {"schema": 5, "table": 6, "column": 7, "target_type": 8},
+                            "title")
+    assert "standard" not in got and profile.unresolved == []
+
+
+def test_one_band_without_evidence_is_one_question(config, tmp_path):
+    path = _write(tmp_path, "one", bands.one_band())
+    profile = discover(path, config.extractor).profile
+    assert _open(profile) == [f"{SHEET}/band[1]/layer"]
+    reason = profile.unresolved[0].reason
+    assert reason.startswith("band[1] (columns E–H): Schema | TableName | ColumnName | DataType")
+    assert reason.endswith("; answer under answers: with source | stage | standard")
+    for seen in ("no band title over it", "no layer word in its headers", "no Catalog column",
+                 "Schema values (column E) carry no layer prefix"):
+        assert seen in reason
+    assert "stage" not in _bands(profile)
+    verdict = classify_workbook(path, config.extractor)
+    assert verdict.kind == "unclassified" and verdict.reason.startswith("confirm:")
+
+
+def test_one_band_with_stg_schema_reads_stage_without_a_question(config, tmp_path):
+    path = _write(tmp_path, "one", bands.one_band(schema="stg_nb"))
+    profile = discover(path, config.extractor).profile
+    assert _bands(profile)["stage"][3] == "schema_value"
+    assert profile.unresolved == []
+    assert classify_workbook(path, config.extractor).kind == "sttm"
+
+
+def test_header_words_and_catalog_values_are_evidence(config, tmp_path):
+    words = discover(_write(tmp_path, "w", bands.one_band(header_words=True)),
+                     config.extractor).profile
+    assert _bands(words)["stage"][3] == "header" and words.unresolved == []
+    catalogs = discover(_write(tmp_path, "c", bands.catalog_values()), config.extractor).profile
+    got = _bands(catalogs)
+    assert (got["stage"][0], got["stage"][3]) == (5, "catalog_value")
+    assert (got["standard"][0], got["standard"][3]) == (10, "catalog_value")
+    assert catalogs.unresolved == []
+
+
+def test_in_dl_is_not_stage_evidence(config, tmp_path):
+    """'… in DL' is OFF as stage evidence (pair 1 writes it in BOTH bands):
+    an untitled one-band sheet with "in DL" headers asks."""
+    wb = bands.one_band()
+    ws = wb[SHEET]
+    for col, label in zip(range(5, 9), ["Target Schema Name in DL", "Target Table Name in DL",
+                                         "Target_Column_Name_in_DL", "Target Data Type in DL"],
+                          strict=True):
+        ws.cell(row=1, column=col, value=label)
+    profile = discover(_write(tmp_path, "dl", wb), config.extractor).profile
+    assert _open(profile) == [f"{SHEET}/band[1]/layer"]
+
+
+# ------------------------------------------------- look-alikes, conflicts, order
+
+
+def test_three_lookalike_bands_without_titles_ask_once_per_band(config, tmp_path):
+    profile = discover(_write(tmp_path, "three", bands.three_lookalike()), config.extractor).profile
+    assert _open(profile) == [f"{SHEET}/band[{n}]/layer" for n in (1, 2, 3)]
+    assert profile.sheet(SHEET).bands == []
+
+
+def test_three_lookalike_bands_with_titles_are_clean(config, tmp_path):
+    path = _write(tmp_path, "three", bands.three_lookalike(titles=True))
+    profile = discover(path, config.extractor).profile
+    got = _bands(profile)
+    assert profile.unresolved == []
+    assert got["source"][2] == {"source_schema": 1, "source_table": 2, "field_name": 3,
+                                "source_type": 4}
+    assert (got["stage"][0], got["standard"][0]) == (5, 9)
+    assert classify_workbook(path, config.extractor).kind == "sttm"
+
+
+def test_two_bands_claiming_stage_both_ask(config, tmp_path):
+    profile = discover(_write(tmp_path, "two", bands.two_claim_stage()), config.extractor).profile
+    assert _open(profile) == [f"{SHEET}/band[1]/layer", f"{SHEET}/band[2]/layer"]
+    for item in profile.unresolved:
+        assert "band[1] and band[2] each read as stage" in item.reason
+
+
+def test_any_order_any_offset(config, tmp_path):
+    profile = discover(_write(tmp_path, "rev", bands.reversed_offset()), config.extractor).profile
+    sp = profile.sheet(SHEET)
+    assert (sp.band_row, sp.header_row) == (6, 7)
+    got = _bands(profile)
+    assert got["source"][:2] == (4, 7)
+    assert got["standard"][:2] == (8, 11) and got["stage"][:2] == (12, 15)
+    assert profile.unresolved == []
+
+
+def test_band_missing_tablename_is_unresolved_never_blank(config, tmp_path):
+    profile = discover(_write(tmp_path, "mt", bands.missing_table()), config.extractor).profile
+    assert _open(profile) == [f"{SHEET}/stage/table"]
+
+
+def test_mapping_sheet_the_legacy_reader_refuses_is_read_by_content(config, tmp_path):
+    path = _write(tmp_path, "map", bands.mapping_prefix_reversed())
+    found = discover(path, config.extractor)
+    assert found.profile.strategy == "content"
+    got = _bands(found.profile, "MAPPING-NB")
+    assert (got["standard"][0], got["stage"][0]) == (5, 9)
+    # The flat legacy API still answers with the MAPPING- reader's own refusal.
+    with pytest.raises(WorkbookParseError, match="out of order"):
+        parse_workbook(path, config.extractor)
+
+
+def test_a_reference_sheet_beside_mapping_sheets_stays_unread(config):
+    """Pair 4's ForReference sheet ("STG - Dest 1 | STD - Dest2" over table /
+    column / type groups) is NOT a second feed: header-group detection only
+    runs when no sheet is found by its band row; the diagnostics name it."""
+    found = discover(REPO / "fixtures" / "acfc_shapes" / "pair_4" / "sttm_nb_cob_report.xlsx",
+                     config.extractor)
+    assert [s.name for s in found.profile.mapping_sheets] == ["NB_COB_REPORT"]
+    assert any("'ForReference': a header row carries target-shaped columns" in d
+               for d in found.diagnostics)
+
+
+# ------------------------------------------------------- answers + the cache
+
+
+ANSWERED = {f"{SHEET}/band[1]/layer": "source", f"{SHEET}/band[2]/layer": "stage",
+            f"{SHEET}/band[3]/layer": "standard"}
+# post57: the console names the sheet by position (the one sheet: sheets[0])
+PRINTED = [k.replace(f"{SHEET}/", "sheets[0]/", 1) for k in ANSWERED]
+
+
+def test_band_answers_place_the_layers(config, tmp_path):
+    path = _write(tmp_path, "three", bands.three_lookalike())
+    profile = discover(path, config.extractor,
+                       band_layers={k.rsplit("/", 1)[0]: v for k, v in ANSWERED.items()}).profile
+    got = _bands(profile)
+    assert profile.unresolved == []
+    assert {layer: v[3] for layer, v in got.items()} == {"source": "answer", "stage": "answer",
+                                                         "standard": "answer"}
+    assert got["source"][2]["field_name"] == 3
+
+
+def test_resolver_applies_band_answers_and_caches_the_answered_profile(config, tmp_path):
+    path = _write(tmp_path, "three", bands.three_lookalike())
+    runtime = tmp_path / "runtime"
+    doc, _ = resolve_workbook(path, config, runtime_cache_dir=runtime, use_cache=True)
+    assert [q.key for q in doc.questions] == list(ANSWERED)
+    question = doc.questions[0]
+    assert question.kind == "role" and [c["value"] for c in question.candidates] == [
+        "source", "stage", "standard"]
+    doc, _ = resolve_workbook(path, config, runtime_cache_dir=runtime, answers=dict(ANSWERED))
+    assert doc.complete and doc.questions == []
+    again, _ = resolve_workbook(path, config, runtime_cache_dir=runtime)
+    assert again.cache_hit and again.complete
+
+
+def test_an_answer_survives_validation_under_a_title_row_without_tokens(config, tmp_path):
+    """A band answered stage under a title that names no layer keeps its
+    roles when the profile is validated (the title row is not its evidence)."""
+    path = _write(tmp_path, "landing", bands.one_band(title="Landing Area"))
+    doc, _ = resolve_workbook(path, config, runtime_cache_dir=tmp_path / "rt", use_cache=False)
+    assert [q.key for q in doc.questions] == [f"{SHEET}/band[1]/layer"]
+    doc, _ = resolve_workbook(path, config, runtime_cache_dir=tmp_path / "rt", use_cache=False,
+                              answers={f"{SHEET}/band[1]/layer": "stage",
+                                       f"{SHEET}/stage/table": 6})
+    stage = doc.profile.sheet(SHEET).band("stage")
+    assert stage.roles == {"schema": 5, "table": 6, "column": 7, "target_type": 8}
+    assert stage.layer_evidence == "answer" and doc.complete
+
+
+def test_value_evidence_is_rederived_on_every_cache_hit(config, tmp_path):
+    """A layer read from Schema VALUES is never trusted from the cache: the
+    fingerprint hashes headers, so another workbook with the same headers and
+    no stg_ prefix must ask again, not inherit 'stage'."""
+    runtime = tmp_path / "runtime"
+    stg = _write(tmp_path, "stg", bands.one_band(schema="stg_nb"))
+    doc, _ = resolve_workbook(stg, config, runtime_cache_dir=runtime, refresh=True)
+    assert doc.complete
+    assert doc.profile.sheet(SHEET).band("stage").layer_evidence == "schema_value"
+    assert list(runtime.glob("*.json")), "the complete profile is cached"
+    plain = _write(tmp_path, "plain", bands.one_band())
+    doc, _ = resolve_workbook(plain, config, runtime_cache_dir=runtime)
+    assert doc.fingerprint == resolve_workbook(stg, config, use_cache=False)[0].fingerprint
+    assert not doc.cache_hit
+    assert any("re-derived" in r.reason for r in doc.rejections)
+    assert [q.key for q in doc.questions] == [f"{SHEET}/band[1]/layer"]
+    hit, _ = resolve_workbook(stg, config, runtime_cache_dir=runtime)
+    assert hit.cache_hit and hit.complete     # the stg_ workbook itself still re-derives stage
+
+
+def test_app_answer_payload_accepts_band_layers_only_as_a_layer():
+    parsed = parse_answers({"sttm": {f"{SHEET}/band[2]/layer": "stage"}})
+    assert parsed["sttm"] == {f"{SHEET}/band[2]/layer": "stage"}
+    with pytest.raises(ValueError, match="source | stage | standard"):
+        parse_answers({"sttm": {f"{SHEET}/band[2]/layer": "landing"}})
+    with pytest.raises(ValueError):
+        parse_answers({"sttm": {f"{SHEET}/band[2]/layer": 7}})
+
+
+# --------------------------------------------------------------- the CLI
+
+
+def _keys(out: str, label: str) -> list[str]:
+    return [line[cli.ANSWER_LABEL_WIDTH:].split(" — ", 1)[0]
+            for line in out.splitlines() if line.startswith(label + " ") and " — " in line]
+
+
+def _answers_file(tmp_path: Path) -> Path:
+    path = tmp_path / "answers.yaml"
+    path.write_text(yaml.safe_dump({"answers": [
+        {"sheet": SHEET, "layer": f"band[{n}]", "role": "layer", "value": layer}
+        for n, layer in ((1, "source"), (2, "stage"), (3, "standard"))]}), encoding="utf-8")
+    return path
+
+
+@pytest.fixture()
+def cli_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("CODEGEN_FORCE_MOCK_LAYOUT", "1")
+    monkeypatch.setenv("CODEGEN_FORCE_MOCK_PROVIDER", "1")
+    state, outputs = tmp_path / "state", tmp_path / "outputs"
+    state.mkdir()
+    outputs.mkdir()
+    monkeypatch.setenv("CODEGEN_STORAGE_STATE", f"local:{state.as_posix()}")
+    monkeypatch.setenv("CODEGEN_STORAGE_OUTPUTS", f"local:{outputs.as_posix()}")
+    return tmp_path
+
+
+def test_cli_chain_asks_per_band_then_completes_after_answers(cli_env, capsys):
+    tmp_path = cli_env
+    workbook = _write(tmp_path, f"STTM_{bands.FEED}", bands.three_lookalike())
+    frd = tmp_path / "frd.contract.json"
+    # The look-alike sheet's stage band says nb_land (no stg_ prefix - it must ask).
+    # The FRD states the catalogs (the suite runs without the ACFC overlay and
+    # its default_catalog; a two-part name is never written).
+    contract = bands.frd_contract(stage_schema="nb_land")
+    contract["feeds"][0]["stage_target"]["catalog"] = "nb_dlk"
+    contract["feeds"][0]["standard_target"]["catalog"] = "nb_std"
+    frd.write_text(json.dumps(contract, indent=2), encoding="utf-8")
+    sttm_out = tmp_path / "sttm.contract.json"
+    wanted = PRINTED
+
+    # layout: one UNRESOLVED line per band, exit 3; the harness records them.
+    capsys.readouterr()
+    assert cli.main(["layout", "--workbook", str(workbook), "--dry-run", "--no-cache",
+                     "--require-complete"]) == cli.EXIT_NEEDS_ANSWERS
+    out = capsys.readouterr().out
+    assert _keys(out, "UNRESOLVED") == wanted
+    assert [m.group(1) for ln in out.splitlines() if (m := _NEEDED_KEY_RE.match(ln))] == wanted
+    assert "answer under answers: with source | stage | standard" in out
+
+    # extract-sttm without answers: the only sheet is held back, nothing written.
+    assert cli.main(["extract-sttm", "--workbook", str(workbook), "--frd-contract", str(frd),
+                     "--out", str(sttm_out), "--generated-date", "2026-10-09"]) \
+        == cli.EXIT_NEEDS_ANSWERS
+    out = capsys.readouterr().out
+    assert _keys(out, "UNRESOLVED") == wanted and _keys(out, "QUESTION") == []
+    assert "answer under answers: in answers.yaml" in out
+    assert not sttm_out.exists()
+
+    # With answers.yaml: layout complete, extract-sttm writes, generate completes.
+    answers = _answers_file(tmp_path)
+    assert cli.main(["layout", "--workbook", str(workbook), "--dry-run", "--no-cache",
+                     "--require-complete", "--answers", str(answers)]) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert _keys(out, "UNRESOLVED") == [] and _keys(out, "QUESTION") == []
+    assert cli.main(["extract-sttm", "--workbook", str(workbook), "--frd-contract", str(frd),
+                     "--out", str(sttm_out), "--generated-date", "2026-10-09",
+                     "--answers", str(answers)]) == cli.EXIT_OK
+    contract = json.loads(sttm_out.read_text(encoding="utf-8"))
+    feed = contract["feeds"][0]
+    assert feed["stage"]["table"] == bands.FEED and feed["field_count"] == len(bands.FIELDS)
+    assert contract.get("needs_answers", []) == []      # written only when non-empty
+    capsys.readouterr()
+    code = cli.main(["generate", "--frd-contract", str(frd), "--sttm-contract", str(sttm_out),
+                     "--dry-run", "--skip-tests", "--output-mode", "framework",
+                     "--profile", "acfc_prx", "--iig-template", "iig_v2"])
+    out = capsys.readouterr().out
+    assert code == cli.EXIT_OK, out
+    assert _keys(out, "UNRESOLVED") == [] and _keys(out, "QUESTION") == []
+
+
+def test_cli_missing_tablename_prints_the_table_question(cli_env, capsys):
+    workbook = _write(cli_env, "STTM_missing_table", bands.missing_table())
+    capsys.readouterr()
+    assert cli.main(["layout", "--workbook", str(workbook), "--dry-run", "--no-cache",
+                     "--require-complete"]) == cli.EXIT_NEEDS_ANSWERS
+    assert _keys(capsys.readouterr().out, "UNRESOLVED") == ["sheets[0]/stage/table"]
+
+
+def test_unresolved_report_names_the_band_answer_form(config, tmp_path):
+    from codegen.layout.answers import unresolved_report
+
+    doc, _ = resolve_workbook(_write(tmp_path, "one", bands.one_band()), config,
+                              use_cache=False)
+    report = unresolved_report(doc.questions, {"sttm": "one.xlsx"})
+    assert f"`{SHEET}/band[1]/layer`" in report
+    assert "`value: source | stage | standard`" in report
+    # structural labels only: header texts, never a data cell
+    assert "nb_member_risk" not in report and "stg_nb" not in report
+
+
+def test_header_cells_are_structural_only(config, tmp_path):
+    """The band question's reason quotes header texts, never a data cell."""
+    profile = discover(_write(tmp_path, "two", bands.two_claim_stage()), config.extractor).profile
+    for item in profile.unresolved:
+        assert "stg_nb" not in item.reason and "nb_member_risk" not in item.reason
+    assert normalize("Schema") == "schema" and text(" x ") == "x"
+
+
+# ------------------------------------- independent review of 14fd40c (fixed)
+
+def _sheet(tmp_path: Path, name: str, rows: list[list], merges=(), sheet: str = SHEET,
+           extra: dict[str, list[list]] | None = None) -> Path:
+    from acfc_shapes.common import new_workbook, write_rows
+
+    wb = new_workbook()
+    ws = wb.create_sheet(sheet)
+    write_rows(ws, rows)
+    for row, first, last in merges:
+        ws.merge_cells(start_row=row, start_column=first, end_row=row, end_column=last)
+    for title, extra_rows in (extra or {}).items():
+        write_rows(wb.create_sheet(title), extra_rows)
+    return _write(tmp_path, name, wb)
+
+
+TGT = list(bands.TARGET_HEADERS)
+
+
+def test_review1_source_type_right_before_schema_stays_in_the_source_band(config, tmp_path):
+    header = ["Field Name", "Data Type", *TGT, *TGT]
+    titles = ["Source File", None, "Stage Layer", None, None, None, "Standard Layer", None, None,
+              None]
+    rows = [titles, header] + [[n, "String", "stg_nb", "t", n, "String", "nb", "t", n, "String"]
+                               for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "r1", rows, [(1, 1, 2), (1, 3, 6), (1, 7, 10)]),
+                       config.extractor).profile
+    got = _bands(profile)
+    assert got["source"][:2] == (1, 2) and got["source"][2]["source_type"] == 2
+    assert got["stage"][:3] == (3, 6, {"schema": 3, "table": 4, "column": 5, "target_type": 6})
+    assert got["standard"][:2] == (7, 10) and profile.unresolved == []
+
+
+def test_review2_database_source_under_an_unnamed_title_is_the_source(config, tmp_path):
+    """Stage and standard each held by a titled band: the one band left is the
+    source by elimination - the profile is exactly the band-row reading."""
+    source = ["Database", "Schema", "Table Name", "Column Name", "Data Type", "Length"]
+    titles = ["Client Extract", None, None, None, None, None, "Stage Layer", None, None, None,
+              "Standard Layer", None, None, None]
+    rows = [titles, [*source, *TGT, *TGT]] + [
+        ["db", "dbo", "member", n, "varchar", "10", "stg_nb", "t", n, "String", "nb", "t", n,
+         "String"] for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "r2", rows, [(1, 1, 6), (1, 7, 10), (1, 11, 14)]),
+                       config.extractor).profile
+    got = _bands(profile)
+    assert profile.unresolved == []
+    assert got["source"][:2] == (1, 6) and got["source"][2]["field_name"] == 4
+    assert all(v[3] is None for v in got.values()), "the band-row reading, unchanged"
+
+
+@pytest.mark.parametrize("order", [["TableName", "ColumnName", "Schema", "DataType"],
+                                   ["Catalog", "TableName", "Schema", "ColumnName", "DataType"]])
+def test_review3_order_inside_a_band_is_free(order, config, tmp_path):
+    values = {"TableName": "nb_member_risk", "Schema": "stg_nb", "DataType": "String",
+              "Catalog": "PR_DLK"}
+    rows = [["Field Name", *order]] + [[n, *(values.get(h, n) for h in order)]
+                                       for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "r3", rows), config.extractor).profile
+    stage = _bands(profile)["stage"]
+    assert profile.unresolved == []
+    assert {"schema", "table", "column", "target_type"} <= set(stage[2])
+    assert stage[2]["table"] == order.index("TableName") + 2
+
+
+def test_review4_band_questions_never_reach_the_advice_model():
+    from codegen.layout.model import build_advice_request
+
+    request = build_advice_request([{"key": f"{SHEET}/band[1]/layer", "title": "t"},
+                                    {"key": f"{SHEET}/stage/table", "title": "t"}])
+    assert [q["key"] for q in request["questions"]] == [f"{SHEET}/stage/table"]
+
+
+def test_review5_a_column_answer_reaches_a_band_that_exists_only_after_its_layer(cli_env,
+                                                                                   capsys):
+    wb = bands.three_lookalike()
+    wb[SHEET].cell(row=1, column=10, value="Target Object")      # band 3: no TableName synonym
+    workbook = _write(cli_env, "r5", wb)
+    answers = cli_env / "answers.yaml"
+    answers.write_text(yaml.safe_dump({"answers": [
+        *({"sheet": SHEET, "layer": f"band[{n}]", "role": "layer", "value": layer}
+          for n, layer in ((1, "source"), (2, "stage"), (3, "standard"))),
+        {"sheet": SHEET, "layer": "standard", "role": "table", "column": "Target Object"}]}),
+        encoding="utf-8")
+    capsys.readouterr()
+    assert cli.main(["layout", "--workbook", str(workbook), "--dry-run", "--no-cache",
+                     "--require-complete", "--answers", str(answers)]) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert _keys(out, "UNRESOLVED") == [] and "not applied" not in out
+
+
+def test_review6_a_meta_row_above_the_header_is_not_a_title_row(config, tmp_path):
+    rows = [["File Name", "nb_member_risk_YYYYMMDD.csv"],
+            ["Notes", "standard tables reload nightly"],
+            ["Field Name", "Description", *TGT, *TGT]]
+    rows += [[n, "d", "stg_nb", "t", n, "String", "std_nb", "t", n, "String"]
+             for n in bands.FIELDS]
+    sp = discover(_sheet(tmp_path, "r6", rows), config.extractor).profile.sheet(SHEET)
+    assert sp.band_row is None and sp.header_row == 3
+    layers = {b.layer: (b.col_start, b.layer_evidence) for b in sp.bands}
+    assert layers["stage"] == (3, "schema_value") and layers["standard"] == (7, "schema_value")
+    assert layers["source"][0] == 1
+    assert [m.key for m in sp.meta_rows] == ["file_names", "notes"]
+
+
+def test_review7_a_table_details_sheet_is_not_a_mapping_sheet(config, tmp_path):
+    details = [["Catalog", "Schema", "Table Name", "Table Description"],
+               ["PR_DLK", "stg_nb", "nb_member_risk", "member risk, stage"],
+               ["PR_STD", "nb", "nb_member_risk", "member risk, standard"]]
+    rows = [["Field Name", "Description", *TGT]] + [
+        [n, "d", "stg_nb", "nb_member_risk", n, "String"] for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "r7", rows, extra={"Table Details": details}),
+                       config.extractor).profile
+    assert [s.name for s in profile.mapping_sheets] == [SHEET]
+    assert profile.sheet("Table Details").kind == "table_details"
+    assert profile.unresolved == []
+
+
+def test_review8_a_segmented_mapping_sheet_keeps_its_explicit_refusal(config, tmp_path):
+    from codegen.extract.workbook import SegmentedWorkbookError
+    from test_extractor import _write_minimal_workbook
+
+    path = _write_minimal_workbook(tmp_path / "seg.xlsx", extra_source_header="Record Segment")
+    with pytest.raises(SegmentedWorkbookError, match="segment"):
+        discover(path, config.extractor)
+
+
+def test_review9_the_cache_recheck_runs_the_whole_value_chain(config, tmp_path):
+    """Cached: stage from Schema values (no Catalog value). The same headers
+    with Catalog values naming STANDARD read standard (catalog first) - the
+    cached stage layer is stale."""
+    from codegen.layout.discover import stale_value_evidence
+    from codegen.layout.extent import load_document
+
+    cached = discover(_write(tmp_path, "blank_cat", bands.one_band(schema="stg_nb", catalog="")),
+                      config.extractor).profile
+    assert _bands(cached)["stage"][3] == "schema_value"
+    std = _write(tmp_path, "std_cat", bands.one_band(schema="stg_nb", catalog="PR_STD"))
+    assert _bands(discover(std, config.extractor).profile)["standard"][3] == "catalog_value"
+    reason = stale_value_evidence(cached, load_document(std, 500), config.extractor)
+    assert reason is not None and "standard (catalog_value)" in reason
+    same = load_document(_write(tmp_path, "again", bands.one_band(schema="stg_nb", catalog="")),
+                         500)
+    assert stale_value_evidence(cached, same, config.extractor) is None
+
+
+# ------------------------- elimination (owner rule, 2026-10-09): left of both only
+
+DB_SOURCE = ["Database", "Schema", "Table Name", "Column Name", "Data Type", "Length"]
+
+
+def _db_row(n: str) -> list:
+    return ["db", "dbo", "member", n, "varchar", "10"]
+
+
+def _target_row(n: str) -> list:
+    return ["stg_nb", "t", n, "String", "nb", "t", n, "String"]
+
+
+def test_elimination_left_of_both_targets_is_source_and_says_so(config, tmp_path):
+    titles = ["Client Extract", None, None, None, None, None, "Stage Layer", None, None, None,
+              "Standard Layer", None, None, None]
+    rows = [titles, [*DB_SOURCE, *TGT, *TGT]] + [[*_db_row(n), *_target_row(n)]
+                                                 for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "left", rows, [(1, 1, 6), (1, 7, 10), (1, 11, 14)]),
+                       config.extractor).profile
+    assert profile.unresolved == [] and _bands(profile)["source"][:2] == (1, 6)
+    notes = [n for n in profile.sheet(SHEET).notes if "layer by elimination" in n]
+    # the note names the band's label group (Schema .. Data Type, columns B-E)
+    assert len(notes) == 1 and notes[0].startswith("band[1] (columns B–E): source")
+
+
+def test_elimination_note_line_in_the_layout_output(cli_env, capsys):
+    titles = ["Client Extract", None, None, None, None, None, "Stage Layer", None, None, None,
+              "Standard Layer", None, None, None]
+    rows = [titles, [*DB_SOURCE, *TGT, *TGT]] + [[*_db_row(n), *_target_row(n)]
+                                                 for n in bands.FIELDS]
+    workbook = _sheet(cli_env, "left_cli", rows, [(1, 1, 6), (1, 7, 10), (1, 11, 14)])
+    capsys.readouterr()
+    assert cli.main(["layout", "--workbook", str(workbook), "--dry-run", "--no-cache",
+                     "--require-complete"]) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert _keys(out, "UNRESOLVED") == [] and _keys(out, "QUESTION") == []
+    notes = [ln for ln in out.splitlines()
+             if ln.startswith("NOTE ") and "layer by elimination" in ln]
+    assert len(notes) == 1
+    assert notes[0][cli.ANSWER_LABEL_WIDTH:].split(" — ", 1)[0] == "sheets[0]/band[1]/layer"
+    assert not _NEEDED_KEY_RE.match(notes[0])       # informational: the harness ignores it
+
+
+def test_a_leftover_right_of_the_targets_still_asks(config, tmp_path):
+    """The same database-shaped band, but RIGHT of both target bands: no
+    elimination - the band question, as before."""
+    titles = ["Source Data", None, None, None, "Stage Layer", None, None, None,
+              "Standard Layer", None, None, None, "Client Extract", None, None, None, None, None]
+    header = [*bands.SOURCE_HEADERS, *TGT, *TGT, *DB_SOURCE]
+    rows = [titles, header] + [[n, "d", "String", "No", *_target_row(n), *_db_row(n)]
+                               for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "right", rows,
+                              [(1, 1, 4), (1, 5, 8), (1, 9, 12), (1, 13, 18)]),
+                       config.extractor).profile
+    assert _open(profile) == [f"{SHEET}/band[3]/layer"]
+    assert "right of a target band" in profile.unresolved[0].reason
+    assert not any("layer by elimination" in n for n in profile.sheet(SHEET).notes)
+
+
+def test_more_than_one_leftover_still_asks(config, tmp_path):
+    """Two database-shaped bands left of the titled targets: elimination needs
+    exactly one - both are asked."""
+    titles = ["Client Extract", None, None, None, None, None, "Lookup", None, None, None, None,
+              None, "Stage Layer", None, None, None, "Standard Layer", None, None, None]
+    rows = [titles, [*DB_SOURCE, *DB_SOURCE, *TGT, *TGT]] + [
+        [*_db_row(n), *_db_row(n), *_target_row(n)] for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "two", rows,
+                              [(1, 1, 6), (1, 7, 12), (1, 13, 16), (1, 17, 20)]),
+                       config.extractor).profile
+    open_keys = _open(profile)
+    assert {f"{SHEET}/band[1]/layer", f"{SHEET}/band[2]/layer"} <= set(open_keys)
+    assert all("2 bands are left over" in u.reason for u in profile.unresolved
+               if u.role == "layer")
+    assert not any("layer by elimination" in n for n in profile.sheet(SHEET).notes)
+
+
+def _target_cells_titled() -> list:
+    return ["Stage Layer", None, None, None, "Standard Layer", None, None, None]
+
+
+def test_no_elimination_while_source_is_claimed_by_a_title(config, tmp_path):
+    """'Source Data' over one database-shaped band, 'Lookup' over another, both
+    left of the titled targets: source is taken - the Lookup band is asked."""
+    titles = ["Source Data", None, None, None, None, None, "Lookup", None, None, None, None,
+              None, *_target_cells_titled()]
+    rows = [titles, [*DB_SOURCE, *DB_SOURCE, *TGT, *TGT]] + [
+        [*_db_row(n), *_db_row(n), *_target_row(n)] for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "src_title", rows,
+                              [(1, 1, 6), (1, 7, 12), (1, 13, 16), (1, 17, 20)]),
+                       config.extractor).profile
+    assert _open(profile) == [f"{SHEET}/band[2]/layer"]
+    assert "source is already claimed (band[1] reads as source (title))" in \
+        profile.unresolved[0].reason
+    assert not any("layer by elimination" in n for n in profile.sheet(SHEET).notes)
+
+
+def test_answering_one_of_two_leftovers_source_does_not_eliminate_the_other(config, tmp_path):
+    titles = ["Client Extract", None, None, None, None, None, "Lookup", None, None, None, None,
+              None, *_target_cells_titled()]
+    rows = [titles, [*DB_SOURCE, *DB_SOURCE, *TGT, *TGT]] + [
+        [*_db_row(n), *_db_row(n), *_target_row(n)] for n in bands.FIELDS]
+    path = _sheet(tmp_path, "answer_one", rows, [(1, 1, 6), (1, 7, 12), (1, 13, 16), (1, 17, 20)])
+    profile = discover(path, config.extractor,
+                       band_layers={f"{SHEET}/band[1]": "source"}).profile
+    assert _open(profile) == [f"{SHEET}/band[2]/layer"]
+    assert "source is already claimed" in profile.unresolved[0].reason
+
+
+def test_no_elimination_while_a_field_name_column_sits_outside_the_bands(config, tmp_path):
+    titles = ["Source Data", None, None, None, "Lookup", None, None, None, None, None,
+              *_target_cells_titled()]
+    rows = [titles, [*bands.SOURCE_HEADERS, *DB_SOURCE, *TGT, *TGT]] + [
+        [n, "d", "String", "No", *_db_row(n), *_target_row(n)] for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "field_out", rows,
+                              [(1, 1, 4), (1, 5, 10), (1, 11, 14), (1, 15, 18)]),
+                       config.extractor).profile
+    assert _open(profile) == [f"{SHEET}/band[1]/layer"]
+    assert "source is already claimed" in profile.unresolved[0].reason
+
+
+def test_a_band_that_lost_a_stage_conflict_is_not_left_over(config, tmp_path):
+    """Two bands titled 'Stage Layer'; band[2] answered stage: band[1]'s own
+    title named stage - it keeps its question, it never becomes the source."""
+    titles = ["Stage Layer", None, None, None, "Stage Layer", None, None, None,
+              "Standard Layer", None, None, None]
+    rows = [titles, TGT * 3] + [[*bands._target_cells("stg_a", "t", n), *bands._target_cells(
+        "stg_b", "t", n), *bands._target_cells("nb", "t", n)] for n in bands.FIELDS]
+    path = _sheet(tmp_path, "contested", rows, [(1, 1, 4), (1, 5, 8), (1, 9, 12)])
+    profile = discover(path, config.extractor, band_layers={f"{SHEET}/band[2]": "stage"}).profile
+    assert f"{SHEET}/band[1]/layer" in _open(profile)
+    assert "another band also claims" in next(u.reason for u in profile.unresolved
+                                              if u.layer == "band[1]")
+    assert not any("layer by elimination" in n for n in profile.sheet(SHEET).notes)
+
+
+def test_elimination_on_the_label_group_path_says_so(config, tmp_path):
+    """No band row at all: the targets read by their Schema values (stg_ /
+    std_), the database-shaped band left of both is the source by elimination."""
+    rows = [[*DB_SOURCE, *TGT, *TGT]] + [
+        [*_db_row(n), *bands._target_cells("stg_nb", "t", n),
+         *bands._target_cells("std_nb", "t", n)]
+        for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "rebuilt", rows), config.extractor).profile
+    sp = profile.sheet(SHEET)
+    assert profile.unresolved == [] and sp.band_row is None
+    layers = {b.layer: (b.col_start, b.layer_evidence) for b in sp.bands}
+    assert layers["source"] == (1, "elimination")
+    assert layers["stage"][1] == "schema_value" and layers["standard"][1] == "schema_value"
+    assert sum("layer by elimination" in n for n in sp.notes) == 1
+
+
+def test_a_layer_by_elimination_is_never_trusted_from_the_cache(config, tmp_path):
+    from codegen.layout.discover import stale_value_evidence
+    from codegen.layout.extent import load_document
+
+    titles = ["Client Extract", None, None, None, None, None, *_target_cells_titled()]
+    rows = [titles, [*DB_SOURCE, *TGT, *TGT]] + [[*_db_row(n), *_target_row(n)]
+                                                 for n in bands.FIELDS]
+    path = _sheet(tmp_path, "cached", rows, [(1, 1, 6), (1, 7, 10), (1, 11, 14)])
+    profile = discover(path, config.extractor).profile
+    assert "elimination" in (stale_value_evidence(profile, load_document(path, 500),
+                                                  config.extractor) or "")
+    runtime = tmp_path / "runtime"
+    first, _ = resolve_workbook(path, config, runtime_cache_dir=runtime, refresh=True)
+    assert first.complete and list(runtime.glob("*.json"))
+    again, _ = resolve_workbook(path, config, runtime_cache_dir=runtime)
+    assert not again.cache_hit and again.complete       # re-derived, never served
+    assert any("elimination" in r.reason for r in again.rejections)

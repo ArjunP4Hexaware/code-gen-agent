@@ -83,7 +83,7 @@ clean base state.
 8. Refresh both browser tabs right before 3 PM (no stale bundles).
 
 At the demo moment (App): Choose STTM → CAQH row (already Fetched ✓) →
-companion FRD chip → **Done** → **Generate from this STTM…** → the dialog
+companion FRD chip → **Done** → **Generate Documents** → the dialog
 says **zero model calls** → Confirm. Run completes in ~8 s; walk the
 Layer-2 review tab (2 CONFIRM cards with quoted citations + 2 candidates),
 then the Report tab's Segmented-extraction section, then Generated code →
@@ -156,7 +156,7 @@ documents card shows **all six client reference documents**. Suite:
   endpoint E2E — see §5.)
 - Replay contingency (`live_e2e_20260807`) still tracked and offline.
 - The live card is titled **"Generate a Pipeline"**: **Choose STTM…**
-  then **Generate from this STTM…** (unlocks only after a pick);
+  then **Generate Documents** (unlocks only after a pick);
   **Clear** returns to *none chosen*.
 - Refresh the browser tab right before presenting.
 
@@ -193,7 +193,7 @@ API.)
 
 ### Step 2 — Choose the STTM, then fire it live
 
-The card opens at ***none chosen*** and **Generate from this STTM…**
+The card opens at ***none chosen*** and **Generate Documents**
 stays disabled until you pick. Click **"Choose STTM…"** →
 `demo_sttm_cv_golden.xlsx`:
 
@@ -249,7 +249,7 @@ rendered from the FRD today and says so; the metadata sheet is the
 framework-mode output shape, every cell provenance-badged, IDs blank by
 design.
 
-Then click **"Generate from this STTM…"**. Read the confirmation dialog
+Then click **"Generate Documents"**. Read the confirmation dialog
 aloud — input workbook, the demo-FRD caveat, then the cost: ~3 model
 calls, ≈ $0.10, ~20 seconds:
 

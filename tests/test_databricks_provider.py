@@ -30,6 +30,13 @@ def _pack() -> ContextPack:
     )
 
 
+@pytest.fixture(autouse=True)
+def _live(monkeypatch):
+    """Selection under the provider switch's LIVE (2026-10-13: a model is used
+    only when said — mock is the default; see test_tracked_config_is_mock_by_default)."""
+    monkeypatch.setenv("CODEGEN_PROVIDER", "live")
+
+
 def _fmapi_config(config, **databricks_overrides):
     databricks = config.databricks.model_copy(update=databricks_overrides)
     reasoning = config.reasoning.model_copy(update={"provider": "databricks_fmapi"})
@@ -55,9 +62,19 @@ def test_selected_when_configured_and_not_dry_run(config):
     assert provider.name == "databricks_fmapi"
 
 
-def test_unresolvable_workspace_config_degrades_to_mock(config):
-    broken = _fmapi_config(config, catalog="", schema_name="")
-    assert build_provider(broken, dry_run=False).name == "mock"
+def test_blank_document_volumes_never_drop_layer2_to_mock(config):
+    """The volumes ship blank (the App must not read the build workspace's
+    document volumes); the endpoint does not depend on them — before
+    config_for(require=...) blank volumes silently made Layer 2 a mock."""
+    no_volumes = _fmapi_config(config, catalog="", schema_name="", frd_volume="",
+                               sttm_volume="")
+    assert build_provider(no_volumes, dry_run=False).name == "databricks_fmapi"
+
+
+def test_tracked_config_is_mock_by_default(config, monkeypatch):
+    monkeypatch.delenv("CODEGEN_PROVIDER", raising=False)
+    provider = build_provider(config, dry_run=False)
+    assert provider.name == "mock" and provider.mock_reason == "provider=mock (default)"
 
 
 def test_tracked_config_selects_fmapi(config, monkeypatch):
@@ -68,10 +85,11 @@ def test_tracked_config_selects_fmapi(config, monkeypatch):
     assert build_provider(config, dry_run=False).name == "databricks_fmapi"
 
 
-def test_missing_serving_endpoint_is_a_named_error(config):
-    from codegen.databricks import DatabricksConfigError
+def test_missing_serving_endpoint_is_a_named_error(config, monkeypatch):
+    from codegen.reasoning.mode import ProviderConfigError
 
-    with pytest.raises(DatabricksConfigError, match="serving_endpoint"):
+    monkeypatch.delenv("DATABRICKS_SERVING_ENDPOINT", raising=False)
+    with pytest.raises(ProviderConfigError, match="databricks.serving_endpoint is unset"):
         build_provider(_fmapi_config(config, serving_endpoint=""), dry_run=False)
 
 
@@ -79,7 +97,7 @@ def _stub_chat(monkeypatch, responses: list[str]) -> dict:
 
     calls = {"count": 0, "kwargs": []}
 
-    def fake_chat(cfg, messages, endpoint=None, max_tokens=1024):
+    def fake_chat(cfg, messages, endpoint=None, max_tokens=1024, usage=None):
         calls["count"] += 1
         calls["kwargs"].append({"messages": messages, "endpoint": endpoint,
                                 "max_tokens": max_tokens})
@@ -97,18 +115,25 @@ def test_valid_response_first_try(config, monkeypatch):
     response = provider.complete(_pack())
     assert response.classification == "mappable"
     assert calls["count"] == 1
-    assert calls["kwargs"][0]["endpoint"] == "databricks-claude-opus-5"
+    assert calls["kwargs"][0]["endpoint"] == config.databricks.serving_endpoint
     # System prompt travels as a chat message; no sampling params exist.
     assert calls["kwargs"][0]["messages"][0]["role"] == "system"
 
 
 def test_invalid_then_valid_retries_with_error(config, monkeypatch):
-    calls = _stub_chat(monkeypatch, ["not json at all", VALID_JSON])
+    # 2026-10-14: no JSON at all = the "JSON only, no fences" retry; a schema
+    # error = the error itself (no input values) plus the same instruction.
+    calls = _stub_chat(monkeypatch, ["not json at all", VALID_JSON,
+                                     '{"classification": "x"}', VALID_JSON])
     provider = build_provider(_fmapi_config(config), dry_run=False)
     assert provider.complete(_pack()).classification == "mappable"
     assert calls["count"] == 2
     retry_user = calls["kwargs"][1]["messages"][1]["content"]
-    assert "failed schema validation" in retry_user
+    assert "could not be read as JSON" in retry_user
+    assert "Respond with JSON only, no fences" in retry_user
+    assert provider.complete(_pack()).classification == "mappable"
+    retry_user = calls["kwargs"][3]["messages"][1]["content"]
+    assert "failed schema validation" in retry_user and "'x'" not in retry_user
 
 
 def test_exhausted_attempts_raise_provider_error(config, monkeypatch):

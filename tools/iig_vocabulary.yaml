@@ -1,0 +1,51 @@
+# Framework vocabulary for tools/iig_fill_rate.py --patterns (2026-10-14, D1 post44).
+#
+# Notebook names, DQ rule classes / types, email STATUS values and layer names are
+# identifiers the IIG FRAMEWORK defines, not client data: their tokens pass the
+# patterns scrub unchanged. Only these columns' tokens are allowed, and a token
+# is still refused (scrubbed to G<n>) when it is
+#   - a word of any slot value in the corpus (a feed / table / schema / catalog /
+#     domain / subdomain / file / source - SLOT_COLUMNS of iig_fill_rate.py), or
+#   - a word of a person column (person_columns below), or
+#   - hit by scrub_check / the local denylist (those are marked before any token
+#     is looked at), and the written files are re-scanned as before.
+# A cell of another column that carries the same token shows it too (one map per
+# export) - the token is framework vocabulary wherever it appears.
+
+framework_columns:
+  DATABRICKS_NOTEBOOK_DETAILS: [DATABRICKS_NOTEBOOK_NAME, DELETE_DATABRICKS_NOTEBOOK_NAME]
+  DATA_QUALITY_RULES: [RULE_TYPE, RULE_CLASS]
+  EMAIL_TEMPLATE_CONFIG: [STATUS]
+  DATA_FACTORY_PIPELINE_SCHEDULE: [LAYER_NAME]
+
+# Identifiers known to be framework vocabulary wherever they appear (already
+# visible unscrubbed in the post44 patterns report).
+framework_values: [LRTrimRule, ReferentialCheckRule, LoadHeaderAndTrailerToSeparateTablesRule,
+                   DateConversionRule, DataTypeCastRule, DateFormatRule, AddCustomColumnsRule,
+                   NullCheckRule, Predefined, Custom, STDDelta, STGDelta, Success, Failed,
+                   STAGE, STANDARD, DeltaInvokeDQStandardDeltaTable_V4, FileInvokeDQDeltaTable]
+
+# Never allowed: tokens of these columns (any sheet) - people and addresses.
+person_columns: [CREATED_BY, UPDATED_BY, CRETAED_BY, SENDER_EMAIL, EMAIL_TO, EMAIL_CC]
+
+# --- per-flow breakdown ----------------------------------------------------
+# A row's flow, first match wins: the group index (01_pair_group_index.csv,
+# PIPELINE_ID -> flow_type); a grand master / master schedule row (its
+# description / name); the flow of its PIPELINE_ID's schedule row in the same
+# workbook; these rules, then tools/iig_keys.yaml flow.rules; else unclassified.
+flow_rules:
+  - {column: PROCESS_NAME, match: '(?i)\b(dq|data\s*quality)\b', flow: dq}
+  - {column: PIPELINE_DESCRIPTION, match: '(?i)\b(dq|data\s*quality)\b', flow: dq}
+  - {column: PIPELINE_DESCRIPTION, match: '(?i)\bstandard\b', flow: stg_to_std}
+  - {column: PIPELINE_DESCRIPTION, match: '(?i)\bstage\b', flow: file_to_stg}
+  - {column: PROCESS_NAME, match: '(?i)\b(stage|stg)\s+to\s+(std|standard)\b', flow: stg_to_std}
+  - {column: PROCESS_NAME, match: '(?i)\braw\s+to\s+stage\b', flow: file_to_stg}
+
+flow_breakdown:
+  DATABRICKS_NOTEBOOK_DETAILS: [DATABRICKS_NOTEBOOK_PATH, DATABRICKS_NOTEBOOK_NAME, PROCESS_NAME]
+  DATA_FACTORY_PIPELINE_SCHEDULE: [PIPELINE_DESCRIPTION]
+
+# An email row is on a FILE-INGESTION pipeline when its PIPELINE_ID's flow is one
+# of these, or (flow unknown) its PIPELINE_NAME matches the pattern.
+file_ingestion_flows: [file_to_stg, stg_to_std, sftp_to_adls]
+file_ingestion_pipeline_name: '(?i)^pl_?file_'

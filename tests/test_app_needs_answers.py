@@ -1,0 +1,629 @@
+"""The App path for held-back feeds, and readable errors (Chunk C, 2026-10-09).
+
+The demo App runs generation IN-PROCESS: there is no CLI exit code 3 there. A
+run whose feeds are held back (NEEDS_ANSWERS — a band nothing names, a target
+no document states, a file question left open) must end with the list of what
+they need, answerable inline and re-runnable — and a run where EVERY feed is
+held back must end in state ``needs_answers``, never "live run produced no
+feeds". Any exception nobody caught becomes JSON the error card renders.
+
+Shapes: ``tests/acfc_shapes/bands.py`` (synthetic, Chunk A). Layer 2 and the
+layout recognizer are mock-locked; state and outputs live in tmp roles.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip("fastapi")
+
+from fastapi.testclient import TestClient  # noqa: E402
+from ui.backend.demo import (  # noqa: E402
+    DemoRunner,
+    LiveRunInProgress,
+    layout_feed_key,
+    merge_answers,
+    needs_answer_item,
+    run_feed_answers,
+)
+from ui.backend.service import GenerationStore  # noqa: E402
+
+from acfc_shapes import bands  # noqa: E402
+from acfc_shapes.common import xlsx_bytes  # noqa: E402
+from test_harness_answer_lines import _NEEDED_KEY_RE  # noqa: E402
+
+REPO = Path(__file__).resolve().parents[1]
+SHEET = bands.SHEET
+BAND_KEYS = [f"{SHEET}/band[{n}]/layer" for n in (1, 2, 3)]
+BAND_ANSWERS = dict(zip(BAND_KEYS, ("source", "stage", "standard"), strict=True))
+
+
+def _frd(tmp_path: Path) -> Path:
+    """The look-alike sheet's FRD — catalogs stated (the suite runs without the
+    ACFC overlay's default_catalog)."""
+    contract = bands.frd_contract(stage_schema="nb_land")
+    contract["feeds"][0]["stage_target"]["catalog"] = "nb_dlk"
+    contract["feeds"][0]["standard_target"]["catalog"] = "nb_std"
+    path = tmp_path / "frd.contract.json"
+    path.write_text(json.dumps(contract, indent=2), encoding="utf-8")
+    return path
+
+
+@pytest.fixture()
+def roles(monkeypatch, tmp_path):
+    """Mock-locked providers; state and outputs in tmp local roles (the runtime
+    layout cache too — never the checkout's ui/backend/state)."""
+    monkeypatch.setenv("CODEGEN_FORCE_MOCK_PROVIDER", "1")
+    monkeypatch.setenv("CODEGEN_FORCE_MOCK_LAYOUT", "1")
+    for role in ("state", "outputs"):
+        (tmp_path / role).mkdir()
+        monkeypatch.setenv(f"CODEGEN_STORAGE_{role.upper()}",
+                           f"local:{(tmp_path / role).as_posix()}")
+    return tmp_path
+
+
+def _runner(tmp_path: Path) -> tuple[DemoRunner, GenerationStore]:
+    store = GenerationStore(str(REPO / "config" / "config.yaml"))
+    runner = DemoRunner(store, index_warmup=False)
+    workbook = tmp_path / f"STTM_{bands.FEED}.xlsx"
+    workbook.write_bytes(xlsx_bytes(bands.three_lookalike()))
+    runner.selected_workbook = workbook
+    runner.select_frd(_frd(tmp_path), "frd.contract.json")
+    return runner, store
+
+
+def _wait(runner: DemoRunner, *states: str, timeout: float = 300.0) -> str:
+    deadline = time.monotonic() + timeout
+    while runner.state not in states:
+        assert time.monotonic() < deadline, f"stuck in {runner.state}: {runner.stages[-3:]}"
+        time.sleep(0.05)
+    return runner.state
+
+
+def _hold_every_feed_back(runner: DemoRunner) -> dict:
+    """Generate, then 'Proceed with unresolved' on the three band questions:
+    the only sheet is held back."""
+    runner.start_live()
+    assert _wait(runner, "needs_layout", "failed", "done") == "needs_layout", runner.error
+    assert [q["key"] for q in runner.status()["layout_questions"]] == BAND_KEYS
+    runner.answer_layout({}, proceed=True)
+    _wait(runner, "needs_answers", "failed", "done")
+    return runner.status()
+
+
+def test_every_feed_held_back_ends_as_needs_answers_then_answers_complete_the_run(roles):
+    runner, store = _runner(roles)
+    status = _hold_every_feed_back(runner)
+
+    # Not a generic failure: state needs_answers, no error, the list.
+    assert status["state"] == "needs_answers", (status["error"], status["stages"][-3:])
+    assert status["error"] is None and status["error_detail"] is None
+    assert "produced no feeds" not in json.dumps(status)
+    items = status["needs_answers"]
+    assert [i["key"] for i in items] == BAND_KEYS
+    for item in items:
+        assert (item["label"], item["section"], item["answer_as"]) == (
+            "UNRESOLVED", "answers", "band_layer")
+        # A band nothing names holds its SHEET back (its feed is matched only
+        # once the bands are known) — the sheet names the held-back feed.
+        assert item["feed_name"] == SHEET and item["sheet"] == SHEET
+        question = item["question"]
+        assert question["kind"] == "role" and question["role"] == "layer"
+        assert question["candidates"] == [{"value": v, "label": v}
+                                          for v in ("source", "stage", "standard")]
+        assert question["title"] and question["hint"] and question["reason"]
+        # The CLI's line for the same key is what the harness reads.
+        assert _NEEDED_KEY_RE.match(f"{item['label']:<15}{item['key']} — {item['reason']}")
+    assert status["needs_answers_inputs"] == {"sttm": f"STTM_{bands.FEED}.xlsx",
+                                              "frd": "frd.contract.json"}
+    assert [a["label"] for a in status["set_aside"]] == [SHEET] * 3
+    assert all("answers file: under `answers:`" in a["error"] for a in status["set_aside"])
+    assert any(s["stage"] == "needs answers" for s in status["stages"])
+    assert not store.runs or store.mode != "live"          # nothing was published
+
+    # The list survives later status reads (a poll, a page reload).
+    assert runner.status()["needs_answers"] == items
+
+    # Answer inline and re-run: the band layers go to the STTM answers.
+    runner.rerun_with_answers({"sttm": dict(BAND_ANSWERS)})
+    assert _wait(runner, "done", "failed", "needs_answers", "needs_layout") == "done", (
+        runner.error, runner.stages[-5:])
+    status = runner.status()
+    assert status["needs_answers"] == [] and status["set_aside"] == []
+    assert any(s["stage"] == "answers carried" for s in status["stages"])
+    assert list(store.runs) and store.mode == "live"
+    assert runner.last_answers["sttm"] == BAND_ANSWERS
+
+
+def test_rerun_validates_answers_and_refuses_changed_documents(roles):
+    runner, _store = _runner(roles)
+    _hold_every_feed_back(runner)
+    with pytest.raises(ValueError, match="source | stage | standard"):
+        runner.rerun_with_answers({"sttm": {BAND_KEYS[0]: "landing"}})
+    with pytest.raises(ValueError, match="bad gap answer"):
+        runner.rerun_with_answers({"gaps": {"feeds[0].stage_target.schema": "nb"}})
+    assert runner.state == "needs_answers"                # nothing started
+    other = roles / "other.xlsx"
+    other.write_bytes(xlsx_bytes(bands.three_lookalike(titles=True)))
+    runner.selected_workbook = other
+    with pytest.raises(ValueError, match="documents changed"):
+        runner.rerun_with_answers({"sttm": dict(BAND_ANSWERS)})
+
+
+def test_status_says_when_the_answers_list_no_longer_matches_the_documents(roles):
+    """Other documents selected after a held-back run: the list names THAT
+    run's sheets and a re-run is refused, so the status says it is stale
+    (the page hides the controls and names the run's documents)."""
+    runner, _store = _runner(roles)
+    assert runner.status()["needs_answers_stale"] is False          # nothing listed
+    status = _hold_every_feed_back(runner)
+    assert status["needs_answers_stale"] is False
+    original = runner.selected_workbook
+    other = roles / "other.xlsx"
+    other.write_bytes(xlsx_bytes(bands.three_lookalike()))
+    runner.selected_workbook = other
+    status = runner.status()
+    assert status["needs_answers_stale"] is True
+    assert status["needs_answers_inputs"] == {"sttm": original.name, "frd": "frd.contract.json"}
+    with pytest.raises(ValueError, match="documents changed"):
+        runner.rerun_with_answers({"sttm": dict(BAND_ANSWERS)})
+    runner.selected_workbook = original                             # chosen again
+    assert runner.status()["needs_answers_stale"] is False
+
+
+def test_a_run_paused_on_its_dialog_refuses_a_second_start(roles):
+    runner, _store = _runner(roles)
+    runner.start_live()
+    assert _wait(runner, "needs_layout", "failed", "done") == "needs_layout"
+    with pytest.raises(LiveRunInProgress):
+        runner.start_live()
+    with pytest.raises(LiveRunInProgress):
+        runner.rerun_with_answers({})
+    runner.answer_layout({}, cancel=True)
+    assert _wait(runner, "idle", "failed") == "idle"
+    # Cancel run is a choice, not a failure: no error card, no questions left.
+    status = runner.status()
+    assert status["error"] is None and status["error_detail"] is None
+    assert status["layout_questions"] == [] and status["needs_answers"] == []
+
+
+def test_cancel_run_stops_a_run_paused_on_its_questions(roles):
+    """Cancel run while the dialog asks: the run stops and, once the call
+    returns, the page is idle with no failure and no questions."""
+    runner, _store = _runner(roles)
+    runner.start_live()
+    assert _wait(runner, "needs_layout", "failed", "done") == "needs_layout"
+    runner.cancel_run()
+    status = runner.status()
+    assert status["state"] == "idle", status["stages"][-3:]
+    assert status["error"] is None and status["layout_questions"] == []
+    assert status["needs_answers"] == [] and status["stages"] == []
+    assert runner.selected_workbook is not None           # the documents stay chosen
+    runner.start_live()                                    # the guard is released
+    assert _wait(runner, "needs_layout", "failed", "done") == "needs_layout"
+    runner.cancel_run()
+
+
+def test_cancel_run_drops_a_held_back_runs_questions(roles):
+    runner, _store = _runner(roles)
+    held = _hold_every_feed_back(runner)
+    assert held["state"] == "needs_answers" and held["needs_answers"]
+    runner.cancel_run()
+    status = runner.status()
+    assert status["state"] == "idle" and status["needs_answers"] == []
+    assert status["blocking"] == [] and status["outcome"] is None
+    assert status["needs_answers_inputs"] is None
+
+
+def _cancel_at_pairing(runner: DemoRunner) -> None:
+    """The run-start pairing step fails: the run fails BEFORE its layout is
+    resolved (where a re-run's answers are applied)."""
+    def cancelled() -> None:
+        raise RuntimeError("pairing cancelled by the user")
+
+    runner._ask_pairing = cancelled
+
+
+def test_a_rerun_that_fails_before_layout_never_seeds_the_next_run(roles):
+    """A re-run's answers belong to THAT run: one cancelled before its layout
+    is resolved leaves nothing armed, so the next ordinary Generate — here on
+    another workbook whose sheet has the same name — asks its own questions
+    instead of taking answers given for the first workbook."""
+    runner, _store = _runner(roles)
+    _hold_every_feed_back(runner)
+    _cancel_at_pairing(runner)
+    runner.rerun_with_answers({"sttm": dict(BAND_ANSWERS)})
+    assert _wait(runner, "failed", "done", "needs_answers", "needs_layout") == "failed"
+    assert "pairing cancelled" in runner.status()["error"]
+    del runner._ask_pairing                                  # the real one again
+
+    other = roles / "other.xlsx"
+    other.write_bytes(xlsx_bytes(bands.three_lookalike()))
+    runner.selected_workbook = other
+    runner.start_live()
+    assert _wait(runner, "needs_layout", "failed", "done", "needs_answers") == "needs_layout", (
+        runner.error, runner.stages[-3:])
+    assert not any(s["stage"] == "answers carried" for s in runner.stages)
+    assert [q["key"] for q in runner.status()["layout_questions"]] == BAND_KEYS
+    runner.answer_layout({}, cancel=True)
+    assert _wait(runner, "idle", "failed") == "idle"
+
+
+def test_a_rerun_whose_documents_change_at_run_start_drops_its_answers(roles):
+    """The answers are bound to the documents the re-run was asked for: when
+    the run-start pairing hands the run another FRD, they name the old pair's
+    sheets — dropped (said as a stage), the questions asked afresh."""
+    runner, _store = _runner(roles)
+    _hold_every_feed_back(runner)
+    other_frd = roles / "frd_other.contract.json"
+    other_frd.write_bytes(runner.effective_frd().read_bytes())
+
+    def pairing_picks_another_frd() -> None:
+        runner.selected_frd = other_frd
+        runner.selected_frd_label = other_frd.name
+
+    runner._ask_pairing = pairing_picks_another_frd
+    runner.rerun_with_answers({"sttm": dict(BAND_ANSWERS)})
+    assert _wait(runner, "needs_layout", "failed", "done", "needs_answers") == "needs_layout", (
+        runner.error, runner.stages[-3:])
+    stages = [s["stage"] for s in runner.stages]
+    assert "answers not carried" in stages and "answers carried" not in stages
+    assert [q["key"] for q in runner.status()["layout_questions"]] == BAND_KEYS
+    runner.answer_layout({}, cancel=True)
+    assert _wait(runner, "idle", "failed") == "idle"
+
+
+def test_some_feeds_held_back_end_done_and_a_failure_keeps_the_open_questions(roles):
+    """Some feeds held back: the run is DONE and the list says what the others
+    need. A run that fails after "Proceed with unresolved" keeps the questions
+    it left open answerable, beside the readable error."""
+    runner, _store = _runner(roles)
+    held = needs_answer_item({"key": "feeds[1].stage_target.schema", "kind": "text",
+                              "document": "frd", "reason": "blank"}, feed_name="nb_second")
+    runner._work = lambda: runner._run_items.append(held)
+    runner.start_live()
+    assert _wait(runner, "done", "failed") == "done"
+    assert runner.status()["needs_answers"] == [held] and runner.status()["error"] is None
+
+    left_open = needs_answer_item({"key": f"{SHEET}/stage/table", "kind": "role",
+                                   "document": "sttm", "reason": "no TableName header"})
+
+    def work():
+        runner._open_owed = [left_open]
+        raise ValueError("the stage band has no values for ['table']")
+
+    runner._work = work
+    runner.start_live()
+    assert _wait(runner, "failed", "done") == "failed"
+    status = runner.status()
+    assert status["needs_answers"] == [left_open]
+    detail = status["error_detail"]
+    assert (detail["type"], detail["message"]) == (
+        "ValueError", "the stage band has no values for ['table']")
+    assert detail["where"].startswith("tests/test_app_needs_answers.py:")
+    assert detail["where"].endswith(" in work")
+
+
+def test_a_done_run_keeps_the_owed_questions_proceed_left_open(roles):
+    """Some feeds generated, one failed for want of an answer the person
+    skipped with "Proceed with unresolved": the run is DONE and the owed
+    question is still listed (beside the held-back feeds' keys), so the failed
+    feed can be answered inline and re-run — as the CLI prints its QUESTION /
+    UNRESOLVED line whatever the exit code."""
+    runner, _store = _runner(roles)
+    held = needs_answer_item({"key": "feeds[1].stage_target.schema", "kind": "text",
+                              "document": "frd", "reason": "blank"}, feed_name="nb_second")
+    left_open = needs_answer_item({"key": f"{SHEET}/stage/table", "kind": "role",
+                                   "document": "sttm", "reason": "no TableName header"})
+
+    def work():
+        runner._open_owed = [left_open, held]           # one key owed AND held back
+        runner._run_items.append(held)
+
+    runner._work = work
+    runner.start_live()
+    assert _wait(runner, "done", "failed") == "done"
+    status = runner.status()
+    assert status["error"] is None
+    # The held-back item first (it names its feed), each key once.
+    assert status["needs_answers"] == [held, left_open]
+
+
+COLD_5 = REPO / "fixtures" / "acfc_shapes" / "cold" / "cold_5"
+COLD_5_AUDIT = "SRC_FILE_NAME:String; REC_CREATION_TIME:Timestamp; REC_UPDATED_TIME:Timestamp"
+
+
+@pytest.fixture()
+def cold_roles(roles, monkeypatch):
+    """The cold drill's environment (tests/test_cold_pairs.py): the ACFC
+    overlay ON — conftest switches it off for the suite."""
+    monkeypatch.delenv("CODEGEN_SKIP_ENV_OVERLAY", raising=False)
+    monkeypatch.delenv("CODEGEN_CONFIG_OVERLAYS", raising=False)
+    monkeypatch.setenv("CODEGEN_NOTIFICATION_EMAILS", "syn.dl.prodsupport@synthetic.example")
+    return roles
+
+
+def _answer_dialog(runner: DemoRunner, answers: dict | None = None, *,
+                   proceed: bool = False) -> str:
+    """Answer the paused dialog and wait for the run to leave it (a later
+    pause is a NEW dialog: the stage list grows)."""
+    seen = len(runner.stages)
+    runner.answer_layout(answers or {}, proceed=proceed)
+    deadline = time.monotonic() + 300
+    while runner.state == "needs_layout" and len(runner.stages) == seen:
+        assert time.monotonic() < deadline, runner.stages[-3:]
+        time.sleep(0.05)
+    return _wait(runner, "needs_layout", "failed", "done", "needs_answers")
+
+
+def test_a_feed_held_back_on_its_audit_columns_is_answered_inline(cold_roles):
+    """cold_5's shape: an STTM with no 'NA' audit row. The run holds its only
+    feed back on feeds[0].audit_columns — a QUESTION under gaps:, offered as a
+    text item — and the inline answer reaches extraction on the re-run (as
+    answers.yaml's gaps: does on the CLI): the feed completes with the
+    person's audit columns, flagged."""
+    store = GenerationStore(str(REPO / "config" / "config.yaml"))
+    runner = DemoRunner(store, index_warmup=False)
+    runner.selected_workbook = COLD_5 / "STTM_fc_provdir.xlsx"
+    runner.select_frd(COLD_5 / "FRD_fc_provdir.docx", "FRD_fc_provdir.docx")
+    band = "Provider Directory/band[1]/layer"
+
+    runner.start_live()
+    assert _wait(runner, "needs_layout", "failed", "done") == "needs_layout", runner.error
+    assert band in [q["key"] for q in runner.status()["layout_questions"]]
+    # The pair's answers.yaml, given in the dialog — all but the audit list.
+    state = _answer_dialog(runner, {"sttm": {band: "stage"}, "gaps": {
+        "feeds[0].lobs": {"value": "ALL"},
+        "feeds[0].stage_target.load_strategy": {"value": "Truncate and Load"},
+        "feeds[0].frequency": {"value": "Weekly"},
+        "feeds[0].domain": {"value": "Provider"}}})
+    if state == "needs_layout":                     # informational fields only: proceed
+        state = _answer_dialog(runner, proceed=True)
+    assert state == "needs_answers", (runner.error, runner.stages[-3:])
+
+    status = runner.status()
+    [item] = status["needs_answers"]
+    assert (item["key"], item["label"], item["section"], item["answer_as"]) == (
+        "feeds[0].audit_columns", "QUESTION", "gaps", "gap")
+    assert item["feed_name"] == "fc_provider_directory"
+    assert item["question"]["kind"] == "text"
+    assert "NAME:Type" in item["question"]["hint"] and "tables" not in item["question"]["hint"]
+    [held] = status["set_aside"]
+    assert "NEEDS_ANSWERS: feeds[0].audit_columns" in held["error"]
+    assert "answers file: under `gaps:`" in held["error"]
+
+    # A malformed list is refused before anything starts (HTTP 400).
+    with pytest.raises(ValueError, match="NAME:Type"):
+        runner.rerun_with_answers({"gaps": {"feeds[0].audit_columns": {"value": "LOAD_TS:Date"}}})
+    assert runner.state == "needs_answers"
+
+    runner.rerun_with_answers({"gaps": {"feeds[0].audit_columns": {"value": COLD_5_AUDIT}}})
+    state = _wait(runner, "needs_layout", "failed", "done", "needs_answers")
+    if state == "needs_layout":                     # the same informational fields again
+        assert band not in [q["key"] for q in runner.status()["layout_questions"]]
+        state = _answer_dialog(runner, proceed=True)
+    assert state == "done", (runner.error, runner.stages[-5:])
+    status = runner.status()
+    assert status["needs_answers"] == [] and status["set_aside"] == []
+    [contract_path] = (cold_roles / "outputs" / runner.last_run_label).glob(
+        "extracted_sttm.contract.json")
+    sttm = json.loads(contract_path.read_text(encoding="utf-8"))["feeds"][0]
+    assert [a["column"] for a in sttm["audit_columns"]] == [
+        "SRC_FILE_NAME", "REC_CREATION_TIME", "REC_UPDATED_TIME"]
+    assert any(f.startswith("audit_columns_from_user:") for f in sttm["extraction_flags"])
+    assert list(store.runs) and store.mode == "live"
+
+
+def test_answers_keyed_by_the_layout_contract_follow_their_feed_into_the_run():
+    """The inverse of layout_feed_key: a gaps answer for the layout contract's
+    feeds[2] is the run FRD's feeds[1] when feeds[1] was set aside without a
+    file; an answer for a set-aside feed is dropped."""
+    class F:
+        def __init__(self, name):
+            self.feed_name = name
+
+    layout = [F("a"), F("b"), F("c")]
+    run = [layout[0], layout[2]]
+    assert run_feed_answers({2: ["x"], 1: ["y"], 0: ["z"]}, run, layout) == {1: ["x"],
+                                                                              0: ["z"]}
+    assert run_feed_answers({1: ["y"]}, layout, layout) == {1: ["y"]}
+
+
+def test_needs_answer_item_routes_each_key_kind():
+    band = needs_answer_item({"key": "S/band[2]/layer", "kind": "role", "document": "sttm"})
+    role = needs_answer_item({"key": "S/stage/table", "kind": "role", "document": "sttm"})
+    cell = needs_answer_item({"key": "feeds[0].lobs", "kind": "role", "document": "frd"})
+    gap = needs_answer_item({"key": "feeds[0].file_name_patterns", "kind": "choice",
+                             "document": "frd"})
+    text = needs_answer_item({"key": "feeds[1].stage_target.schema", "kind": "text",
+                              "document": "frd"})
+    assert [(i["answer_as"], i["section"], i["label"]) for i in (band, role, cell, gap, text)] \
+        == [("band_layer", "answers", "UNRESOLVED"), ("column", "answers", "UNRESOLVED"),
+            ("frd_cell", "answers", "UNRESOLVED"), ("gap", "gaps", "QUESTION"),
+            ("gap", "gaps", "QUESTION")]
+
+
+def test_a_held_back_key_is_renumbered_to_the_layout_contract():
+    """The extractor reads the run's FRD, which leaves out the feeds set aside
+    without a file: its feeds[1] is the layout contract's feeds[2]."""
+    class F:
+        def __init__(self, name):
+            self.feed_name = name
+
+    layout = [F("a"), F("b"), F("c")]
+    run = [layout[0], layout[2]]
+    assert layout_feed_key("feeds[1].stage_target.schema", run, layout) \
+        == "feeds[2].stage_target.schema"
+    assert layout_feed_key("S/band[1]/layer", run, layout) == "S/band[1]/layer"
+    assert layout_feed_key("feeds[0].stage_target.tables", layout, layout) \
+        == "feeds[0].stage_target.tables"
+    assert merge_answers({"sttm": {"a": 1}}, {"sttm": {"b": "stage"}, "gaps": {}}) == {
+        "sttm": {"a": 1, "b": "stage"}, "frd": {}, "vdd": {}, "gaps": {}}
+
+
+# ------------------------------------------------------------------ the API
+
+
+@pytest.fixture()
+def client(monkeypatch):
+    """The App with its unhandled-exception handler; server exceptions come
+    back as responses (what a browser sees), not re-raised into the test."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    from ui.backend import main
+
+    if main.store is not None:
+        reasoning = main.store.config.reasoning.model_copy(update={"provider": "anthropic"})
+        monkeypatch.setattr(main.store, "config",
+                            main.store.config.model_copy(update={"reasoning": reasoning}))
+    return TestClient(main.app, raise_server_exceptions=False)
+
+
+def test_an_uncaught_exception_in_a_route_is_json_with_where_and_health(client, monkeypatch):
+    from ui.backend import main
+
+    def boom():
+        raise KeyError("selection.json has no 'sttm'")
+
+    monkeypatch.setattr(main.runner, "status", boom)
+    response = client.get("/api/demo/status")
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("application/json")
+    body = response.json()
+    assert body["detail"].startswith("KeyError: ")
+    error = body["error"]
+    assert error["type"] == "KeyError" and "selection.json" in error["message"]
+    # The traceback's innermost frame: file:line in function.
+    assert error["where"].startswith("tests/test_app_needs_answers.py:")
+    assert error["where"].endswith(" in boom")
+    assert error["request"] == "GET /api/demo/status"
+    facts = client.get("/api/health/facts").json()
+    assert error["health"] == {k: facts[k] for k in ("version", "build", "codegen_source",
+                                                     "config_overlays", "startup_error",
+                                                     "provider")}
+    assert error["health_line"] == facts["health_line"]
+    assert "startup error: none" in error["health_line"]
+
+
+def test_an_error_card_never_carries_a_secret_env_value(client, monkeypatch):
+    from ui.backend import main
+
+    monkeypatch.setenv("SYNTHETIC_API_TOKEN", "tok-synthetic-123456")
+
+    def boom():
+        raise RuntimeError("upstream said no for tok-synthetic-123456")
+
+    monkeypatch.setattr(main.runner, "status", boom)
+    body = client.get("/api/demo/status").json()
+    assert "tok-synthetic-123456" not in json.dumps(body)
+    assert "<SYNTHETIC_API_TOKEN masked>" in body["error"]["message"]
+
+
+def test_rerun_endpoint_guards(client, monkeypatch):
+    response = client.post("/api/demo/rerun-with-answers", json={"answers": {}})
+    assert response.status_code == 400 and "confirm" in response.json()["detail"]
+    # LIVE asked for (2026-10-13: never the default) with no key in the test
+    # process: live is unavailable, so nothing can start.
+    monkeypatch.setenv("CODEGEN_PROVIDER", "live")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    response = client.post("/api/demo/rerun-with-answers",
+                           json={"answers": {"sttm": {BAND_KEYS[0]: "stage"}},
+                                 "confirm": True})
+    assert response.status_code == 400 and "unavailable" in response.json()["detail"]
+
+
+# ---- post80: the blocking questions are asked BEFORE generating, once --------------------
+
+
+def _runner_without_landing(tmp_path: Path) -> tuple[DemoRunner, GenerationStore]:
+    runner, store = _runner(tmp_path)
+    frd = tmp_path / "frd.contract.json"
+    contract = json.loads(frd.read_text(encoding="utf-8"))
+    contract["feeds"][0]["landing_location"] = None
+    contract.get("field_provenance", {}).pop("feeds[0].landing_location", None)
+    frd.write_text(json.dumps(contract, indent=2), encoding="utf-8")
+    runner.select_frd(frd, "frd.contract.json")
+    runner.output_parts = ["notebook", "framework"]
+    runner.iig_template = "iig_v2"
+    runner.conventions_profile = "acfc_prx"
+    return runner, store
+
+
+@pytest.fixture()
+def acfc_roles(roles, monkeypatch):
+    """The roles, with the committed ACFC overlay applied as a D1 run loads it
+    (the iig_v2 path cells the landing question rests on are the overlay's)."""
+    monkeypatch.delenv("CODEGEN_SKIP_ENV_OVERLAY", raising=False)
+    return roles
+
+
+@pytest.mark.usefixtures("notebooks_in_app")   # post91: notebooks off in the shipped App
+def test_a_blocking_question_is_asked_before_generating_and_the_run_generates_once(
+        acfc_roles, landing_autoset_off):
+    roles = acfc_roles
+    runner, store = _runner_without_landing(roles)
+    runner.start_live()
+    assert _wait(runner, "needs_layout", "failed", "done") == "needs_layout", runner.error
+    runner.answer_layout({"sttm": dict(BAND_ANSWERS)})              # the layout dialog
+    deadline = time.monotonic() + 300
+    while not (runner.state == "needs_layout"
+               and runner.status().get("pause_kind") == "before_generate"):
+        assert runner.state in ("running", "needs_layout"), (runner.state, runner.error)
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    status = runner.status()
+    landing = [q for q in status["layout_questions"] if q["key"].endswith(".src_adls_path")]
+    assert landing and landing[0]["kind"] == "text" and landing[0]["document"] == "frd"
+    assert not list((roles / "outputs").rglob("*_IIG.xlsx"))         # nothing generated yet
+    runner.answer_layout({"gaps": {landing[0]["key"]: {"value": "/inbound/syn/vendor_k/"}}})
+    assert _wait(runner, "done", "failed", "needs_answers") == "done", (
+        runner.error, runner.stages[-4:])
+    status = runner.status()
+    assert not [b for b in status["blocking"] if b["key"] == landing[0]["key"]]
+    assert sum(s["stage"] == "needs answers before generating" for s in status["stages"]) == 1
+    assert list((roles / "outputs").rglob("*.ipynb"))                # the notebook is written
+
+
+@pytest.mark.usefixtures("notebooks_in_app")   # post91: notebooks off in the shipped App
+def test_proceed_with_unresolved_generates_and_lists_them_after(acfc_roles, landing_autoset_off):
+    roles = acfc_roles
+    runner, _store = _runner_without_landing(roles)
+    runner.start_live()
+    assert _wait(runner, "needs_layout", "failed", "done") == "needs_layout", runner.error
+    runner.answer_layout({"sttm": dict(BAND_ANSWERS)})
+    deadline = time.monotonic() + 300
+    while runner.status().get("pause_kind") != "before_generate":
+        assert runner.state in ("running", "needs_layout"), (runner.state, runner.error)
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    runner.answer_layout({}, proceed=True)
+    assert _wait(runner, "done", "failed", "needs_answers") == "done", runner.error
+    status = runner.status()
+    assert status["outcome"] == "NEEDS_ANSWERS"
+    assert any(b["key"].endswith(".src_adls_path") for b in status["blocking"])
+    assert any(i["key"].endswith(".src_adls_path") for i in status["needs_answers"])
+
+
+def test_an_environment_value_answered_before_generating_is_kept_for_the_picker(roles):
+    import threading
+
+    runner, _store = _runner(roles)
+    question = {"document": "run", "key": "run.environment.storage_account", "sheet": None,
+                "layer": None, "role": "run.environment.storage_account", "kind": "text",
+                "reason": "required", "header": [], "candidates": [], "title": "t",
+                "hint": "h", "suggested": None}
+    result: dict = {}
+    worker = threading.Thread(
+        target=lambda: result.setdefault("answered", runner._ask_before_generate([question])))
+    worker.start()
+    _wait(runner, "needs_layout")
+    assert runner.status()["pause_kind"] == "before_generate"
+    assert [q["document"] for q in runner.status()["layout_questions"]] == ["run"]
+    runner.answer_layout({"gaps": {"run.environment.storage_account": {"value": "synacct"}}})
+    worker.join(10)
+    assert result["answered"] is True
+    assert runner.environment_choice["overrides"]["storage_account"] == "synacct"
+    assert runner.status()["pause_kind"] == "layout"

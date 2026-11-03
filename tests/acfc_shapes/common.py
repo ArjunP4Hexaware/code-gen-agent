@@ -132,14 +132,20 @@ def paragraph(text: str, style: str | None = None) -> str:
     return f"<w:p>{props}{_runs(text)}</w:p>"
 
 
-def table(rows: list[list[str]]) -> str:
+def table(rows: list[list]) -> str:
     """A Word table; every row must have the same cell count. An empty
-    string is an empty (label-present, value-blank) cell."""
+    string is an empty (label-present, value-blank) cell. A cell whose value
+    is itself a list of rows renders as a NESTED table inside the cell (the
+    way Word stores a table pasted into a metadata cell) followed by the
+    empty paragraph Word requires after a nested table."""
     width = max(len(r) for r in rows)
     grid = "".join('<w:gridCol w:w="2400"/>' for _ in range(width))
     body = []
     for row in rows:
-        cells = "".join(f"<w:tc>{paragraph(value)}</w:tc>" for value in row)
+        cells = "".join(
+            f"<w:tc>{table(value)}<w:p/></w:tc>" if isinstance(value, list)
+            else f"<w:tc>{paragraph(value)}</w:tc>"
+            for value in row)
         body.append(f"<w:tr>{cells}</w:tr>")
     return (
         '<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="0" w:type="auto"/></w:tblPr>'

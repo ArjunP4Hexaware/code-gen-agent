@@ -1,0 +1,15 @@
+# The run report: row counts per step and the DQ rule counts (RUN_REPORT,
+# filled by the run cell), appended to <stage catalog>.<TGT_DATABASE_NAME>.
+# RUN_REPORT_TABLE (_dryrun under dry_run).
+report_rows = [
+    (FEED_ID, row["step"], row["target"], row["rows"], RUN_DATE, DRY_RUN) for row in RUN_REPORT
+]
+for row in RUN_REPORT:
+    print(f"{row['step']:<36} {row['rows']:>12}  {row['target']}")
+if report_rows and SOURCES:
+    report = spark.createDataFrame(
+        report_rows,
+        "feed string, step string, target string, rows long, run_date string, dry_run boolean",
+    ).withColumn("run_ts", F.current_timestamp())
+    target = table_name(STAGE_CATALOG, SOURCES[0]["schema"], RUN_REPORT_TABLE)
+    report.write.format("delta").mode("append").saveAsTable(target)

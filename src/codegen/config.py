@@ -10,13 +10,18 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
+# D1 post50: a field named after a BaseModel attribute ("validate", "schema")
+# made pydantic print a UserWarning on every import - read by a harness as the
+# run's error. Those fields take another Python name, the YAML key as alias.
+_ALIASED_MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
 
 
 def load_dotenv(path: str | Path = ".env") -> None:
@@ -54,6 +59,12 @@ class ContractsConfig(BaseModel):
     # generate-all refuses to run on an empty list instead of silently
     # succeeding -- see cli.py.
     pairs: list[ContractPair]
+    # post160 (Soham, 2026-11-02): FRD stage tables no STTM field maps are SET
+    # ASIDE (the STTM is authoritative for the table set) instead of failing the
+    # feed - only when that is the feed's one disagreement, and never silently:
+    # a provenance flag + a NOTE + one non-blocking INPUT_NEEDED line. None/false
+    # = the pre-post160 contract mismatch (FAIL).
+    sttm_authoritative_tables: bool | None = None
 
 
 class OutputConfig(BaseModel):
@@ -61,13 +72,69 @@ class OutputConfig(BaseModel):
 
     dir: str
     reports_dir: str
-    # Option A ("notebook", the default — today's output exactly), Option B
-    # ("framework": DDL scripts + config rows + insert statements for the
-    # existing ingestion framework, no notebook/module tree), or "both".
-    # "rfc" (M5): framework artefacts + the assembled RFC deployment package
-    # (out/<slug>/RFC<number>_<Feed>/), see RfcConfig / PlaybookConfig.
-    # "all" = notebook tree + framework artefacts + the RFC package.
-    mode: Literal["notebook", "framework", "both", "rfc", "all"] = "notebook"
+    # The outputs a run produces (codegen.output_modes): "notebook" (Option
+    # A, the default — today's output exactly) and / or "framework" (Option
+    # B: DDL scripts + config rows + insert statements for the existing
+    # ingestion framework). A string or a list; stored as the list of parts.
+    # The retired "both" / "rfc" / "all" map to both parts with a one-time
+    # notice, never an error.
+    mode: list[Literal["notebook", "framework"]] = ["notebook"]
+    # D1 App demo (2026-10-13): the App's default output PER conventions profile,
+    # over `mode` — acfc_prx = framework, the only mode the scored runs used. The
+    # App's toggles still select any part; the CLI keeps `mode` / --output-mode.
+    profile_mode: dict[str, list[Literal["notebook", "framework"]]] = Field(
+        default_factory=dict)
+    # post91: the outputs the App OFFERS (its toggles, its runs, its panels); the
+    # CLI is not affected. [framework] = no notebook anywhere in the App - add
+    # notebook back to show it again.
+    app_options: list[Literal["notebook", "framework"]] = ["notebook", "framework"]
+    # post98: the framework files the App LISTS (its artefacts panel and combined
+    # set); every file is still written and the CLI is not affected. Drop a kind to
+    # hide it, add it back to show it again.
+    app_files: list[Literal["ddl", "ddl_tests", "iig", "iig_review", "addition", "log"]] = [
+        "ddl", "ddl_tests", "iig", "iig_review", "addition", "log"]
+    # post101: the blank IDs the App's artefacts panel tells the engineer to assign,
+    # each with a short hint (column -> hint), shown only when a feed leaves it
+    # blank. Empty = every framework-assigned blank column (the old long line). The
+    # combined _LOG.md and the review workbook still list / mark every blank column.
+    app_assign_ids: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _normalize_mode(cls, value):
+        from codegen.output_modes import output_parts
+
+        parts = output_parts(value, source="config output.mode")
+        if not parts:
+            raise ValueError("output.mode names no output; expected notebook and / or framework")
+        return parts
+
+    @field_validator("profile_mode", mode="before")
+    @classmethod
+    def _normalize_profile_mode(cls, value):
+        from codegen.output_modes import output_parts
+
+        return {profile: output_parts(parts, source=f"config output.profile_mode.{profile}")
+                for profile, parts in (value or {}).items()}
+
+    @field_validator("app_options")
+    @classmethod
+    def _some_app_option(cls, value):
+        if not value:
+            raise ValueError("output.app_options names no output; expected notebook and / "
+                             "or framework")
+        return value
+
+    def default_parts(self, profile: str | None) -> list[str]:
+        """The App's default output for a conventions profile (only what the
+        App offers; every offered part when the default names none of them)."""
+        parts = [p for p in self.profile_mode.get(profile or "", self.mode)
+                 if p in self.app_options]
+        return parts or list(self.app_options)
+
+    def app_parts(self, parts) -> list[str]:
+        """``parts`` narrowed to what the App offers."""
+        return [p for p in parts if p in self.app_options]
 
 
 class FrameworkConfig(BaseModel):
@@ -83,6 +150,11 @@ class FrameworkConfig(BaseModel):
 
     metadata_layout: str = "demo.metadata_sheet"
     sql_dialect: Literal["sqlserver", "lakebase"] = "sqlserver"
+    # post155: the FRD file-format words that mean the source is a DATABASE TABLE
+    # (compared lower case, spaces collapsed). Table ingestion (the RDMS sheet) is
+    # not built: such a feed gets its DDL and test cases, never file-ingestion IIG
+    # rows. [] = every feed is file ingestion.
+    table_source_formats: list[str] = Field(default_factory=list)
     id_placeholder: str = "NULL"
     # Optional per-tab table override, e.g. {file_layout: dbo.ig_file_layout}.
     tables: dict[str, str] = Field(default_factory=dict)
@@ -144,6 +216,9 @@ class ExtractorFileDetailsHeaders(BaseModel):
     vendor: list[str]
     file_name: list[str]
     frequency: list[str]
+    # The row's target (stage) table, when the sheet states one: the content-
+    # driven reader's link for a mapping sheet whose TableName cells are blank.
+    target_table: list[str] = Field(default_factory=list)
 
 
 # Logical source-block columns the workbook parser must be able to resolve.
@@ -207,6 +282,7 @@ class SegmentedExtractorConfig(BaseModel):
     # Canonical segment names as the Segment column spells them.
     segment_names: dict[str, str] = Field(default_factory=lambda: {
         "header": "Header", "detail": "Detail", "trailer": "Trailer",
+        "na": "NA",
     })
     # Member-existence recycle (FRD 1005034 Data Quality Functional
     # Requirement: "Perform Member Id validation for existence against the
@@ -236,6 +312,55 @@ class ValidateConfig(BaseModel):
         r"|s?9\(\d+\)(?:v9+|v\d+)?|x\(\d+\)|an|n|x|9)")
 
 
+_CANDIDATE_FLOOR = 4
+
+
+class LayerEvidenceConfig(BaseModel):
+    """Which layer a target-shaped band belongs to — EVIDENCE only, never
+    column order (Chunk A, 2026-10-09; ``codegen.layout.discover``). A band
+    is located by its label group (Catalog / Schema / TableName / ColumnName /
+    DataType …) wherever it sits in the header row; its layer comes from, in
+    this order: a person's answer, the band title row above the headers
+    (``titles``), a whole word of the band's own header texts
+    (``header_words``), the band's Catalog VALUES (``catalog_words``), its
+    Schema VALUES (``schema_prefixes``). A band nothing names — or two bands
+    naming the same layer — is the question ``<sheet>/band[<n>]/layer``.
+    Words are matched whole (a header / title / value split on every
+    non-alphanumeric run, lowercased); prefixes against the lowercased value.
+    Empty defaults = no evidence at all: every unlabelled band is asked."""
+
+    model_config = _MODEL_CONFIG
+
+    titles: dict[str, list[str]] = Field(default_factory=dict)
+    header_words: dict[str, list[str]] = Field(default_factory=dict)
+    catalog_words: dict[str, list[str]] = Field(default_factory=dict)
+    schema_prefixes: dict[str, list[str]] = Field(default_factory=dict)
+    # A run of header cells is a target-shaped band when it places at least
+    # this many of catalog / schema / table / column / target_type.
+    group_min_location_roles: int = Field(default=3, ge=2)
+    # Non-target header cells tolerated inside one band before it closes.
+    group_max_gap: int = Field(default=2, ge=0)
+    # Data rows read below the header for catalog / schema value evidence.
+    value_scan_rows: int = Field(default=200, gt=0)
+    # Chunk B (cold drill) - pass 3, only when no sheet is a mapping sheet by
+    # a band row or a label group: a header row with at least this many text
+    # cells is a CANDIDATE mapping sheet when a band title row of two or more
+    # spans sits over it, or runs of at least ``candidate_min_run`` adjacent
+    # headers share their first word ("Landing Catalog | Landing Schema …").
+    candidate_min_header_cells: int = Field(default=8, ge=_CANDIDATE_FLOOR)
+    candidate_min_run: int = Field(default=3, ge=2)
+
+    @model_validator(mode="after")
+    def _check_layers(self) -> LayerEvidenceConfig:
+        layers = {"source", "rules", "stage", "standard"}
+        problems = [f"{name}: unknown layer {layer!r}"
+                    for name in ("titles", "header_words", "catalog_words", "schema_prefixes")
+                    for layer in getattr(self, name) if layer not in layers]
+        if problems:
+            raise ValueError("extractor.discovery.layer_evidence: " + "; ".join(problems))
+        return self
+
+
 class DiscoveryConfig(BaseModel):
     """Content-driven layout discovery vocabulary (M1) — the synonym tables
     behind ``codegen.layout.discover``. EVERYTHING here is data: band-label
@@ -245,7 +370,13 @@ class DiscoveryConfig(BaseModel):
     tables resolves nothing and discovery says so loudly, rather than
     carrying a second copy of the vocabulary in code."""
 
-    model_config = _MODEL_CONFIG
+    model_config = _ALIASED_MODEL_CONFIG
+
+    # post94 (pairs 08 / 10): a row whose stage data type is empty while its standard
+    # band types it - the blocking question proposes the stage type the SAME sheet's
+    # other rows pair with that standard type, when they agree on it unanimously over
+    # at least this many rows (else no proposal). Never written unasked.
+    stage_type_proposal_min_rows: int = 3
 
     # How many leading rows are scanned for band / header / meta rows.
     scan_rows: int = Field(default=40, gt=0)
@@ -256,16 +387,31 @@ class DiscoveryConfig(BaseModel):
     roles: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
     # meta key -> label spellings (label:value rows above the band row).
     meta_synonyms: dict[str, list[str]] = Field(default_factory=dict)
+    # M9.0: placeholders a meta VALUE cell writes for "nothing stated yet"
+    # ("TBD") — read as blank, so the fallback chain looks further.
+    meta_blank_values: list[str] = Field(default_factory=list)
     # canonical segment (Header/Detail/Trailer) -> spellings seen in Segment
     # columns, sheet names and in-sheet banner rows.
     segment_synonyms: dict[str, list[str]] = Field(default_factory=dict)
+    # 2026-10-15 (D1 post51 pair_05): Segment-cell spellings that say "no
+    # segment" ('NA', '-'). A sheet whose Segment cells are only these (or
+    # blank) is UNSEGMENTED; the segmented path needs one real segment word.
+    # Kept out of segment_synonyms: those spellings also mark banner rows and
+    # segment-named sheets, which 'NA' must never do.
+    unsegmented_markers: list[str] = Field(default_factory=list)
     # sheet kind -> alternatives, each a list of header tokens that must ALL
     # appear (normalized substring) on one of the first rows.
     auxiliary_sheets: dict[str, list[list[str]]] = Field(default_factory=dict)
+    # 2026-10-13 (D1 pair_11): sheet names (``normalize`` form) that are the
+    # workbook's METADATA, never a feed — a "Table_Details" sheet whose short
+    # "Stage Table | Standard Table" header row reads like a band row.
+    metadata_sheet_names: list[str] = Field(default_factory=list)
     yes_values: list[str] = Field(default_factory=list)
     no_values: list[str] = Field(default_factory=list)
-    # Validator thresholds (M2.5 §4).
-    validate: ValidateConfig = ValidateConfig()
+    # Validator thresholds (M2.5 §4); YAML key ``validate``.
+    thresholds: ValidateConfig = Field(default=ValidateConfig(), alias="validate")
+    # Chunk A (2026-10-09): band location by label group + layer evidence.
+    layer_evidence: LayerEvidenceConfig = LayerEvidenceConfig()
 
     @model_validator(mode="after")
     def _check_vocabulary(self) -> DiscoveryConfig:
@@ -297,11 +443,34 @@ class FrdExtractorConfig(BaseModel):
 
     section_titles: dict[str, list[str]] = Field(default_factory=dict)
     labels: dict[str, list[str]] = Field(default_factory=dict)
+    # post94 (pair_03: "Truncate & Load (Delete existing records ...)"): spellings of a
+    # load strategy the FRD writes, beyond the canonical three. A trailing
+    # parenthetical explanation is ignored when matching.
+    load_strategy_synonyms: dict[str, Literal["Truncate and Load", "Append", "Upsert"]] = Field(
+        default_factory=dict)
     # Rows 1-3 of every F1 section table (and the F2 SR rows) by label.
     fixed_rows: dict[str, list[str]] = Field(default_factory=dict)
     solution_requirement_prefix: str = "Solution Requirement"
-    # 0-based row index whose first cell names the metadata section (F2).
+    # 0-based row index whose first cell names the metadata section (F2); a
+    # table whose row there names none is scanned for the row that does.
     solution_requirement_section_row: int = Field(default=4, ge=1)
+    # 2026-10-15 (D1 post51 pairs 08-10, untitled SR tables): the F2 table's
+    # row-label fingerprint (SHAPES_FOR_PORT section F2). A table is a Solution
+    # Requirement table when its short cells name every required label and
+    # at least ``min_labels`` of these (normalized; a cell may continue the
+    # label after ' ', ':', '/', '(' or '-'); the caption is a second signal.
+    solution_requirement_labels: list[str] = Field(default_factory=lambda: [
+        "Name", "Business Requirement", "Functional Requirement", "Impact Details",
+        "Solution Acceptance Criteria", "Priority", "Source/Reference", "Traced Requirements",
+        "Related Requirements", "IS Owner"])
+    solution_requirement_required_labels: list[str] = Field(default_factory=lambda: [
+        "Business Requirement", "Functional Requirement"])
+    solution_requirement_min_labels: int = Field(default=5, ge=2)
+    # post84 (pair_11): the labels a Solution Requirement row states its file's landing
+    # under ("<label> : <path>", the path on the same line or the next one) — read per
+    # requirement (its Name row) when the metadata's ADLS Location cell lists several
+    requirement_landing_labels: list[str] = Field(default_factory=lambda: [
+        "Raw ADLS Location", "ADLS Location"])
     inline_pair_separators: list[str] = Field(default_factory=lambda: [";"])
     list_separators: list[str] = Field(default_factory=lambda: [",", ";", "\n"])
     domain_separators: list[str] = Field(default_factory=lambda: ["/", ","])
@@ -310,6 +479,50 @@ class FrdExtractorConfig(BaseModel):
     acd_headers: list[str] = Field(default_factory=lambda: ["ACD Type", "Name", "Description"])
     # Cell texts that mean "blank" (a stated placeholder, never a value).
     blank_values: list[str] = Field(default_factory=list)
+    # M7: a value containing one of these phrases points at another document
+    # ("refer to the File Details tab of the mapping document"): UNSTATED +
+    # flag frd_pointer, resolved through the fallback chain. Never a value.
+    pointer_phrases: list[str] = Field(default_factory=list)
+    # Round 7 (D1 App, VDD attached): the words that make a 'format' cell a FILE
+    # FORMAT (csv, pipe, fixed width, ...). A cell naming none ("File Data
+    # Ingestion" — an ingestion type) is never a format candidate; the file
+    # pattern's extension decides. Empty = every cell counts (the old reading).
+    format_tokens: list[str] = Field(default_factory=list)
+    # 2026-10-13 (D1 pair_11): a format cell that says only "a text file"
+    # (``normalize`` form) names no layout; a .csv / .psv / .tsv / .txt
+    # extension the documents state decides (a NOTE), never a question.
+    generic_text_formats: list[str] = Field(default_factory=list)
+    # M7: fields whose value must be one line — a nested table, per-file
+    # blocks, a label-prefixed description or remaining line breaks make
+    # them unstated (StructuredValue) instead of a value.
+    single_line_fields: list[str] = Field(default_factory=list)
+    # 2026-10-14 (D1 pair_12): the LOB cell may hold a Region / LOB table (a
+    # nested table, or its cells flattened one per line under a header row).
+    # A header in ``lob_table_lob_headers`` is the LOB column; every other
+    # key the files are matched by, in order: a plan-id column
+    # (``lob_table_plan_headers``), then a region column (``..._region_headers``,
+    # REG#) — the resolver's LOB lookup (codegen.resolve.files). The flattened
+    # form is recognised only when its leading lines are all headers from these
+    # lists (normalised: case, blanks).
+    lob_table_lob_headers: list[str] = Field(default_factory=list)
+    lob_table_plan_headers: list[str] = Field(default_factory=list)
+    lob_table_region_headers: list[str] = Field(default_factory=list)
+    # M7: words that mark the first row of a nested table as a header row.
+    nested_table_header_words: list[str] = Field(default_factory=list)
+    # M7: how much of a refused cell's text the contract keeps (logged only).
+    structured_text_max_chars: int = Field(default=200, gt=0)
+    # M9.3: an inline LAYER BLOCK inside a target cell — a heading line
+    # "<layer marker> <heading word>:" ("Staging Layer:"; the markers are
+    # target_schema_markers) followed by "Label: value" lines. Heading words
+    # and the label spellings per slot (table / schema / catalog) are data.
+    layer_block_heading_words: list[str] = Field(default_factory=list)
+    layer_block_labels: dict[str, list[str]] = Field(default_factory=dict)
+    # M9.1b: an Object Name cell that is a BLOCK (several lines, or a nested
+    # label | value table) is read per line / row: a value under a
+    # `feed_name` label names the feed, a value under a `file_name` label —
+    # or any file-like value under another label (a line of business) — is a
+    # file name pattern. Raw block text never lands in a scalar.
+    object_name_labels: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class VddExtractorConfig(BaseModel):
@@ -329,6 +542,9 @@ class VddExtractorConfig(BaseModel):
     type_equivalence: list[list[str]] = Field(default_factory=list)
     # FRD file-format words that mean fixed width (positions required).
     fixed_width_tokens: list[str] = Field(default_factory=list)
+    # A dictionary missing more than this share of the STTM's fields covers a
+    # different sheet / feed: ONE vdd_scope_mismatch flag, not one per field.
+    scope_mismatch_ratio: float = 0.8
 
 
 class ExtractorConfig(BaseModel):
@@ -342,6 +558,24 @@ class ExtractorConfig(BaseModel):
     table_block_headers: list[str] = Field(min_length=4, max_length=4)
     recycle_header_prefix: str
     audit_source_markers: list[str] = Field(min_length=1)
+    # post94 (pair_08: the audit rows written as mapping rows, a description cell in
+    # the source band): a row with NO source field name whose stage column is one
+    # of these names is an audit row too. Empty = only the markers above.
+    audit_column_names: list[str] = Field(default_factory=list)
+    # M9.2: target-column cell texts (normalized) by which an STTM says a
+    # source field is NOT mapped ("Do Not Map"). Such a field is left out of
+    # both layers and counted in the feed's skipped_rows flag, citing the cell
+    # (post74: read together with the conventions profile's skip_row_markers).
+    unmapped_markers: list[str] = Field(default_factory=list)
+    # A delimiter stated as a word ("Pipe", "comma delimited") -> the
+    # character every artefact writes (first real-row scorecard, 2026-10-08).
+    delimiter_words: dict[str, str] = Field(default_factory=lambda: {
+        "comma": ",", "pipe": "|", "tab": "\t", "semicolon": ";", "caret": "^",
+        "tilde": "~", "colon": ":"})
+    # Multi-table rule 2 (docs/acfc/MULTI_TABLE_DESIGN.md): a file-pattern
+    # token that varies by LOB (matched case-insensitively). A pattern holding
+    # one expands to one file per LOB the header block lists.
+    lob_tokens: list[str] = Field(default_factory=lambda: ["<LOB>", "{LOB}", "[LOB]"])
     file_details_headers: ExtractorFileDetailsHeaders
     recycle_on_match: str
     recycle_on_no_match: str
@@ -355,6 +589,12 @@ class ExtractorConfig(BaseModel):
     frd: FrdExtractorConfig = FrdExtractorConfig()
     # Vendor Data Dictionary vocabulary (M3); empty = nothing resolves, loudly.
     vdd: VddExtractorConfig = VddExtractorConfig()
+    # M11 item 11: a document worksheet's dead tail — empty (styled only)
+    # cells more than this many rows below the data — is dropped on load; a
+    # cell with a value never is. A sheet formatted a million rows down
+    # otherwise makes every scan create a cell per row
+    # (codegen.layout.extent). 0 = trust max_row (the old behaviour).
+    used_range_empty_rows: int = Field(default=500, ge=0)
 
     @model_validator(mode="after")
     def _check_header_synonym_keys(self) -> ExtractorConfig:
@@ -371,17 +611,122 @@ class ExtractorConfig(BaseModel):
         return self
 
 
+class ModelPriceConfig(BaseModel):
+    """One model's price, US dollars per million tokens, and where it comes
+    from (``source``, e.g. "anthropic list price, 2026-10-06")."""
+
+    model_config = _MODEL_CONFIG
+
+    input: float = Field(ge=0)
+    output: float = Field(ge=0)
+    cache_read: float = Field(ge=0)
+    source: str
+
+    def cost_usd(self, *, input_tokens: int, output_tokens: int,
+                 cache_read_tokens: int = 0) -> float:
+        return (input_tokens * self.input + output_tokens * self.output
+                + cache_read_tokens * self.cache_read) / 1_000_000
+
+
+# Which price a cost was computed at (codegen.config.PriceTableConfig.rate).
+PRICE_BASIS_LIST = "list"
+PRICE_BASIS_WORKSPACE = "workspace"
+
+
+class PriceTableConfig(BaseModel):
+    """Per-model prices by model id: ``anthropic`` = Anthropic list prices;
+    ``databricks_fmapi`` = this workspace's per-token rate (the DBU rate in
+    $/MTok), empty until the workspace fills it — a run through the FM API
+    endpoint is priced at it when its model has a row."""
+
+    model_config = _MODEL_CONFIG
+
+    anthropic: dict[str, ModelPriceConfig] = Field(default_factory=dict)
+    databricks_fmapi: dict[str, ModelPriceConfig] = Field(default_factory=dict)
+
+    def rate(self, provider: str | None, model: str | None) -> tuple[ModelPriceConfig, str] | None:
+        """(price, basis) for a call ``provider`` made to ``model``: the
+        workspace's rate for an FM API call when it has the model, else the
+        Anthropic list price; None when neither has a row."""
+        if provider == "databricks_fmapi" and (model or "") in self.databricks_fmapi:
+            return self.databricks_fmapi[model or ""], PRICE_BASIS_WORKSPACE
+        if (model or "") in self.anthropic:
+            return self.anthropic[model or ""], PRICE_BASIS_LIST
+        return None
+
+
+class DbuRateConfig(BaseModel):
+    """post145: what a model's tokens cost in DBUs through the Databricks
+    Foundation Model API, DBU per million tokens, and where the rate comes from."""
+
+    model_config = _MODEL_CONFIG
+
+    input: float = Field(ge=0)
+    output: float = Field(ge=0)
+    source: str
+
+    def dbu(self, *, input_tokens: int, output_tokens: int) -> float:
+        return (input_tokens * self.input + output_tokens * self.output) / 1_000_000
+
+
+class NewPairLayoutEstimate(BaseModel):
+    """post145: the DBU range the confirm dialog states for a pair the agent has
+    not mapped before (its first run makes the layout calls) while no recorded
+    run has measured one; ``source`` says what the range rests on."""
+
+    model_config = _MODEL_CONFIG
+
+    dbu_low: float = Field(ge=0)
+    dbu_high: float = Field(ge=0)
+    source: str
+
+
+class ResponseLimitsConfig(BaseModel):
+    """post159 (P2-2, L2-5): the longest Layer-2 answer the schema accepts
+    (codegen.reasoning.schema); an over-limit answer is a schema failure."""
+
+    model_config = _MODEL_CONFIG
+
+    rationale_max_chars: int = Field(gt=0)
+    code_candidate_max_chars: int = Field(gt=0)
+    citation_max_chars: int = Field(gt=0)
+    citations_max_items: int = Field(gt=0)
+
+
 class ReasoningConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
     model: str
     max_tokens: int = Field(gt=0)
     max_attempts: int = Field(gt=0)
+    # 2026-10-14: a response that ends inside its JSON object (cut off at
+    # max_tokens — the endpoint's extended thinking spends the same budget) is
+    # retried with this many tokens, said in the log.
+    truncation_max_tokens: int = Field(default=32000, gt=0)
+    # post159 (P1-6, L2-3): the fewest words a Layer-2 citation may quote (a
+    # whole rule / excerpt that is shorter still counts); at least one citation
+    # must quote the candidate's own rule (codegen.reasoning.grounding).
+    min_citation_words: int = Field(gt=0)
+    response_limits: ResponseLimitsConfig
     # Layer-2 transport: "anthropic" (default, direct API) or
     # "databricks_fmapi" (the same Claude model served by Databricks
     # Foundation Model APIs — a transport, not a vendor change; Anthropic
     # remains the sole model vendor). Mock always wins on dry-run.
     provider: str = "anthropic"
+    # 2026-10-13: mock | live — the ONE provider switch (codegen.reasoning.mode);
+    # CODEGEN_PROVIDER / --provider win. Never inferred from an endpoint.
+    mode: Literal["mock", "live"] = "mock"
+    # post67: what a live run's measured tokens cost (the App's confirm
+    # dialog); a model missing from the table = no dollars shown, never a guess
+    prices: PriceTableConfig | None = None
+    # post145: DBU per million tokens by model id for FM API calls (the dialog's
+    # new-pair layout cost); a model missing here = no measured DBU figure
+    dbu_rates: dict[str, DbuRateConfig] = Field(default_factory=dict)
+    # post76: the Layer-2 stage (codegen.layer2_stage), run after the outcome:
+    # now = one request per feed | defer = kept for `codegen layer2` / the App's
+    # review panel | skip. --layer2 wins on the CLI.
+    layer2_cli: Literal["now", "defer", "skip"] = "now"
+    layer2_app: Literal["now", "defer", "skip"] = "defer"
 
 
 class DemoInputDocumentsConfig(BaseModel):
@@ -506,10 +851,12 @@ class DemoConfig(BaseModel):
     vdd_pairing_map: dict[str, str] = Field(default_factory=dict)
     # Workbook the live demo extracts from (repo-relative path).
     workbook: str
-    # Cost-confirmation copy shown before a live run fires.
-    estimated_calls: int = Field(gt=0)
-    estimated_cost_usd: float = Field(gt=0)
-    estimated_seconds: int = Field(gt=0)
+    # post67: the live-run confirm dialog shows ranges from the last N live
+    # runs per conventions profile (ui/backend/run_history.py) — no constants.
+    run_history_size: int = Field(default=10, gt=0)
+    # post145: the new-pair layout cost the dialog states until a recorded run
+    # measured one (then the measurement wins); None = the line says no figure
+    new_pair_layout_estimate: NewPairLayoutEstimate | None = None
     # Display-only panels (codegen.demo_sources); all default so an older
     # config still loads unchanged.
     # Shell-block source: live (list the real landing volume) | synthetic
@@ -634,6 +981,9 @@ class EngineeringStandardsConfig(BaseModel):
     # A feed with no resolvable frequency ships unscheduled, i.e. it runs
     # ad hoc — the EDO abbreviation for that is the honest default.
     unknown_frequency_abbreviation: str = "ADH"
+    # post85: the Naming Standards' Load Strategy table (a child pipeline name's
+    # <Load Strategy>), keyed by the FRD's load-strategy spelling
+    load_strategy_abbreviations: dict[str, str] = Field(default_factory=dict)
     # A feed spanning more than one LOB uses the EDO "All" abbreviation.
     multi_lob_abbreviation: str = "ALL"
     # MVP prerequisite: raw/stage/standard tables already exist in the target
@@ -654,6 +1004,50 @@ class LoadPatternFaqConfig(BaseModel):
     per_feed_dir: str = "fixtures/faq"
 
 
+class DerivationsConfig(BaseModel):
+    """M7 derivation gate knobs (codegen.gate.derivations). The framework's
+    own length limits are not documented: the defaults are CONSERVATIVE and
+    say so; replace them with the framework team's figures when known."""
+
+    model_config = _MODEL_CONFIG
+
+    name_pattern: str = r"^[A-Za-z0-9_]+$"
+    # IIG columns that must be identifiers (charset + cap).
+    name_columns: list[str] = Field(default_factory=lambda: [
+        "PIPELINE_NAME", "DATABRICKS_NOTEBOOK_NAME", "TGT_TABLE_NAME", "SRC_TABLE_NAME",
+        "TGT_DATABASE_NAME", "TGT_SCHEMA_NAME", "SRC_SCHEMA_NAME", "TGT_CATALOG_NAME",
+        "SRC_CATALOG_NAME", "TGT_RJT_TABLE_NAME", "RECYCL_TBL_NM"])
+    # Per-column charset overriding name_pattern (a notebook name is a file
+    # name: the framework's own carry a version dot, e.g. "_V0.1").
+    name_patterns: dict[str, str] = Field(default_factory=dict)
+    # "default" + per-column caps (conservative; framework limits unknown).
+    name_max_length: dict[str, int] = Field(default_factory=lambda: {"default": 128})
+    path_column_suffixes: list[str] = Field(default_factory=lambda: ["_PATH", "_DIR", "_ROOT_DIR"])
+    # 2026-10-14 (framework owner): columns whose value may be a comma-separated
+    # LIST — the corpus's two-notebook form (handler + DQ notebook) in
+    # DATABRICKS_NOTEBOOK_NAME / _PATH; it passes when EVERY segment passes the
+    # column's own rule (an identifier for a name, the path rules for a path).
+    list_columns: list[str] = Field(default_factory=lambda: [
+        "DATABRICKS_NOTEBOOK_NAME", "DATABRICKS_NOTEBOOK_PATH"])
+    path_max_length: int = Field(default=1024, gt=0)
+    # A WF_/NB_ name component longer than this after sanitizing is prose,
+    # not a token: the component stays blank (and the name is flagged blank).
+    max_name_token_length: int = Field(default=32, gt=0)
+    sibling_suffixes: list[str] = Field(default_factory=lambda: [
+        "_pct", "_pop", "_amt", "_dt", "_cd", "_id", "_nm", "_flg", "_cnt", "_ind", "_qty"])
+    sibling_min_group: int = Field(default=3, ge=2)
+    # 2026-10-14 (D1 pair_12): IIG columns holding ONE code (fnmatch patterns
+    # over the header): a written cell with a comma / semicolon / line break,
+    # or a header word (``single_value_header_words``, or the column's own
+    # name), FAILS the gate with its address (gate check iig_single_value).
+    # (FREQUENCY is not one: iig_v1 still writes the FRD's cadence sentence there.)
+    single_value_columns: list[str] = Field(default_factory=lambda: [
+        "LOB", "CLAIM_TYPE*", "ACTIVE_FLAG", "ACTIVE_RULE_FLG", "*_FLAG", "*_FLG",
+        "TGT_PARTITION_VALUE"])
+    single_value_header_words: list[str] = Field(default_factory=lambda: [
+        "LOB", "Line of Business", "Region", "REG#", "Plan ID", "Claim Type"])
+
+
 class GateConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -662,12 +1056,24 @@ class GateConfig(BaseModel):
     structural_checks: bool
     debug_patterns: list[str]
     pytest_tail_lines: int = Field(gt=0)
+    # M7: derived names / paths / SQL literals + sibling types (defaults so an
+    # older config still loads).
+    derivations: DerivationsConfig = DerivationsConfig()
+    # 2026-10-26: the sqlglot dialect every emitted DDL text must parse under
+    # (codegen.gate.ddl_parse); None = the check is not run.
+    ddl_parse_dialect: str | None = None
+    # post158 (pentest CS-1): the spelling a stated DDL data type must have to be
+    # written as stated (codegen.gate.ddl_names.check_ddl_types); None = no check.
+    ddl_type_pattern: str | None = None
 
 
 class JobConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
     notification_emails: list[str]
+    # 2026-10-13: EMAIL_TEMPLATE_CONFIG SENDER_EMAIL ({sender}); env
+    # CODEGEN_NOTIFICATION_SENDER wins (a client address never in the YAML).
+    notification_sender: str = ""
     spark_version: str
     node_type_id: str
     num_workers: int = Field(ge=0)
@@ -682,9 +1088,16 @@ class JobConfig(BaseModel):
 class LayoutConfig(BaseModel):
     """Layout recognition (M2.5): profile caches, the mock answer directory,
     the provider posture and the confidence a model-placed role starts with.
-    Paths are repo-relative. A config without the section still loads."""
+    Paths are repo-relative. A config without the section still loads.
 
-    model_config = _MODEL_CONFIG
+    D1 post51: pydantic < 2.10 reserves the ``model_`` prefix, and a field named
+    ``model_confidence`` printed a ``protected_namespaces`` UserWarning on every
+    import (read by the harness as pair_07's error). The field is
+    ``placed_confidence`` in Python, YAML key ``model_confidence`` kept as alias;
+    ``protected_namespaces=()`` keeps any future ``model_*`` field quiet too."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True,
+                              protected_namespaces=())
 
     # Repo cache(s) of completed profiles, searched in order, keyed by the
     # ``fingerprint`` field inside each JSON file.
@@ -694,14 +1107,188 @@ class LayoutConfig(BaseModel):
     runtime_cache_dir: str = "ui/backend/state/layout_profiles"
     # Mock provider answers (adversarial + hand-written), then cache_dirs.
     mock_dir: str = "fixtures/layout_profiles/mock"
-    # auto (live when Layer 2 is live) | mock (never call a model).
-    provider: Literal["auto", "mock"] = "auto"
+    # auto (live when Layer 2 is live) | mock (never call a model) | live (the
+    # recognizer calls the Foundation Model endpoint below on its own — also
+    # when Layer 2 is mock-locked; dry-run and CODEGEN_FORCE_MOCK_LAYOUT still
+    # force the mock). Env CODEGEN_LAYOUT_PROVIDER / CODEGEN_LAYOUT_ENDPOINT win.
+    provider: Literal["auto", "mock", "live"] = "auto"
+    # The serving endpoint `live` queries; None = databricks.serving_endpoint.
+    endpoint: str | None = None
     max_tokens: int = Field(default=8192, gt=0)
     max_attempts: int = Field(default=2, gt=0)
     # Confidence a model-placed role starts with (validated, not trusted).
-    model_confidence: float = Field(default=0.8, ge=0, le=1)
+    # YAML key ``model_confidence`` (alias; see the class docstring).
+    placed_confidence: float = Field(default=0.8, ge=0, le=1, alias="model_confidence")
     # Confidence bump a cross-document agreement adds (capped at 1.0).
     crosscheck_bonus: float = Field(default=0.1, ge=0, le=1)
+    # P1-7 (red team LM-5 / PPL-3, 2026-10-30): size caps on what a layout
+    # MODEL request carries. Applied to the model's copy only - the fingerprint
+    # (the cache key) still hashes the full header region. A cell / label /
+    # partial-profile string longer than ``max_cell_chars`` is clipped; cells
+    # are sent for at most ``max_sheets_sent`` sheets with open roles (the
+    # rest: summary line only); a request whose JSON is longer than
+    # ``max_prompt_chars`` is refused before the provider is called (REASONS
+    # ``layout.request_too_large``) and never retried.
+    max_cell_chars: int = Field(default=500, gt=0)
+    max_prompt_chars: int = Field(default=250_000, gt=0)
+    max_sheets_sent: int = Field(default=60, gt=0)
+    # P1-2 (red team LM-2): whether a profile carrying a role the MODEL placed
+    # (no person answered it) is written to the runtime / state cache. true =
+    # the pre-P1-2 behaviour (the next run with the same fingerprint is served
+    # from the cache, no model call); every cache hit re-validates its model-
+    # and user-placed roles against the CURRENT workbook either way. false =
+    # such a profile is never written: the next run asks the model again.
+    cache_model_placements: bool = True
+
+    @model_validator(mode="after")
+    def _cache_paths_are_local(self) -> LayoutConfig:
+        """The caches are LOCAL directories. A /Volumes or /Workspace path here
+        is the serverless PermissionError (docs/acfc/RETROFIT_LOG.md §8): the
+        durable runtime cache is ``storage.state`` (<state>/layout_profiles)."""
+        runtime = self.runtime_cache_dir.replace("\\", "/").strip("./")
+        if runtime.split("/")[0] == "fixtures" or runtime in {
+                d.replace("\\", "/").strip("./") for d in self.cache_dirs}:
+            raise ValueError(
+                f"layout.runtime_cache_dir {self.runtime_cache_dir!r} is a tracked fixture "
+                "directory — runtime profiles carry real sheet names and never land there")
+        for value in (self.runtime_cache_dir, self.mock_dir, *self.cache_dirs):
+            normalized = value.replace("\\", "/")
+            if normalized.startswith(("/Volumes", "/Workspace")):
+                raise ValueError(
+                    f"layout cache path {value!r} addresses a Databricks mount — set "
+                    "storage.state to a volume: / workspace: URI instead; the runtime "
+                    "profile cache then lives at <state>/layout_profiles")
+        return self
+
+
+class StorageConfig(BaseModel):
+    """Where inputs, state and outputs live (M8.1): one storage URI per role —
+    ``local:<dir>`` (relative = inside the checkout), ``workspace:/Workspace/
+    Users/<user>/…`` (Workspace API) or ``volume:/Volumes/<catalog>/<schema>/
+    <volume>/…`` (Files API; never the /Volumes mount). Env
+    ``CODEGEN_STORAGE_INPUTS`` / ``_STATE`` / ``_OUTPUTS`` win. A config
+    without the section keeps the pre-M8 local directories."""
+
+    model_config = _MODEL_CONFIG
+
+    inputs: str = "local:./inputs"
+    state: str = "local:./ui/backend/state"
+    # None = the generator's own output.dir (local), as before M8.
+    outputs: str | None = None
+    # Local scratch for the working copies of a remote role (None = the
+    # system temp dir). Never the record: recreated freely.
+    scratch_dir: str | None = None
+
+    @model_validator(mode="after")
+    def _uris_parse(self) -> StorageConfig:
+        from codegen.storage import parse_uri
+
+        for uri in (self.inputs, self.state, self.outputs):
+            if uri is not None:
+                parse_uri(uri)
+        return self
+
+
+def _default_pair_weights() -> dict[str, float]:
+    return {"feed_name": 2.0, "tables": 3.0, "schema": 1.0, "file_patterns": 3.0,
+            "meta": 1.0, "ticket": 1.0, "name_stem": 1.0}
+
+
+class PairingConfig(BaseModel):
+    """Auto-pairing by content (M8.2, ``codegen.pairing``): signal weights —
+    content signals outweigh the two name signals (ticket, name_stem) — and
+    the decision rule: pair only when the best candidate reaches
+    ``min_score`` AND leads the next by ``margin``; otherwise the top
+    ``top_candidates`` become a question."""
+
+    model_config = _MODEL_CONFIG
+
+    weights: dict[str, float] = Field(default_factory=_default_pair_weights)
+    min_score: float = Field(default=3.0, gt=0)
+    margin: float = Field(default=2.0, gt=0)
+    top_candidates: int = Field(default=4, gt=0)
+    # 2026-10-13: names are a token key (role tokens dropped wherever they
+    # sit); no exact key → the unique token overlap (Jaccard) at or above this
+    # pairs, with a NOTE; below it is a question, never a pair. 0.8 keeps one
+    # EXTRA token (6/7) and refuses one SUBSTITUTED token (5/7 — a sibling feed).
+    name_fuzzy_threshold: float = Field(default=0.8, ge=0.5, le=1.0)
+    # A pairs override file (codegen.pairing, "the pairs override file"); env
+    # CODEGEN_PAIRING_OVERRIDES wins. A pairing_overrides.yaml next to the
+    # documents is found without this.
+    overrides_file: str | None = None
+
+    @model_validator(mode="after")
+    def _weights_complete(self) -> PairingConfig:
+        missing = sorted(set(_default_pair_weights()) - set(self.weights))
+        if missing:
+            raise ValueError(f"inputs.pairing.weights is missing {missing}")
+        return self
+
+
+class UpstreamConfig(BaseModel):
+    """The upstream FRD→STTM agent's contract table (a SQL Warehouse read).
+    OFF by default — the standalone doctrine: the agent runs from the documents
+    themselves. Inside ACFC the App's service principal has no warehouse
+    permission, and a lookup on a request path is a way to hang the App
+    (docs/acfc/APP_CHOOSER_BUG.md). When ``enabled`` the listing runs in a
+    background task with a hard timeout and is never awaited by a request."""
+
+    model_config = _MODEL_CONFIG
+
+    enabled: bool = False
+    timeout_seconds: float = Field(default=20.0, gt=0)
+    # A listing (or its failure) is reused this long before the next refresh.
+    refresh_seconds: float = Field(default=300.0, ge=0)
+
+
+class InputsConfig(BaseModel):
+    """Input discovery (M8.2): extra read-only roots scanned for documents
+    (the root and its immediate subfolders — depth 1) next to the inboxes
+    under ``storage.inputs``. Storage URIs; env ``CODEGEN_EXTRA_INPUT_DIRS``
+    (';'-separated) is appended. Real folder names belong in an overlay."""
+
+    model_config = _MODEL_CONFIG
+
+    extra_dirs: list[str] = Field(default_factory=list)
+    scan_depth: int = Field(default=1, ge=0, le=1)
+    # A remote root's listing is an API call and the chooser polls: reuse a
+    # listing this long (an upload / fetch drops it at once).
+    listing_ttl_seconds: float = Field(default=30.0, ge=0)
+    # M9.3: the chooser's list endpoints return listing metadata only; each
+    # document is downloaded, classified (sttm | vdd | unclassified) and its
+    # pairing facts read ONCE, in a background task, within this many seconds
+    # per file — a file that exceeds it (or fails to open) is listed as
+    # "unreadable" with the reason, never omitted and never retried in a loop.
+    # A remote folder listing is waited for this long at most (M9.3 addendum): a
+    # root that does not answer is reported and its last known listing served.
+    listing_timeout_seconds: float = Field(default=30.0, gt=0)
+    # The document parser is a child process (codegen.layout.docworker); its
+    # START (interpreter + imports) has its own budget, apart from a file's.
+    parser_start_timeout_seconds: float = Field(default=60.0, gt=0)
+    classify_timeout_seconds: float = Field(default=60.0, gt=0)
+    # … and a selection's own downloads (the STTM, its pair) are bounded too.
+    select_timeout_seconds: float = Field(default=120.0, gt=0)
+    pairing: PairingConfig = PairingConfig()
+
+    @model_validator(mode="after")
+    def _uris_parse(self) -> InputsConfig:
+        from codegen.storage import parse_uri
+
+        for uri in self.extra_dirs:
+            parse_uri(uri)
+        return self
+
+
+# post128: the DDL test cases a conventions profile may write (codegen.emit.ddl_tests)
+DdlTestCase = Literal["file_available", "file_location", "column_mapping",
+                      "columns_populated", "column_shift", "mapping_mode", "record_count",
+                      "key_unique", "table_exists", "columns_match", "comments_present",
+                      "table_properties", "table_tags", "ddl_rerun",
+                      # post154: the pipeline-level cases of the client's own test
+                      # workbook (the load strategy on a second file, a second file,
+                      # several files at once, one email per configured status)
+                      "load_strategy", "second_file", "multiple_files",
+                      "notification_emails"]
 
 
 class ConventionsProfileConfig(BaseModel):
@@ -716,14 +1303,29 @@ class ConventionsProfileConfig(BaseModel):
     # two_files: <slug>_stage/_standard_table_creation.txt (today) |
     # combined: ONE file with '--stage table' / '--standard table' banners.
     ddl_layout: Literal["two_files", "combined"] = "two_files"
+    # post69: which notebook the Notebook output is — v1 (the module tree
+    # assembled into one notebook, unchanged) | v2 (rendered from the IIG rows
+    # the workbook emitter produced: codegen.emit.notebook_v2).
+    notebook_version: Literal["v1", "v2"] = "v1"
     # combined-layout file name; {feed_abbrev} = the FAQ's feed_abbreviation
     # (client-assigned), else the sanitized slug + a flag.
     ddl_file_name_pattern: str = "{feed_abbrev}_DDL.txt"
     # Stage columns typed as the STTM stage band states them (not STRING).
     typed_stage: bool = False
-    # Standard table column list = the stage list (client convention).
+    # Standard-table column TYPES (client convention): each column's type
+    # comes from the STTM standard band, normalised through
+    # emit.context.sql_type; a type equal to the stage type keeps the stage
+    # text. Blank -> the stage type, flagged standard_type_blank; unmappable
+    # -> written as stated, flagged standard_type_unmapped. Multi-table step 6
+    # (emit.framework.table_definitions): per table, the standard columns are
+    # the stage rows that carry a Standard band, in stage order, named by that
+    # band; a table none of whose rows carries one keeps the stage list.
     standard_from_stage: bool = False
-    create_statement: str = "CREATE OR REPLACE TABLE"
+    # post112 (codeflow audit #12): the CREATE wording of BOTH layouts (the
+    # combined file and edo_sfmc's two files). The engineer RUNS the DDL, so the
+    # default is the re-runnable form; only a golden that needs OR REPLACE pins it
+    # (the pair-1 fixture overlay).
+    create_statement: str = "CREATE TABLE IF NOT EXISTS"
     using_clause: str = "USING delta"
     stage_banner: str = "--stage table"
     standard_banner: str = "--standard table"
@@ -733,6 +1335,196 @@ class ConventionsProfileConfig(BaseModel):
     block_using_prefix: dict[str, str] = Field(default_factory=dict)
     # Audit-column type spelling in the DDL (contract enum -> as written).
     audit_type_casing: dict[str, str] = Field(default_factory=dict)
+    # post104 (Nikshit's review, 2026-10-23) — combined layout only; each off
+    # reproduces the pair-1 golden's bare shape:
+    # a per-column COMMENT = the STTM field description (SttmField
+    # .ddl_description); a column with none gets no COMMENT and one
+    # ddl_comment_blank flag per table names it;
+    column_comments: bool = False
+    # appended to the COMMENT of a column the layer's STTM Primary Key cell
+    # marks (None = no note); joined to the description by the separator;
+    primary_key_note: str | None = None
+    column_comment_separator: str = " — "
+    # a table COMMENT naming the layer's FRD Load Strategy, a template over
+    # {strategy} (the FRD's words) and {layer} (STG / STD); None = none;
+    load_strategy_comment: str | None = None
+    # post140 (Soham, 2026-10-28: "description + load strategy"): the table
+    # COMMENT opens with the STTM's Table Description for the layer's table,
+    # joined to the load-strategy text by column_comment_separator; a table
+    # whose band states none keeps the load strategy alone + one
+    # ddl_table_comment_no_description flag per feed naming the tables.
+    table_description_comment: bool = False
+    # the standard tables' TBLPROPERTIES, in order (None = none; an overlay
+    # switches them off with null - an empty mapping merges as no change).
+    standard_tblproperties: dict[str, str] | None = None
+    # post105 (Soham, 2026-10-26: the DDL is RUN by the engineer, so every
+    # statement must be safe to re-run) — combined layout only; each off / null
+    # reproduces the pair-1 golden's bare shape. The text ending every statement
+    # ("" = none, the golden's);
+    statement_terminator: str = ""
+    # the clause after the table COMMENT, per layer (e.g. CLUSTER BY AUTO; a
+    # layer absent gets none; None = none at all);
+    cluster_by: dict[str, str] | None = None
+    # the stage tables' TBLPROPERTIES, in order (None = none);
+    stage_tblproperties: dict[str, str] | None = None
+    # an ALTER TABLE ... SET TAGS ('DOMAIN', 'SUBDOMAIN') after each CREATE, from
+    # the FRD's Domain / Sub-Domain; either blank = no tag statement + one
+    # ddl_tags_blank flag per feed.
+    domain_tags: bool = False
+    # post128 (Nikshit's review; Venu: a SEPARATE file, never inside the DDL): the
+    # DDL test cases written next to the combined DDL, named like it with
+    # ``ddl_test_cases_suffix`` before the extension (ACCUM_DDL.txt ->
+    # ACCUM_DDL_TestCases.txt) - read-only SQL + comments the ENGINEER runs after
+    # the DDL (the agent never runs them). The cases, in file order; [] = no file.
+    ddl_test_cases: list[DdlTestCase] = Field(default_factory=list)
+    ddl_test_cases_suffix: str = "_TestCases"
+    # post134: the columns_match case compares the DDL's types with the catalog's
+    # information_schema.columns.full_data_type, which spells each type its own
+    # canonical way (INTEGER -> int). Type names the catalog renames (lower case,
+    # the part before any "(...)"), and bare names it stores with defaults
+    # (DECIMAL -> decimal(10,0)); None = compared as the DDL writes them.
+    ddl_test_type_names: dict[str, str] | None = None
+    ddl_test_type_defaults: dict[str, str] | None = None
+    # post153: where the catalog's information_schema.columns.ordinal_position
+    # starts counting (Databricks: 0); the columns_match check counts DDL columns
+    # from 1, so it reads ordinal_position + (1 - base). None = read as it is.
+    ddl_test_ordinal_base: int | None = Field(default=None, ge=0)
+    # post154: the test cases also as a workbook in the client's test-record layout
+    # (its column headers, transcribed; the tester fills the result columns). None =
+    # no workbook. ``ddl_test_workbook_columns`` maps each header to what fills it:
+    # id | case | expected | sql | from | blank.
+    ddl_test_workbook_headers: list[str] | None = None
+    ddl_test_workbook_columns: list[Literal["id", "case", "expected", "sql", "from",
+                                            "blank"]] | None = None
+    # post154: what makes the framework send each EMAIL_TEMPLATE_CONFIG status (the
+    # notification_emails cases); a status without an entry says only its name.
+    ddl_test_email_triggers: dict[str, str] | None = None
+    # 2026-10-15 (D1 post51 pair_06, a DELETE_FLAG typed tinyint): the audit
+    # datatypes extract-sttm accepts (workbook spelling, normalized). Every
+    # audit column: audit_datatypes; a column ending in one of
+    # audit_flag_suffixes (DELETE_FLAG, ACTIVE_IND) also audit_flag_datatypes.
+    # Widen per profile in an overlay; each entry must be a key of
+    # contracts.sttm.AUDIT_DATATYPE_SPELLING (what the DDL can render).
+    audit_datatypes: list[str] = Field(default_factory=lambda: ["string", "timestamp"])
+    audit_flag_datatypes: list[str] = Field(
+        default_factory=lambda: ["tinyint", "int", "smallint", "boolean"])
+    audit_flag_suffixes: list[str] = Field(default_factory=lambda: ["_flag", "_ind"])
+    # post74 (D1 post73 pair_05): a mapping row whose target column (the stage
+    # band's column, or — that cell blank — any target-band column / data type
+    # cell) reads one of these (normalized) is not mapped: excluded before the
+    # required-element checks, one skipped_rows flag per feed with the count.
+    # extractor.unmapped_markers is read too (the older list).
+    skip_row_markers: list[str] = Field(default_factory=lambda: [
+        "do not map", "not mapped", "n/a"])
+    # post57 (D1 post55 pair_01, derivations [path_whitespace 19]): whitespace in
+    # a folder path the documents state. keep = the path is written byte for byte
+    # and each cell gets ONE flag naming its coordinates and the kind of
+    # whitespace (double space / leading / trailing / tab) for the BSA to
+    # confirm; fail = the old derivations check (any whitespace fails the gate).
+    path_whitespace: Literal["keep", "fail"] = "keep"
+    # post57 (pair_01: the FRD landing cell read "Path : <account>/<container>/
+    # <folder>"): an FRD cell "<Label> : <value>" whose label is a synonym of the
+    # field being read is read as <value> (flag label_stripped); a label that is
+    # not a synonym of THAT field is never stripped (codegen.resolve.stated).
+    field_label_synonyms: dict[str, list[str]] = Field(default_factory=lambda: {
+        "landing_location": ["path", "folder", "location", "folder path", "file path",
+                             "landing", "landing path", "landing location", "adls path",
+                             "adls location", "landing folder"],
+        "file_name_patterns": ["file name", "file names", "filename", "file name pattern",
+                               "file pattern", "file name example"],
+        "frequency": ["frequency", "file frequency", "load frequency"],
+        "delimiter": ["delimiter", "file delimiter", "field delimiter"],
+    })
+    # post57: a stated landing path that starts "<account>/<container>/…" — the
+    # first segment matching this pattern is a storage account (lowercase letters
+    # and digits, 3-24, at least one digit; or an Azure storage host); its account
+    # and container then come from the run's environment (environment_mismatch
+    # when the document's differ), the folder under the container stays the
+    # document's, byte for byte.
+    storage_account_pattern: str = (r"(?=[a-z0-9]*\d)[a-z0-9]{3,24}"
+                                    r"|[a-z0-9]{3,24}\.(?:dfs|blob)\.core\.windows\.net")
+    # post57 (D1 post55 pair_01 IIG diff): the profile's record-segment codes —
+    # canonical segment -> every spelling a document / golden writes for it
+    # (hddr / det / trlr <-> header / details / trailer). tools/iig_diff.py maps
+    # both sides through it before comparing a segment column.
+    segment_codes: dict[str, list[str]] = Field(default_factory=dict)
+    # post59 (PIPELINE_NAME three-way choice, codegen.input_choices): the
+    # proposal per flow (grand_master / master / file_to_stg / stg_to_std), a
+    # template over {domain} {subdomain} {source} {frequency} {layer}
+    # {load_mode}. Proposed is not applied: only the BSA's explicit choice
+    # (answers file / App Confirm) fills a cell. {} = no proposal.
+    pipeline_name_templates: dict[str, str] = Field(default_factory=dict)
+    # ... {layer} per flow, and the rendered name's case (upper | keep)
+    pipeline_flow_layers: dict[str, str] = Field(default_factory=lambda: {
+        "grand_master": "GRANDMASTER", "master": "MASTER", "file_to_stg": "STG",
+        "stg_to_std": "STD"})
+    pipeline_name_case: Literal["upper", "keep"] = "upper"
+    # post79: write the rendered PIPELINE_NAME of every flow UNASKED (a profile
+    # default: no INPUT_NEEDED line, no per-name choice; "Change pipeline names"
+    # in the App / an answers-file `choice: naming_standard` overrides one). Only
+    # a real template autosets: a SYN_ placeholder is never written, asked or not.
+    pipeline_name_autoset: bool = False
+    # post81: the same for TGT_PRIMARY_KEY — a key proposed from an explicit signal
+    # (an STTM Primary Key cell, the FRD's key statement, the FAQ) is written unasked;
+    # no signal stays a QUESTION
+    primary_key_autoset: bool = False
+    # ... the loaded goldens / corpus a proposal must not collide with: folders
+    # of IIG .xlsx (every PIPELINE_NAME column), .xlsx files, .txt name lists;
+    # relative to the working directory. A colliding proposal is never offered.
+    pipeline_name_corpus: list[str] = Field(default_factory=list)
+    # post59: the file-name recognizer's tie-break (layout split step: two files
+    # match a table equally) — first by the candidate's source, in this order
+    # (frd_pattern = the FRD's landed file pattern, frd_target_table = a file
+    # name in the FRD's 'Target Table Name', sttm_file_details = a FILE_DETAILS
+    # label, sttm_meta = the STTM 'File Names' meta row), then by shape (a vendor
+    # prefix + an extension); still tied = the question. [] / false = off.
+    file_tie_source_priority: list[str] = Field(default_factory=lambda: [
+        "frd_pattern", "frd_target_table", "sttm_file_details", "sttm_meta"])
+    file_tie_shape: bool = True
+
+    @field_validator("audit_datatypes", "audit_flag_datatypes")
+    @classmethod
+    def _known_audit_types(cls, value: list[str]) -> list[str]:
+        from codegen.contracts.sttm import AUDIT_DATATYPE_SPELLING
+
+        unknown = [t for t in value if t.strip().lower() not in AUDIT_DATATYPE_SPELLING]
+        if unknown:
+            raise ValueError(f"audit datatype(s) {unknown} have no contract spelling; "
+                             f"expected among {sorted(AUDIT_DATATYPE_SPELLING)}")
+        return value
+    # M7: every CREATE must name catalog.schema.table. The catalog resolves
+    # FRD label -> STTM band -> default_catalog[layer] (each with provenance);
+    # none -> that layer's DDL is NOT written and the gate FAILs
+    # catalog_unstated:<layer>. False keeps the reference two-file output,
+    # whose goldens carry no catalog (a two-part name there is today's
+    # behaviour, unchanged).
+    require_qualified_names: bool = False
+    default_catalog: dict[str, str] = Field(default_factory=dict)
+    # M7 §3: write the SQL Server DML deliverable (config_inserts_<env>.sql +
+    # the runner notebook) next to the IIG. Off by default in every shipped
+    # profile since the IIG-first flow (2026-10-02): the certified IIG workbook
+    # is the deliverable. Both this AND dml.enabled must be true for DML.
+    emit_dml: bool = False
+    # IIG-first M3: write <feed>_IIG_REVIEW.xlsx (the BSA's review copy) and
+    # <feed>_IIG.xlsx (the clean copy) next to config_rows.xlsx, and list them
+    # plus both switches in ADDITION.md. Off for the reference profile so its
+    # framework output stays byte-identical.
+    emit_iig_review: bool = False
+    # M7 §4: prefix every deployment DDL file with the target-system header
+    # line. Off in both shipped profiles: the pair-1 combined DDL and the
+    # SFMC two-file DDL are compared byte for byte with client goldens; the
+    # target system is labelled in ADDITION.md / MANIFEST.md instead.
+    target_system_header: bool = False
+
+    @model_validator(mode="after")
+    def _workbook_columns_match(self):
+        # post154: one fill kind per workbook header - a typo is loud at load time
+        headers, columns = self.ddl_test_workbook_headers, self.ddl_test_workbook_columns
+        if (headers is None) != (columns is None) or (
+                headers is not None and len(headers) != len(columns)):
+            raise ValueError("ddl_test_workbook_headers and ddl_test_workbook_columns must "
+                             "both be set, one column kind per header")
+        return self
 
 
 class ConventionsConfig(BaseModel):
@@ -741,6 +1533,24 @@ class ConventionsConfig(BaseModel):
     profile: str = "edo_sfmc"
     profiles: dict[str, ConventionsProfileConfig] = Field(
         default_factory=lambda: {"edo_sfmc": ConventionsProfileConfig()})
+    # M7.1: the LAST fallback of the catalog chain for every profile (a
+    # profile's own default_catalog wins): pairs whose FRD / STTM state no
+    # catalog resolve to it with provenance `config_default`. Empty = none.
+    default_catalog: dict[str, str] = Field(default_factory=dict)
+    # M9.2: the LAST link of the SCHEMA chain (layer -> schema): STTM target
+    # band -> FRD 'Target Catalog and Schema' -> here, each with provenance;
+    # none of the three = the extractor's hard stop. Empty = none.
+    default_schema: dict[str, str] = Field(default_factory=dict)
+    # Multi-table rule 7 (docs/acfc/MULTI_TABLE_DESIGN.md): the STTM bands
+    # state LOGICAL catalogs (PR_DLK / PR_STD); the deployment environment maps
+    # them (d1: PR_DLK -> d1_dlk; prod: identity). An ENVIRONMENT value — set
+    # it in the environment overlay, never here. Empty = identity.
+    catalog_map: dict[str, str] = Field(default_factory=dict)
+    # 2026-10-14 (D1 pair_12): the client-wide plan id -> LOB code table, the
+    # LOB lookup's third source (after the FRD LOB table's plan-id and region
+    # columns): a plan id that is a token of the file name gives its LOB. A
+    # CLIENT value — set it in an overlay, never here. Empty = no reference.
+    lob_reference: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _profile_exists(self) -> ConventionsConfig:
@@ -757,6 +1567,301 @@ class ConventionsConfig(BaseModel):
         return self.profiles[key]
 
 
+class FamilyConventionsConfig(BaseModel):
+    """Per-feed-family IIG conventions (2026-10-08 correction; SCHEMA_DRIFT_FLAG
+    joined 2026-10-09): four cells the goldens of two feed families fill
+    differently — neither an error. The pair-1 (PRX) family: LOB blank, an
+    unknown STGDELTA primary key 'NA', its own STGDELTA OBJECT_NAME,
+    SCHEMA_DRIFT_FLAG 'N'; the SD / CAQH-style family (pair 4): LOB codes, an
+    unknown primary key blank, the generalized file pattern,
+    SCHEMA_DRIFT_FLAG 'Y'. Each fixture's
+    overlay pins its family; which is current for NEW feeds is an open
+    question for the framework owners (docs/acfc/MULTI_TABLE_DESIGN.md)."""
+
+    model_config = _MODEL_CONFIG
+
+    # ADLS / STGDELTA LOB: "codes" = a per-LOB file's code, else the feed's
+    # LOB codes (FRD / STTM header); "blank" = left blank (decided, not open).
+    lob: Literal["codes", "blank"] = "blank"
+    # STGDELTA TGT_PRIMARY_KEY when no Primary Key cell states one: the value
+    # written ("NA"), or "" = blank and open.
+    stgdelta_unknown_primary_key: str = "NA"
+    # STGDELTA OBJECT_NAME: the generalized file pattern (wildcards and
+    # extension removed), the table name, or a literal the family's IIG uses.
+    stgdelta_object_name: Literal["generalized_file_pattern", "table_name", "literal"] = (
+        "generalized_file_pattern")
+    stgdelta_object_name_literal: str | None = None
+    # ADLS SCHEMA_DRIFT_FLAG (2026-10-09): the pair-1 (PRX) golden 'N'; the SD
+    # file-to-stage row and the CAQH IIG 'Y'.
+    schema_drift_flag: str = "N"
+    # First real-row scorecard (2026-10-08, the three SD rows):
+    # ADLS SRC_FILE_NAME: "pattern" = the stated pattern, date tokens as '*'
+    # (the pair-1 / pair-4 goldens); "prefix_star" = the OBJECT_NAME prefix + '*'
+    # (date / time tokens and the extension dropped — the SD rows; the SUFFIX
+    # wildcard). 2026-10-15: "prefix_middle" = leading and middle wildcards:
+    # '*' + the name core + '*' + the extension (leading date-token segments and
+    # everything from the first wildcard on dropped). Per feed:
+    # feed_overrides.<feed_id>.src_file_name.
+    src_file_name: Literal["pattern", "prefix_star", "prefix_middle"] = "pattern"
+    # The IIG's audit columns: [] = the STTM's audit rows (the PRX three);
+    # a list = the family's own, in order (SD / CAQH: LOB, SRC_FILE_NAME,
+    # REC_CREATION_TIME, REC_UPDATED_TIME) — a column the STTM types keeps its
+    # type, any other is String; a column already a data column is not repeated.
+    audit_columns: list[str] = Field(default_factory=list)
+    # Audit type casing: "configured" = the template's audit_type_casing (the
+    # pair-1 golden's 'String' / 'TIMESTAMP'); "data" = the data columns' casing.
+    audit_type_case: Literal["configured", "data"] = "configured"
+    # RECYCL_* cells when no document states a recycle: "open" = blank and
+    # open for the engineer to confirm, the convention-shaped table / path in
+    # the tooltip (never an asserted N); "N" = the family writes N / NA / NA
+    # (the pair-1 and pair-4 goldens).
+    recycle_unstated: Literal["open", "N"] = "open"
+    # STGDELTA OBJECT_ID (Chunk D, owner brief 2026-10-09): "open" = the
+    # engineer's (always blank, as the pair-1 / pair-4 goldens leave it);
+    # "from_file" = OBJECT_ID is per (group, file): the row takes the OBJECT_ID
+    # of the ADLS_DELTA_INGESTION_DETAILS row of THE file that feeds its table;
+    # when several files feed it, no single file's id applies — left open with
+    # a note (stgdelta_object_id_open).
+    stgdelta_object_id: Literal["open", "from_file"] = "open"
+    citation: str = ""
+
+    @model_validator(mode="after")
+    def _literal_is_given(self) -> FamilyConventionsConfig:
+        if self.stgdelta_object_name == "literal" and not self.stgdelta_object_name_literal:
+            raise ValueError("family_conventions.stgdelta_object_name 'literal' needs "
+                             "stgdelta_object_name_literal")
+        return self
+
+
+class PipelineRoleConfig(BaseModel):
+    """One structural DATA_FACTORY_PIPELINE_SCHEDULE row (multi-table step 5):
+    the pipeline's role, its name from the naming convention ({feed} = the
+    FAQ feed_abbreviation, else the feed slug in capitals), its description,
+    and the role of its parent (None = the top pipeline, parent 0)."""
+
+    model_config = _MODEL_CONFIG
+
+    role: str
+    # 2026-10-14 (framework owner's rule 1): None = the name is BSA-assigned —
+    # never generated (the ACFC overlay; an owed cell asks for it per flow)
+    name: str | None = None
+    description: str
+    parent: str | None = None
+    # post102: a schedule the role runs on for the WHOLE run, whatever the feed's
+    # own frequency (the pair_11 golden: one Daily grand master + master, the
+    # children each on their feed's schedule) - the row's PIPELINE_FREQUENCY and
+    # the {frequency} / {frequency_code} of its name. None = the feed's frequency.
+    frequency: str | None = None
+
+
+D1_PLACEHOLDER_RE = re.compile(r"<<D1:[^>]*>>")
+
+
+def is_d1_placeholder(value: object) -> bool:
+    """A config value an environment overlay on D1 must replace (2026-10-14,
+    D1 post44): ``<<D1:NAME>>`` anywhere in it. The cell it would fill stays
+    open (iig_d1_placeholder NOTE); tests/test_d1_placeholders.py fails on D1
+    while one survives."""
+    return isinstance(value, str) and D1_PLACEHOLDER_RE.search(value) is not None
+
+
+# 2026-10-14: an environment's placeholder (``<<QA:...>>``, ``<<PROD:...>>``,
+# ``<<D1:...>>``) — any one leaves its cell open; only D1's fail the D1 test.
+PLACEHOLDER_RE = re.compile(r"<<[A-Z][A-Z0-9_]*:[^>]*>>")
+
+
+def is_placeholder(value: object) -> bool:
+    """``<<ENV:NAME>>`` anywhere in ``value`` (D1, QA, PROD ...)."""
+    return isinstance(value, str) and PLACEHOLDER_RE.search(value) is not None
+
+
+class CorpusCellConfig(BaseModel):
+    """One cell filled from the IIG corpus's patterns report (2026-10-14, D1
+    post44; tools/iig_fill_rate.py --patterns): a constant (``value``) or a
+    value per row key (``by`` flow | status | frequency -> ``values``; the
+    key "*" is the fallback, a key with no entry = decided blank). ``share``
+    names the corpus share for the NOTE (iig_corpus:<TAB>.<HEADER>); a value
+    may carry the derived_cells tokens ({source} {feed} {layer} ...) and a
+    ``<<D1:...>>`` placeholder (the cell stays open, ``todo`` in its NOTE)."""
+
+    model_config = _MODEL_CONFIG
+
+    value: str | None = None
+    # 2026-10-14 (D1 post45): + notebook_kind (the flow, the file format and a
+    # TPL subdomain: stg_to_std, fixed_width[_tpl], pipe_segmented[_tpl],
+    # delimited[_tpl] — metadata_template._notebook_kind)
+    by: Literal["flow", "status", "frequency", "notebook_kind"] | None = None
+    values: dict[str, str] = Field(default_factory=dict)
+    share: str
+    # the share of each ``values`` key (the NOTE names it; else ``share``)
+    shares: dict[str, str] = Field(default_factory=dict)
+    todo: str | None = None
+    # 2026-10-14 (framework owner's rule 2): per key, an ALTERNATIVE shape named
+    # in the NOTE, never written (the short "{application} Stage Load" forms), and
+    # its corpus share.
+    alternatives: dict[str, str] = Field(default_factory=dict)
+    alternative_shares: dict[str, str] = Field(default_factory=dict)
+    # per key, the shape of a feed that fans out per LOB ({lob} = one LOB code):
+    # prod runs one pipeline per LOB, the IIG writes ONE row per flow — the cell
+    # is left open, its NOTE listing the description of every LOB's pipeline.
+    per_lob: dict[str, str] = Field(default_factory=dict)
+    per_lob_share: str | None = None
+
+    @model_validator(mode="after")
+    def _one_source(self) -> CorpusCellConfig:
+        if (self.value is None) == (self.by is None):
+            raise ValueError("corpus cell: exactly one of `value` or `by` + `values`")
+        if self.by is not None and not self.values:
+            raise ValueError("corpus cell: `by` needs `values`")
+        return self
+
+
+class OwedCellConfig(BaseModel):
+    """A cell no document states and no corpus value fills, owed by the person
+    (2026-10-14, D1 post44 — ACTIVE_START_DATE, the per-RFC go-live date):
+    the load-pattern FAQ companion ``faq`` fills it; unanswered, ``generate``
+    prints a QUESTION (gaps key ``feeds[<i>].<faq>``) and writes it to the
+    answers template — answered with ``generate --answers``."""
+
+    model_config = _MODEL_CONFIG
+
+    faq: str
+    question: str
+    # 2026-10-14 (D1 post45): the column when the key is a label (two owed
+    # cells of one column, e.g. DATA_QUALITY_RULES INPUT_PARAM per rule class);
+    # ``when`` = the row's cell values it applies to ({RULE_CLASS: NullCheckRule});
+    # ``default`` = a shape written while unanswered ({source} ... tokens, a
+    # <<D1:...>> placeholder leaves it open) — still an INPUT_NEEDED line,
+    # "with that default", so the BSA can change it.
+    header: str | None = None
+    when: dict[str, str] = Field(default_factory=dict)
+    default: str | None = None
+    default_share: str | None = None
+    # post61 (codegen.input_choices): what ``default`` is. ``profile_default`` = a
+    # value the conventions profile / the ACFC overlay sets (EMAIL_TO, the email
+    # status set): written when unanswered, source profile, no gate flag, still
+    # changeable. ``agent_proposal`` = a value the agent renders / derives
+    # (APPLICATION_NAME from {source}): shown, never written until chosen.
+    # None = by the default's shape: a {token} in it = agent_proposal, else
+    # profile_default.
+    default_kind: Literal["profile_default", "agent_proposal"] | None = None
+    # 2026-10-14 (post47): ``run`` = one value for the whole run (APPLICATION_NAME,
+    # EMAIL_TO): ONE INPUT_NEEDED run.<faq> line in the run-level block, answered
+    # under inputs.run; ``feed`` = per feed (inputs.feeds.<feed>.<faq>).
+    scope: Literal["run", "feed"] = "feed"
+    # 2026-10-14 (framework owner's rule 1): one value PER FLOW ROW — the FAQ
+    # companion ``<faq>_<flow>``, the input key ``<faq>.<flow>`` (PIPELINE_NAME:
+    # pipeline_name.file_to_stg ...); the flows are the template's pipeline roles.
+    per_flow: bool = False
+
+
+class EnvironmentConfig(BaseModel):
+    """One deployment environment of the overlay's ``environments:`` block
+    (2026-10-14, codegen.environments): the containers per layer (landing /
+    stage / standard), the storage account, the catalogs, the connection ids
+    and any other environment-scoped value. A ``<<ENV:...>>`` placeholder in a
+    container / the storage account leaves the cells it fills open; in a
+    catalog or connection id it fails the run.
+    Exactly one entry is marked ``default: true``."""
+
+    model_config = _MODEL_CONFIG
+
+    default: bool = False
+    description: str = ""
+    containers: dict[str, str] = Field(default_factory=dict)
+    storage_account: str = ""
+    # 2026-10-14 (post47): the catalogs (the STTM's logical catalog -> this
+    # environment's, and the fallback per layer) and the framework's connection
+    # ids. Unlike the containers these never stay open: a run on an environment
+    # that leaves one unset fails, naming the keys (codegen.environments).
+    catalog_map: dict[str, str] = Field(default_factory=dict)
+    default_catalog: dict[str, str] = Field(default_factory=dict)
+    connection_ids: dict[str, str] = Field(default_factory=dict)
+    values: dict[str, str] = Field(default_factory=dict)
+    # post99: per flat key, where this environment's value came from and why
+    # (plain English, display only - the App's "Where these values come from").
+    # Never a value that must stay out of git (the storage account).
+    provenance: dict[str, str] = Field(default_factory=dict)
+
+
+class EnvironmentSchemaConfig(BaseModel):
+    """The environment profile's schema (2026-10-15, D1 post50 item 2): the
+    flat keys an environment states (``containers.<layer>``, ``storage_account``,
+    ``catalog_map.<logical>`` ...) with a description each, and the REQUIRED
+    ones — storage account, containers, workspace-specific paths (the Oct 14
+    rule): never a silent default, never from the STTM. A required key a run's
+    environment leaves blank or as a ``<<ENV:...>>`` placeholder is a QUESTION
+    (exit 3, NEEDS_ANSWERS), its cells written open. The per-field defaults of
+    a profile are its ``environments.<NAME>`` block; a required key takes none
+    from there that is a placeholder."""
+
+    model_config = _MODEL_CONFIG
+
+    required: list[str] = Field(default_factory=list)
+    fields: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _required_are_fields(self) -> EnvironmentSchemaConfig:
+        unknown = [k for k in self.required if self.fields and k not in self.fields]
+        if unknown:
+            raise ValueError(f"environment_schema.required names keys absent from "
+                             f"environment_schema.fields: {', '.join(unknown)}")
+        return self
+
+
+class FeedOverrideConfig(BaseModel):
+    """One feed's overrides of the IIG template (2026-10-15,
+    ``metadata.templates.<t>.feed_overrides.<feed_id>``; the values live in the
+    ACFC-side overlay ``codegen-state/overlays/<profile>.yaml``)."""
+
+    model_config = _MODEL_CONFIG
+
+    email_statuses: list[str] | None = None
+    src_file_name: Literal["pattern", "prefix_star", "prefix_middle"] | None = None
+    # post70: the ADLS SCHEMA_DRIFT_FLAG for this feed (a golden that says N where
+    # the family default is Y, or the other way round); None = the family's.
+    schema_drift_flag: Literal["Y", "N"] | None = None
+    # post86: the path family this feed's path cells use (a key of the template's
+    # path_families); wins over path_family_by_source. None = by source, else default.
+    path_family: str | None = None
+
+
+# post86: the name of the template's own path_patterns as a path family.
+PATH_FAMILY_DEFAULT = "default"
+
+
+class PathFamilyConfig(BaseModel):
+    """post86: one path convention (``metadata.templates.<t>.path_families.<name>``)
+    - the path shapes a source family writes differently from the template's
+    ``path_patterns`` ({tab: {header: shape}}, same placeholders); a header it
+    does not name keeps the template's shape. ``citation`` = where the
+    convention was seen (required: a shape is never a guess)."""
+
+    model_config = _MODEL_CONFIG
+
+    path_patterns: dict[str, dict[str, str]]
+    citation: str = Field(min_length=1)
+
+
+class RunEnvironment(BaseModel):
+    """The environment one run uses (set at run time, never in YAML):
+    ``source`` default (nothing chosen), selected (a named choice) or custom
+    (values given for the run); ``origin`` where its values came from (the
+    overlay block, ``codegen-state/environments/<name>.yaml``, the
+    ``--environment-file``, the App form, the answers file)."""
+
+    model_config = _MODEL_CONFIG
+
+    name: str
+    source: Literal["default", "selected", "custom"]
+    entry: EnvironmentConfig
+    origin: str = ""
+    # post56: flat key -> where ITS value came from (the explicit file / App
+    # form, the codegen-state profile, the overlay block, the answers file, or
+    # "unset — INPUT_NEEDED ..." / "unset — QUESTION ..."); codegen.environments.
+    sources: dict[str, str] = {}
+
+
 class MetadataTemplateConfig(BaseModel):
     """An IIG workbook template version (M4) other than the default
     ``iig_v1`` (= ``demo.metadata_sheet``): sheets + headers transcribed
@@ -771,15 +1876,93 @@ class MetadataTemplateConfig(BaseModel):
     always_blank: list[str] = Field(default_factory=list)
     citation: str = ""
     # SRC_COLUMNS: name_pair 'src:stage' | positional 'col<i>:<stage>'.
-    src_columns_style: Literal["name_pair", "positional"] = "name_pair"
+    # "named" = 'src:src' when every STTM source column is a real header,
+    # else positional ('col1:...' — a colN-style source names no header).
+    src_columns_style: Literal["name_pair", "positional", "named"] = "name_pair"
     # SRC_DATA_TYPE pairs: full types | base types ('Decimal' for Decimal(17,2)).
     data_type_style: Literal["full", "base"] = "full"
     rows_per_file_pattern: bool = False
+    # 2026-10-14 (framework owner's rule 3): FILE_ADLS_INGESTION_DETAILS. "feed" =
+    # one row from the FRD landing (shipped); "per_file" = one row per
+    # ADLS_DELTA_INGESTION_DETAILS row — and NONE (headers only + a NOTE) for a
+    # feed landed by MFT: a landing path / container naming one of
+    # ``mft_landing_markers`` as a path segment.
+    file_adls_rows: Literal["feed", "per_file"] = "feed"
+    mft_landing_markers: list[str] = Field(default_factory=list)
     object_name_from_pattern: bool = False
     reject_table_suffix: str | None = None
     segment_filter_pattern: str | None = None
-    dq_rules: list[Literal["date_format", "data_type_cast"]] = Field(default_factory=list)
+    # 2026-10-14 (D1 post44 item 5): the corpus's classes from the STTM —
+    # add_custom_columns (an audit column the STTM defaults to a literal; a
+    # header / trailer feed), null_check (PK + not-null columns), referential_check
+    # (the STTM's recycle lookup), and per STANDARD table lr_trim,
+    # std_date_conversion (a Date column whose load rule states the formats),
+    # std_data_type_cast (standard columns typed other than String).
+    dq_rules: list[Literal["header_trailer_split", "date_format", "data_type_cast",
+                           "add_custom_columns", "null_check", "dedup", "referential_check",
+                           "lr_trim", "std_date_conversion", "std_data_type_cast"]] = Field(
+        default_factory=list)
     dq_rule_classes: dict[str, str] = Field(default_factory=dict)
+    # rule kind -> RULE_TYPE (else the sheet's constant); kind -> {header: value}
+    # constant cells (INPUT_PARAM / TARGET_COLUMN framework parameters); kind ->
+    # citation (the golden rows the format comes from).
+    dq_rule_types: dict[str, str] = Field(default_factory=dict)
+    dq_params: dict[str, dict[str, str]] = Field(default_factory=dict)
+    dq_citations: dict[str, str] = Field(default_factory=dict)
+    # LoadHeaderAndTrailerToSeparateTablesRule: "header_columns" = SOURCE_COLUMN
+    # the header table's columns, TARGET_COLUMN <catalog>,<schema>,<tables...>
+    # (the pair-1 reading); "header_and_trailer" = SOURCE_COLUMN header columns
+    # '|' trailer columns, TARGET_COLUMN <catalog>,<schema>,<table>,<location>
+    # per table (the CAQH golden), the location from dq_split_location over
+    # {container} (the ADLS TGT_CONTAINER_NAME constant), {domain_path}, {table}.
+    dq_split_style: Literal["header_columns", "header_and_trailer"] = "header_columns"
+    dq_split_location: str | None = None
+    # AddCustomColumnsRule: an audit row's load rule naming a literal default.
+    dq_literal_regex: str = (r"(?i)\b(?:default(?:ed)?|hard[\s-]*cod(?:e|ed))\s*(?:to|as|with)?"
+                             r"\s*[:=]?\s*['\"‘’“”]([^'\"‘’“”]+)"
+                             r"['\"‘’“”]")
+    # 2026-10-14 (D1 post44 items 1-3): cells from the corpus patterns report,
+    # {tab: {header: CorpusCellConfig}}; owed cells {tab: {header: OwedCellConfig}}.
+    corpus_cells: dict[str, dict[str, CorpusCellConfig]] = Field(default_factory=dict)
+    # 2026-10-14 (D1 post45): extra tokens for corpus_cells shapes (a value the
+    # corpus still scrubs is a <<D1:...>> placeholder: the cell stays open) and
+    # the subdomains that select a notebook kind's TPL variant.
+    corpus_tokens: dict[str, str] = Field(default_factory=dict)
+    tpl_subdomains: list[str] = Field(default_factory=list)
+    # 2026-10-14 (framework owner): the two-notebook handler forms
+    # (FixedWidthHandler / PIPE_DELIMITED_SEGMENT_HNDLR + FileInvokeDQDeltaTable)
+    # belong to the EDI 834 feeds (corpus prefixes EDI_834Prop / 834PROP only):
+    # applied only when the feed's source, file patterns or name match one of
+    # these regexes (case-insensitive); every other file_to_stg feed runs the
+    # single notebook. None configured = the format alone decides (as before).
+    edi_feed_patterns: list[str] = Field(default_factory=list)
+    # 2026-10-14 (framework owner): the email status set is the BSA's — the corpus
+    # writes 4 statuses on 293 pipelines, 2 on 56, 1 on 256. A run-level
+    # INPUT_NEEDED (``faq``, scope run) with the default "all four" (every
+    # template_rows status); an answer (comma-separated statuses) trims the rows.
+    email_status_input: OwedCellConfig | None = None
+    # 2026-10-15 (D1 post50 item 3; values in the ACFC-side overlay,
+    # docs/acfc/OVERLAY_FIELDS.md): the statuses written when the run gives no
+    # email_status_input answer ([] = every template row) ...
+    email_status_default: list[str] = Field(default_factory=list)
+    # ... and per feed (its feed_id): the status set (wins over the run's answer
+    # and the default) and the SRC_FILE_NAME style.
+    feed_overrides: dict[str, FeedOverrideConfig] = Field(default_factory=dict)
+    # The workspace root every DATABRICKS_NOTEBOOK_PATH segment starts with; a
+    # segment without it gets it prepended (NOTE). "" = paths as written.
+    notebook_path_prefix: str = ""
+    owed_cells: dict[str, dict[str, OwedCellConfig]] = Field(default_factory=dict)
+    # post70 (codegen.primary_key): TGT_PRIMARY_KEY is an agent proposal from an
+    # explicit key signal (STTM Primary Key cells, an FRD key statement, the FAQ's
+    # natural_key_columns, a corpus row), written only when chosen; no signal on a
+    # merge load = a blocking QUESTION feeds.<feed>.primary_key. False = the
+    # table's own Primary Key cells written as before.
+    primary_key_input: bool = False
+    # 2026-10-14: cells filled from the run's environment ({tab: {header: ref}},
+    # refs containers.<layer> / storage_account / values.<name>) — each with an
+    # iig_env NOTE (codegen.environments). ``environment`` is set at run time.
+    environment_cells: dict[str, dict[str, str]] = Field(default_factory=dict)
+    environment: RunEnvironment | None = None
     date_format_rule_regex: str = r"^\s*Convert\s+(\S+)\s+to\s+(\S+)\s*$"
     date_format_param_joiner: str = "--"
     cast_type_order: list[str] = Field(default_factory=list)
@@ -787,10 +1970,137 @@ class MetadataTemplateConfig(BaseModel):
     # tab -> header -> path shape with {landing} {stage_table} {reject_table}
     # (the golden spells the archive path differently per sheet).
     path_patterns: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # post86: path conventions other than path_patterns (the default), by name,
+    # and which feeds use one: path_family_by_source maps the leading words of
+    # the FRD's source (case-insensitive, whole words; the longest match wins)
+    # to a family; feed_overrides.<feed>.path_family wins over it. The source
+    # names are client terms - they go in the ACFC overlay, never here.
+    path_families: dict[str, PathFamilyConfig] = Field(default_factory=dict)
+    path_family_by_source: dict[str, str] = Field(default_factory=dict)
+    # post74 (D1 post73 pair_11): the landing a document does not state - the
+    # family's convention over {domain} {sub_domain} {source}, container-relative
+    # as SRC_ADLS_PATH is written. An agent_proposal: SHOWN with the
+    # feeds[<i>].src_adls_path question, never written unanswered. "" = none.
+    landing_proposal: str = ""
+    landing_proposal_citation: str = ""
+    # post84: the proposal WRITTEN unasked (a profile default, changeable in the App's
+    # "Change defaults" or under inputs.feeds[<i>].src_adls_path); a stated landing
+    # always wins; no rendered proposal = still the question
+    landing_autoset: bool = False
+    # The family's path-case convention for the INPUT-derived segments of a
+    # path cell (the FRD landing, table names); the shapes' own literals
+    # ("Processed/") are written as configured. "preserve" = as stated.
+    path_case: Literal["preserve", "lower"] = "preserve"
+    # OBJECT_NAME (and the prefix_star SRC_FILE_NAME): the trailing segments
+    # made only of these date / time tokens are dropped with the extension
+    # and the wildcards ('demographics_YYYY_MM.csv' -> 'demographics').
+    object_name_strip_tokens: list[str] = Field(default_factory=lambda: [
+        "CCYY", "YYYY", "YY", "MM", "DD", "HH", "MI", "SS"])
+    # Of those, the ones that are a date / time only BESIDE another strip token
+    # in the same segment ('_HHMI' is a time; a lone '_MI' is a name segment —
+    # round 6: the SD file pattern's state code, kept by the prod rows).
+    object_name_bound_tokens: list[str] = Field(default_factory=lambda: ["MI", "SS"])
+    # ADLS SRC_DATA_TYPE source side for a FILE source: file fields are
+    # strings, whatever type the STTM's source band states
+    # (src_type_coerced_string flags the difference).
+    file_source_type: str = "String"
     constants: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # Per-cell citation for a constant that does not come from the template
+    # itself (an environment overlay): {tab: {header: citation}}; a
+    # constant without one cites ``citation``.
+    constant_citations: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # 2026-10-13 (the IIG corpus's fill rate): cells the corpus fills in >90%
+    # of rows that the inputs DERIVE — tab -> header -> a shape over {source}
+    # (the FRD Data Source, vendor display name), {layer} (Stage | Standard: the
+    # row's _layer), {outcome} (the row's _outcome), {notebook} (the row's
+    # DATABRICKS_NOTEBOOK_NAME), {pipeline} (the schedule name of the row's
+    # _pipeline_role), {sender} (job.notification_sender). A shape without a
+    # token is the corpus's dominant constant. Written only where the builder
+    # left the cell blank (an FAQ answer wins), each column with a NOTE
+    # (iig_derived) and its citation; a token with no value leaves it open.
+    derived_cells: dict[str, dict[str, str]] = Field(default_factory=dict)
+    derived_citations: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # 2026-10-14 (D1 post43 item 3b): columns left BLANK until the corpus
+    # patterns report (tools/iig_fill_rate.py --patterns) says how prod fills
+    # them — tab -> header -> why. Overrides a template constant or derivation
+    # (badge synthetic), never a value an input states (an FAQ answer); one
+    # NOTE per column (iig_pending:<TAB>.<HEADER>).
+    pending_cells: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # 2026-10-14 (D1 post43 item 4): columns DECIDED blank — tab -> header ->
+    # citation. The cell is blank and not open (metadata_inserts.sql writes NULL),
+    # e.g. ADLS FILE_METADATA: NULL on every prod row.
+    deliberate_blanks: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # 2026-10-14: ADLS FILE_HEADER_FLAG by the file's format when no FAQ
+    # has_header answer states it — {"delimited": "Y", "fixed_width": "N"}
+    # (empty = open, as before); a NOTE (iig_derived) and this citation.
+    file_header_flag_by_format: dict[Literal["delimited", "fixed_width"], str] = Field(
+        default_factory=dict)
+    file_header_flag_citation: str | None = None
+    # The same for a path_patterns shape an overlay supplies: {tab: {header:
+    # citation}}; a shape without one cites ``citation`` (the template).
+    path_citations: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # Candidate values for OPEN cells (2026-10-09): {tab: {header: text}}. A
+    # cell no input states and no constant fills stays blank (needs_template);
+    # its tooltip carries this text — a candidate the engineer confirms, never
+    # written as the value (an inference is not a constant). A header may not
+    # be both a constant and an offer.
+    open_offers: dict[str, dict[str, str]] = Field(default_factory=dict)
     # tab -> rows of header -> value; keys starting with '_' steer the
     # builder (e.g. _layer: standard) and never render.
     template_rows: dict[str, list[dict[str, str]]] = Field(default_factory=dict)
+    # Multi-table step 3 (docs/acfc/MULTI_TABLE_DESIGN.md rule 2): date
+    # placeholder tokens of a stated file pattern written as the framework's
+    # '*' wildcard in SRC_FILE_NAME / INPUT_PARAM (matched case-sensitively,
+    # longest first, not inside a word). Empty = patterns verbatim.
+    file_pattern_wildcards: list[str] = Field(default_factory=list)
+    # The partition column a per-LOB file's ADLS row names (its value = the LOB).
+    lob_partition_column: str = "LOB"
+    # Multi-table step 5: the pipeline schedule's structural rows when no
+    # inventory (template_rows) is configured; empty = one blank row, as before.
+    pipeline_roles: list[PipelineRoleConfig] = Field(default_factory=list)
+    pipeline_roles_citation: str = ""
+    # Per-feed-family cell conventions (LOB, unknown STGDELTA primary key,
+    # STGDELTA OBJECT_NAME) — the overlay of a feed family pins its own.
+    family_conventions: FamilyConventionsConfig = FamilyConventionsConfig()
+
+    @model_validator(mode="after")
+    def _pipeline_parents_precede(self) -> MetadataTemplateConfig:
+        seen: set[str] = set()
+        for role in self.pipeline_roles:
+            if role.parent is not None and role.parent not in seen:
+                raise ValueError(f"pipeline_roles: {role.role!r} names parent {role.parent!r}, "
+                                 "which is not an earlier role")
+            seen.add(role.role)
+        return self
+
+    @model_validator(mode="after")
+    def _offers_are_not_constants(self) -> MetadataTemplateConfig:
+        for tab, offers in self.open_offers.items():
+            both = sorted(set(offers) & set(self.constants.get(tab, {})))
+            if both:
+                raise ValueError(f"open_offers.{tab}: {', '.join(both)} also a constant — an "
+                                 "offered (open) cell is never filled")
+        return self
+
+    @model_validator(mode="after")
+    def _path_families_known(self) -> MetadataTemplateConfig:
+        if PATH_FAMILY_DEFAULT in self.path_families:
+            raise ValueError(f"path_families.{PATH_FAMILY_DEFAULT}: reserved - the default is "
+                             "the template's own path_patterns")
+        names = set(self.path_families) | {PATH_FAMILY_DEFAULT}
+        for name, family in self.path_families.items():
+            unknown = sorted(set(family.path_patterns) - set(self.tabs))
+            if unknown:
+                raise ValueError(f"path_families.{name}: {', '.join(unknown)} not a sheet of "
+                                 "this template")
+        named = [(f"path_family_by_source.{k}", v) for k, v in self.path_family_by_source.items()]
+        named += [(f"feed_overrides.{k}.path_family", o.path_family)
+                  for k, o in self.feed_overrides.items() if o.path_family is not None]
+        for where, value in named:
+            if value not in names:
+                raise ValueError(f"{where}: {value!r} is not a path family "
+                                 f"({', '.join(sorted(names))})")
+        return self
 
 
 class MetadataConfig(BaseModel):
@@ -799,6 +2109,15 @@ class MetadataConfig(BaseModel):
     # iig_v1 = demo.metadata_sheet (today's layout, byte for byte).
     template: str = "iig_v1"
     templates: dict[str, MetadataTemplateConfig] = Field(default_factory=dict)
+    # M7 §5: CLAIM_TYPE_ID default for the ADLS→Delta rows ("null only or
+    # even NA", METADATA_DB_SEMANTICS §7). None = blank (the goldens'
+    # value); "NA" writes the constant with this citation.
+    claim_type_id_default: str | None = None
+    # M7.1: the iig_v1 synthetic TGT_ADLS_PATH's domain / subdomain segments
+    # go through the same slug the WF_/NB_ names use (emit.context
+    # _sanitize_name_part: upper-case, runs of non-alphanumerics -> '_'), so
+    # the path passes the global path gate (no whitespace in a segment).
+    synthetic_path_slug: bool = True
 
     @model_validator(mode="after")
     def _template_exists(self) -> MetadataConfig:
@@ -886,6 +2205,86 @@ class PlaybookTemplateConfig(BaseModel):
     headers: list[str] = Field(default_factory=list)
 
 
+class DmlConnectionTableConfig(BaseModel):
+    """The file connection table AS SPOKEN in the walkthrough (§3) — not
+    printed in the session, so flagged dml_unconfirmed until confirmed."""
+
+    model_config = _MODEL_CONFIG
+
+    name: str = "FILE_CONNECTION_DETAILS"
+    id_column: str = "CONNECTION_ID"
+    description_column: str = "CONNECTION_DESCRIPTION"
+    host_column: str = "HOST_NAME"
+    root_column: str = "ROOT_PATH"
+    source_type_column: str = "SOURCE_TYPE"
+
+
+class DmlTableNameConfig(BaseModel):
+    """One IIG sheet's metadata-DB table, CONFIRMED by its citation (the
+    framework walkthrough or the owners). An IIG tab name is not a table name:
+    Excel cuts tab names at 31 characters."""
+
+    model_config = _MODEL_CONFIG
+
+    table: str
+    citation: str
+
+
+class DmlConfig(BaseModel):
+    """The SQL Server metadata DB side of ``metadata_inserts.sql`` (written on
+    every framework run since 2026-10-08) and the runner notebooks that
+    execute it (``emit_dml`` + ``enabled`` gate only those). The DB-side
+    knowledge of the retired ``config_inserts_<env>.sql`` lives on here:
+    workbook -> DB value maps, DB expressions for blank cells, DB NULL
+    columns, the described tables and the connection table
+    (docs/acfc/METADATA_DB_SEMANTICS.md)."""
+
+    model_config = _ALIASED_MODEL_CONFIG
+
+    enabled: bool = True
+    environments: list[str] = Field(default_factory=lambda: ["q1", "a2", "prod"])
+    notebook_file_name_pattern: str = "Insert_scripts_config_table_{env}.py"
+    # the metadata DB schema; YAML key ``schema``
+    db_schema: str = Field(default="dbo", alias="schema")
+    # §9 dependency order of the INSERT blocks in metadata_inserts.sql (tables
+    # absent from the IIG payload are skipped).
+    table_order: list[str] = Field(default_factory=lambda: [
+        "DATA_FACTORY_PIPELINE_SCHEDULE", "FILE_ADLS_INGESTION_DETAILS",
+        "ADLS_DELTA_INGESTION_DETAILS", "STGDELTA_STDDELTA_INGESTION_DET",
+        "ADLS_FIXED_WIDTH_HANDLER", "DATA_QUALITY_RULES", "DATABRICKS_NOTEBOOK_DETAILS",
+        "EMAIL_TEMPLATE_CONFIG", "ALL_FILES_STATIC_INFORMATION"])
+    # Tables the walkthrough described (§2, §5, §7); the others' blocks say so
+    # and raise dml_not_described:<table>.
+    described_tables: list[str] = Field(default_factory=lambda: [
+        "DATA_FACTORY_PIPELINE_SCHEDULE", "FILE_ADLS_INGESTION_DETAILS",
+        "ADLS_DELTA_INGESTION_DETAILS"])
+    # IIG sheet -> its metadata-DB table, CONFIRMED (2026-10-09; the values live
+    # in config.yaml). A sheet not listed inserts into a table named after the
+    # sheet (framework.tables may override) and its block is marked
+    # "-- unconfirmed" in metadata_inserts.sql.
+    table_names: dict[str, DmlTableNameConfig] = Field(default_factory=dict)
+    # Workbook value -> the value the framework reads, per column: the IIG keeps
+    # what humans hand over, the SQL writes what the DB needs (§1: the framework
+    # selects ACTIVE_FLAG = 'S'; the goldens print 'Y' — §10, UNCONFIRMED).
+    db_value_map: dict[str, dict[str, str]] = Field(default_factory=lambda: {
+        "ACTIVE_FLAG": {"Y": "S"}, "ACTIVE_RULE_FLG": {"Y": "S"}})
+    # A blank / open workbook cell written as this SQL expression (§1: the
+    # audit dates are the GETDATE() of the insert).
+    db_blank_expressions: dict[str, str] = Field(default_factory=lambda: {
+        "CREATED_DATE": "GETDATE()", "UPDATED_DATE": "GETDATE()"})
+    # Columns written NULL in the DB whatever the workbook holds (§2 'not
+    # populating', §7 CLAIM_TYPE_ID 'null only or even NA').
+    db_null_columns: list[str] = Field(default_factory=lambda: [
+        "DAY_OF_SCHEDULE", "UDF2", "UDF3", "UDF4", "UDF5", "ESTIMATED_START_TIME",
+        "COMPLETION_SLA", "RUNTIME_SLA", "CRITICAL_PROCESSING_PERIOD", "CLAIM_TYPE_ID"])
+    connection_table: DmlConnectionTableConfig = DmlConnectionTableConfig()
+    # NAMES of the Databricks secret scope and its keys — never values.
+    secret_scope: str = "metadata-db"
+    jdbc_url_secret: str = "jdbc-url"
+    user_secret: str = "jdbc-user"
+    password_secret: str = "jdbc-password"
+
+
 class PlaybookConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -910,6 +2309,194 @@ class PlaybookConfig(BaseModel):
 
     def tasks_for(self, profile: str) -> PlaybookTasksConfig:
         return self.tasks.get(profile) or self.tasks.get("default") or PlaybookTasksConfig()
+
+
+IigOwner = Literal["bsa", "engineer", "engineer_confirms", "set_at_load"]
+IigReason = Literal["framework_assigned", "audit_date", "audit_by", "unstated",
+                    "synthetic_path", "template_constant", "flagged_note",
+                    "additional_dq_rules"]
+
+
+class IigReviewConfig(BaseModel):
+    """IIG-first M3: the two IIG workbooks a framework run writes — the BSA's
+    review copy (summary sheet first, open / flagged cells highlighted and
+    commented) and the clean copy (the template, values only).
+
+    Owner of an open cell: ``owners["<SHEET>.<COLUMN>"]``, else
+    ``owners["*.<COLUMN>"]``, else ``owner_by_reason[<reason>]`` — the client
+    reassigns a column by adding a key, no code change. The reason is decided
+    by ``codegen.iig_review`` from the cell itself (blank / badge / tooltip)."""
+
+    model_config = _MODEL_CONFIG
+
+    review_file_pattern: str = "{feed}_IIG_REVIEW.xlsx"
+    clean_file_pattern: str = "{feed}_IIG.xlsx"
+    summary_sheet: str = "REVIEW_SUMMARY"
+    audit_date_columns: list[str] = Field(
+        default_factory=lambda: ["CREATED_DATE", "UPDATED_DATE"])
+    audit_by_columns: list[str] = Field(
+        default_factory=lambda: ["CREATED_BY", "UPDATED_BY", "CRETAED_BY"])
+    owner_by_reason: dict[IigReason, IigOwner] = Field(default_factory=lambda: {
+        "framework_assigned": "engineer", "audit_date": "set_at_load", "audit_by": "bsa",
+        "unstated": "bsa", "synthetic_path": "engineer",
+        "template_constant": "engineer_confirms", "flagged_note": "engineer",
+        "additional_dq_rules": "engineer"})
+    owners: dict[str, IigOwner] = Field(default_factory=dict)
+    owner_labels: dict[IigOwner, str] = Field(default_factory=lambda: {
+        "bsa": "BSA", "engineer": "Engineer", "engineer_confirms": "Engineer (confirm)",
+        "set_at_load": "Set at load (CI/CD)"})
+    owner_fills: dict[IigOwner, str] = Field(default_factory=lambda: {
+        "bsa": "FFC7CE", "engineer": "FFEB9C", "engineer_confirms": "DDEBF7",
+        "set_at_load": "E7E6E6"})
+    reason_labels: dict[IigReason, str] = Field(default_factory=lambda: {
+        "framework_assigned": "framework-assigned id / connection",
+        "audit_date": "audit date (set when the config tables are loaded)",
+        "audit_by": "audit by (RFC number not supplied)",
+        "unstated": "no input states it",
+        "synthetic_path": "synthetic path shape (real container/path unknown)",
+        "template_constant": "template constant (confirm against the framework)",
+        "flagged_note": "flagged by the derivation (see note)",
+        "additional_dq_rules": "additional DQ rules (not generated)"})
+    # post89: a sheet left EMPTY by rule (headers only) gets one summary row, so the
+    # BSA reading the review copy knows the empty sheet is expected:
+    # [sheet, "", empty_by_rule_label, empty_by_rule_owner, 0, "", the reason's text].
+    # Keys of empty_by_rule_reasons = the reasons framework.py records.
+    empty_by_rule_label: str = "empty by rule (no rows expected)"
+    empty_by_rule_owner: str = "no action"
+    # P1-1 (red team LM-1, 2026-10-30): the feed flags a reviewer must see before
+    # approving - a column the layout MODEL placed, an FRD / STTM disagreement -
+    # reach the review copy's summary sheet ([ "", "", review_flag_label,
+    # review_flag_owner, 0, "", <flag> ]) and the combined LOG.md, by prefix.
+    review_flag_prefixes: list[str] = Field(default_factory=lambda: [
+        "layout_model_placed:", "frd_crosscheck:", "layout_crosscheck:",
+        "frd_tables_set_aside:"])
+    review_flag_label: str = "check before approving (layout / cross-document)"
+    review_flag_owner: str = "engineer + BSA"
+    empty_by_rule_reasons: dict[str, str] = Field(default_factory=lambda: {
+        "MFT": "the file lands by MFT; MFT-landed feeds have no FILE_ADLS rows",
+        "delimited": "a delimited file; the fixed-width handler applies only to "
+                     "fixed-width files"})
+
+    @model_validator(mode="after")
+    def _complete(self) -> IigReviewConfig:
+        reasons = set(IigReason.__args__)      # type: ignore[attr-defined]
+        owners = set(IigOwner.__args__)        # type: ignore[attr-defined]
+        for name, table, keys in (("owner_by_reason", self.owner_by_reason, reasons),
+                                  ("reason_labels", self.reason_labels, reasons),
+                                  ("owner_labels", self.owner_labels, owners),
+                                  ("owner_fills", self.owner_fills, owners)):
+            missing = keys - set(table)
+            if missing:
+                raise ValueError(f"iig_review.{name} lacks {sorted(missing)}")
+        for key in self.owners:
+            if key.count(".") != 1 or not all(key.split(".")):
+                raise ValueError(f"iig_review.owners key {key!r} must be <SHEET>.<COLUMN> "
+                                 "or *.<COLUMN>")
+        return self
+
+    def owner_for(self, sheet: str, column: str, reason: str) -> str:
+        """``<SHEET>.<COLUMN>`` > ``*.<COLUMN>`` > the reason's default."""
+        return (self.owners.get(f"{sheet}.{column}") or self.owners.get(f"*.{column}")
+                or self.owner_by_reason[reason])  # type: ignore[index]
+
+
+class EdhE2eConfig(BaseModel):
+    """The EDH E2E gold-mapping reader's profile (codegen.layouts.edh_e2e, 2026-10-20).
+
+    Everything here is a value no EDH E2E document states. Unset = the reader asks: a
+    ``QUESTION feeds[<i>].<role>`` per table, never a guess. Client values belong in an
+    overlay, never in the tracked config.yaml."""
+
+    model_config = _MODEL_CONFIG
+
+    # the UC schema every gold target loads into (the documents name catalog + table only)
+    target_schema: str | None = None
+    # source_database (as the documents spell it) -> the UC "catalog.schema" holding it
+    source_catalog_map: dict[str, str] = Field(default_factory=dict)
+    # how history is kept, and how surrogate keys are made — the documents state neither
+    scd2_mode: str | None = None
+    sk_strategy: str | None = None
+    # a zero-argument function of the documents' expression dialect -> its Spark SQL
+    # (e.g. a blank / empty-string function); unmapped = the expression is a QUESTION
+    function_map: dict[str, str] = Field(default_factory=dict)
+
+
+class HedisConsumptionConfig(BaseModel):
+    """The HEDIS Stage -> Consumption STTM reader (codegen.layouts.hedis_consumption,
+    post161): family H4 of docs/acfc/HEDIS_CONSUMPTION_STTM_SHAPE.md - a CONTENTS sheet
+    plus one mapping sheet per consumption table. Header labels as the shape doc spells
+    them (structural vocabulary, matched lower-cased with whitespace collapsed). Values
+    no document states (target catalog / schema) stay None = a QUESTION per table;
+    client values belong in an overlay."""
+
+    model_config = _MODEL_CONFIG
+
+    contents_sheet_names: list[str] = Field(default_factory=list)
+    # CONTENTS columns: role -> header labels
+    contents_headers: dict[str, list[str]] = Field(default_factory=dict)
+    # mapping-sheet columns: role -> header labels (source_table, source_column, logic,
+    # target_table, target_column, data_type)
+    mapping_headers: dict[str, list[str]] = Field(default_factory=dict)
+    # a sheet is a mapping sheet when one of its first rows names this many roles
+    min_mapping_roles: int = 4
+    header_search_rows: int = 6
+    # the mapping rows end after this many consecutive blank rows
+    blank_rows_end: int = 3
+    # CONTENTS load criteria as written -> GoldFeed.load_mode
+    load_criteria_map: dict[str, str] = Field(default_factory=dict)
+    # logic-cell classes (lower-cased substrings)
+    logic_direct: list[str] = Field(default_factory=list)
+    logic_audit: list[str] = Field(default_factory=list)
+    logic_hardcoded: list[str] = Field(default_factory=list)
+    # the target types written as Spark already (filled as stated) ...
+    spark_types: list[str] = Field(default_factory=list)
+    # ... and SQL Server type names -> the Spark type PROPOSED for them (the target
+    # platform is an open question, shape doc §6 Q2: never applied unasked)
+    sql_type_map: dict[str, str] = Field(default_factory=dict)
+    target_catalog: str | None = None
+    target_schema: str | None = None
+
+
+class CombinedRowDedup(BaseModel):
+    """post99: which rows of one sheet are run-level (``CombinedConfig.dedup_rows``)."""
+
+    model_config = _MODEL_CONFIG
+
+    column: str
+    prefixes: list[str]
+
+
+class CombinedConfig(BaseModel):
+    """post91: ONE set of framework artefacts per run and STTM, in
+    ``<out root>/<dir>/`` beside the per-feed files (codegen.run_artefacts):
+    the IIG, its review copy, the DDL and the log. Rows are never merged by
+    content except on ``dedup_sheets`` (sheets that are run-level by design),
+    where a row equal to an earlier one on every column is written once."""
+
+    model_config = _MODEL_CONFIG
+
+    enabled: bool = True
+    dir: str = "combined"
+    iig_file_pattern: str = "{sttm}_IIG.xlsx"
+    review_file_pattern: str = "{sttm}_IIG_REVIEW.xlsx"
+    ddl_file_pattern: str = "{sttm}_DDL.txt"
+    # post128: every kept feed's DDL test cases, feed by feed
+    ddl_test_cases_file_pattern: str = "{sttm}_DDL_TestCases.txt"
+    # post154: the same cases as a workbook, one sheet per feed
+    ddl_test_workbook_file_pattern: str = "{sttm}_DDL_TestCases.xlsx"
+    log_file_pattern: str = "{sttm}_LOG.md"
+    dedup_sheets: list[str] = Field(default_factory=list)
+    # post99: rows written once on an otherwise per-feed sheet - a row whose
+    # ``column`` starts with one of ``prefixes`` and that equals an earlier feed's
+    # row on EVERY column (the run-level grand master / master pipelines, which
+    # every feed's IIG repeats). Child rows never match; rows that share a name
+    # but differ in any cell are kept and named in the log.
+    dedup_rows: dict[str, CombinedRowDedup] = Field(default_factory=dict)
+    # post99: OBJECT_ID in the combined IIG - "group" keeps each feed's 1..n (the
+    # framework's position within the group); "run" numbers the objects across the
+    # run's feeds (feed 2's objects follow feed 1's), every sheet of a feed shifted
+    # alike so its DQ / STGDELTA rows still name their object.
+    object_ids: Literal["group", "run"] = "group"
 
 
 class Config(BaseModel):
@@ -947,6 +2534,37 @@ class Config(BaseModel):
     # Optional (M5): the rfc output mode's package layout + playbook templates.
     rfc: RfcConfig = RfcConfig()
     playbook: PlaybookConfig = PlaybookConfig()
+    # Optional (M7): the SQL Server metadata-DB DML deliverable.
+    dml: DmlConfig = DmlConfig()
+    # Optional (IIG-first M3): the review / clean IIG workbooks + owner table.
+    iig_review: IigReviewConfig = IigReviewConfig()
+    combined: CombinedConfig = CombinedConfig()
+    # Optional (M8): storage backends per role + extra input roots.
+    storage: StorageConfig = StorageConfig()
+    inputs: InputsConfig = InputsConfig()
+    upstream: UpstreamConfig = UpstreamConfig()
+    # 2026-10-14: the deployment environments a run chooses from (the overlay's
+    # block; exactly one marked default) and the one THIS run uses (set at run
+    # time by codegen.environments.with_environment, never in YAML).
+    environments: dict[str, EnvironmentConfig] = Field(default_factory=dict)
+    # 2026-10-15: the profile schema (required keys + field descriptions)
+    environment_schema: EnvironmentSchemaConfig = EnvironmentSchemaConfig()
+    run_environment: RunEnvironment | None = None
+    # Optional (2026-10-20): the EDH E2E gold-mapping reader's profile.
+    edh_e2e: EdhE2eConfig = EdhE2eConfig()
+    # Optional (post161): the HEDIS Stage -> Consumption STTM reader (family H4).
+    hedis_consumption: HedisConsumptionConfig = HedisConsumptionConfig()
+
+    @model_validator(mode="after")
+    def _one_default_environment(self) -> Config:
+        marked = [name for name, env in self.environments.items() if env.default]
+        if self.environments and len(marked) != 1:
+            found = ", ".join(marked) if marked else "none"
+            raise ValueError(
+                f"environments: exactly one environment must be marked `default: true` "
+                f"(found {found} among {', '.join(self.environments)}) — mark one in the "
+                "overlay's environments block")
+        return self
 
 
 _TOP_LEVEL_KEYS = set(Config.model_fields)
@@ -964,6 +2582,146 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
     return merged
 
 
+# The ACFC environment overlay (IIG-first, 2026-10-07): catalogs, the
+# framework's connection ids / containers, the SDOH path shapes — committed
+# next to the config. load_config ALWAYS applies it first when it exists, so
+# every entry point (CLI, App backend, harness jobs, acfc_run.py) behaves the
+# same; CODEGEN_CONFIG_OVERLAYS adds overlays ON TOP of it (later wins).
+# Opt out only with CODEGEN_SKIP_ENV_OVERLAY=1 (the test suite does).
+DEFAULT_OVERLAY = Path("overlays") / "acfc_env.yaml"
+SKIP_ENV_OVERLAY = "CODEGEN_SKIP_ENV_OVERLAY"
+# 2026-10-15: the ACFC-side overlay, outside the tracked tree (gitignored):
+# <dir>/<conventions profile>.yaml, applied right after acfc_env.yaml
+STATE_OVERLAYS_ENV = "CODEGEN_STATE_OVERLAYS_DIR"
+STATE_OVERLAYS_DIR = Path(__file__).resolve().parents[2] / "codegen-state" / "overlays"
+# 2026-10-15 (post56): the codegen-state ROOT is a setting. Derived from this
+# file's location it is the checkout's folder for the CLI, but the App runs a
+# staged copy (`databricks sync` honours .gitignore, which keeps codegen-state
+# out) — the App showed D1 from the overlay while the checkout's
+# environments/d1.yaml existed. CODEGEN_STATE_DIR names it for every entry
+# point; the specific *_DIR variables still win for their own folder.
+STATE_DIR_ENV = "CODEGEN_STATE_DIR"
+STATE_DIR = Path(__file__).resolve().parents[2] / "codegen-state"
+
+
+# post72: a CODEGEN_STATE_DIR on an unmounted UC volume is read through its
+# local copy (codegen.state_mirror): {volume path: local copy}
+_STATE_MIRRORS: dict[str, Path] = {}
+
+
+def register_state_mirror(volume: str, local: Path) -> None:
+    """``state_root`` answers ``local`` while ``CODEGEN_STATE_DIR`` is ``volume``."""
+    _STATE_MIRRORS[volume.rstrip("/")] = Path(local)
+
+
+def state_root() -> Path:
+    """The codegen-state folder: ``CODEGEN_STATE_DIR`` (its local copy when it
+    is a volume path, post72), else ``<repo>/codegen-state``."""
+    value = os.environ.get(STATE_DIR_ENV)
+    if value and value.rstrip("/") in _STATE_MIRRORS:
+        return _STATE_MIRRORS[value.rstrip("/")]
+    return Path(value or STATE_DIR)
+
+
+def state_overlays_dir() -> Path:
+    """``CODEGEN_STATE_OVERLAYS_DIR``, else ``<state root>/overlays``."""
+    return Path(os.environ.get(STATE_OVERLAYS_ENV) or state_root() / "overlays")
+_announced_overlays: set[tuple[str, ...]] = set()
+_last_applied: list[str] = []
+
+
+def last_applied_overlays() -> list[str]:
+    """The overlays the most recent load_config in this process applied."""
+    return list(_last_applied)
+
+
+def overlay_paths(path: str | Path, overlays: list[str | Path] | None = None) -> list[Path]:
+    """Every overlay load_config applies to ``path``, in order (later wins):
+    ``<config dir>/overlays/acfc_env.yaml`` when it exists (unless
+    CODEGEN_SKIP_ENV_OVERLAY=1), then ``overlays``, then the
+    ``;``/``,``-separated CODEGEN_CONFIG_OVERLAYS. A path listed twice is
+    applied once, at its first position."""
+    candidates: list[Path] = []
+    default = Path(path).parent / DEFAULT_OVERLAY
+    if os.environ.get(SKIP_ENV_OVERLAY, "").strip() != "1" and default.is_file():
+        candidates.append(default)
+    state = state_overlay(path, candidates)
+    if state is not None:
+        candidates.append(state)
+    candidates += [Path(p) for p in (overlays or [])]
+    env_overlays = os.environ.get("CODEGEN_CONFIG_OVERLAYS", "").strip()
+    if env_overlays:
+        candidates += [Path(p.strip()) for p in re.split(r"[;,]", env_overlays) if p.strip()]
+    seen: set[Path] = set()
+    ordered: list[Path] = []
+    for candidate in candidates:
+        key = candidate.resolve()
+        if key not in seen:
+            seen.add(key)
+            ordered.append(candidate)
+    return ordered
+
+
+def state_overlay(path: str | Path, before: list[Path]) -> Path | None:
+    """``codegen-state/overlays/<profile>.yaml`` (``CODEGEN_STATE_OVERLAYS_DIR``
+    moves the folder) for the conventions profile the config file plus the
+    ``before`` overlays state — None when absent. Field meanings:
+    docs/acfc/OVERLAY_FIELDS.md."""
+    folder = state_overlays_dir()
+    if not folder.is_dir():
+        return None
+    profile = None
+    for source in (Path(path), *before):
+        try:
+            raw = yaml.safe_load(Path(source).read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        conventions = raw.get("conventions") if isinstance(raw, dict) else None
+        if isinstance(conventions, dict) and conventions.get("profile"):
+            profile = str(conventions["profile"])
+    profile = profile or ConventionsConfig.model_fields["profile"].default
+    candidate = folder / f"{profile}.yaml"
+    return candidate if candidate.is_file() else None
+
+
+def _announce(paths: list[Path]) -> None:
+    """One stderr line per process and distinct overlay list."""
+    key = tuple(str(p) for p in paths)
+    if paths and key not in _announced_overlays:
+        _announced_overlays.add(key)
+        print("config overlays (in order): " + " -> ".join(key), file=sys.stderr)
+
+
+def active_defaults(path: str | Path, overlays: list[str | Path] | None = None) -> dict[str, str]:
+    """The conventions profile and the IIG template a run uses when no flag
+    names one — ``conventions.profile`` / ``metadata.template`` after the
+    overlays (the committed acfc_env.yaml makes them acfc_prx / iig_v2,
+    Chunk D 2026-10-09). The same merge as load_config, without validation or
+    the stderr announcement, so the CLI's first line can name them BEFORE
+    load_config runs; {} when the files cannot be read."""
+    try:
+        raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+        for overlay_path in overlay_paths(path, overlays):
+            overlay = yaml.safe_load(overlay_path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict) and isinstance(overlay, dict):
+                raw = _deep_merge(raw, overlay)
+    except (OSError, yaml.YAMLError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    conventions = raw.get("conventions") if isinstance(raw.get("conventions"), dict) else {}
+    metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+    from codegen.reasoning.mode import mode_from_raw
+
+    return {
+        "provider": mode_from_raw(raw).text(),
+        "profile": str(conventions.get("profile")
+                       or ConventionsConfig.model_fields["profile"].default),
+        "iig_template": str(metadata.get("template")
+                            or MetadataConfig.model_fields["template"].default),
+    }
+
+
 def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> Config:
     """Load the YAML config, failing loudly on unknown top-level sections.
 
@@ -972,6 +2730,11 @@ def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> C
     the file before validation — the M5 home for client-shaped vocabulary
     (e.g. the pair-1 IIG template rows under fixtures/) so the shipped
     config carries none of it. Unknown sections are refused after the merge.
+
+    ``overlays/acfc_env.yaml`` next to the config file is ALWAYS applied
+    first when it exists; ``overlays`` and CODEGEN_CONFIG_OVERLAYS go on top
+    of it (``overlay_paths``). CODEGEN_SKIP_ENV_OVERLAY=1 opts out. One
+    stderr line lists every overlay applied, in order.
 
     ``CODEGEN_NOTIFICATION_EMAILS`` (comma/semicolon-separated) overrides
     ``job.notification_emails`` — env > YAML, like the SharePoint knobs. It
@@ -982,11 +2745,10 @@ def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> C
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"config file {path} is not a YAML mapping")
-    overlay_paths = [Path(p) for p in (overlays or [])]
-    env_overlays = os.environ.get("CODEGEN_CONFIG_OVERLAYS", "").strip()
-    if env_overlays:
-        overlay_paths += [Path(p.strip()) for p in re.split(r"[;,]", env_overlays) if p.strip()]
-    for overlay_path in overlay_paths:
+    applied = overlay_paths(path, overlays)
+    _announce(applied)
+    _last_applied[:] = [str(p) for p in applied]
+    for overlay_path in applied:
         overlay = yaml.safe_load(overlay_path.read_text(encoding="utf-8"))
         if not isinstance(overlay, dict):
             raise ValueError(f"config overlay {overlay_path} is not a YAML mapping")
@@ -1002,4 +2764,7 @@ def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> C
         emails = [e.strip() for e in re.split(r"[,;]", emails_env) if e.strip()]
         if emails:
             raw.setdefault("job", {})["notification_emails"] = emails
+    sender_env = os.environ.get("CODEGEN_NOTIFICATION_SENDER", "").strip()
+    if sender_env:
+        raw.setdefault("job", {})["notification_sender"] = sender_env
     return Config.model_validate(raw)

@@ -12,73 +12,371 @@ the default out/ tree and never the tracked replay fixtures.
 
 from __future__ import annotations
 
+import json
+import logging
+import re
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
 
 from codegen.extract import extract_to_file
+from codegen.output_modes import OUTPUT_OPTIONS, output_parts
+from codegen.output_modes import notices as output_notices
 from codegen.resolve.resolver import resolve_pair
-from ui.backend.service import REPO_ROOT, FailedRun, FeedRun, GenerationStore
+from ui.backend.docindex import (
+    CLASSIFYING,
+    INDEX_FILE,
+    UNREADABLE,
+    DocumentIndex,
+    fetch_exclusive,
+)
+from ui.backend.errors import error_detail
+from ui.backend.run_history import LiveRunHistory, run_entry
+from ui.backend.service import (
+    REPO_ROOT,
+    STATE_DIR,
+    FailedRun,
+    FeedRun,
+    GenerationStore,
+)
+from ui.backend.service import provider_of as run_provider_of
+
+# State files under the default (local) state role — module constants so tests
+# can point them elsewhere, like service.DECISIONS_PATH.
+INDEX_PATH = STATE_DIR / INDEX_FILE
+SELECTION_FILE = "selection.json"
+SELECTION_PATH = STATE_DIR / SELECTION_FILE
+
+
+def _codegen_source_line() -> str:
+    """run_meta.json's record of which code produced the run."""
+    from codegen.build_info import source_line
+
+    return source_line()
+
+
+def _build_identity() -> dict:
+    """run_meta.json's ``build``: version + commit / branch / commit time."""
+    from codegen.build_info import build_identity, build_text, codegen_version
+
+    found = {"version": codegen_version(), **build_identity()}
+    return {**found, "line": f"codegen {found['version']} · {build_text(build_identity())}"}
+
+
+class SelectionFailed(RuntimeError):
+    """A chosen document could not be brought in (download / pairing /
+    recording the choice failed). The selection is NOT made and nothing falls
+    back to the config default: the message is the API response (4xx) and the
+    status' ``selection_error`` (M9.3)."""
+
+
+class SelectionInProgress(RuntimeError):
+    """One document selection at a time — another one is still running."""
+
+
+class StepTimeout(TimeoutError):
+    """One step of a selection did not finish within its budget."""
+
+
+# A step's own work is bounded by its deadline (a download thread that is
+# abandoned, a parser process that is killed); the job waits this much longer
+# for the step to come back before it gives the step up.
+_STEP_GRACE_SECONDS = 2.0
+# M15d.2: a workbook that LOOKS like a Vendor Data Dictionary by name — read
+# early by the start-up warm-up, before its verdict exists.
+_LIKELY_VDD = re.compile(r"vdd|data[ _-]?dictionary|dictionary", re.IGNORECASE)
+log = logging.getLogger("codegen.ui.index")
 
 
 class LiveRunInProgress(RuntimeError):
     """A live run is already in flight (surface as HTTP 409)."""
 
 
-# Output selection as independent PARTS (what the UI toggles) mapped onto
-# the generator's single mode. "all" is its own part — selecting it is not
-# the same UI state as ticking the three others, even though it generates
-# the same set. An rfc part always carries the framework artefacts it is
-# built from (the generator writes them either way).
-OUTPUT_PARTS = ("notebook", "framework", "rfc", "all")
-_MODE_TO_PARTS = {
-    "notebook": ["notebook"],
-    "framework": ["framework"],
-    "both": ["notebook", "framework"],
-    "rfc": ["rfc"],
-    "all": ["all"],
-}
+class RunCancelled(RuntimeError):
+    """The person pressed Cancel run while the run waited for answers: the run
+    stops and the page goes back to idle - a choice, not a failure."""
 
 
-def parts_for_mode(mode: str) -> list[str]:
-    return list(_MODE_TO_PARTS[mode])
+# Output selection as independent PARTS (what the UI toggles): exactly
+# Notebook and Framework artefacts (codegen.output_modes). A retired value
+# (both / rfc / all) from a saved state maps to both parts with a one-time
+# notice, never an error.
+OUTPUT_PARTS = OUTPUT_OPTIONS
 
 
-def mode_for_parts(parts: list[str]) -> str | None:
-    """None when nothing is selected (a run is refused)."""
-    chosen = set(parts)
-    if not chosen:
-        return None
-    if "all" in chosen or ("notebook" in chosen and "rfc" in chosen):
-        return "all"
-    if "rfc" in chosen:
-        return "rfc"
-    if "notebook" in chosen and "framework" in chosen:
-        return "both"
-    return "framework" if "framework" in chosen else "notebook"
+def feeds_left_without_a_file(questions, contract) -> list[tuple[int, object]]:
+    """FRD feeds whose 'which file feeds this table' question the person
+    left unanswered (Proceed unresolved): ``[(index, feed)]``. The runner
+    sets them aside as failed feeds — with the remedy — so the rest of the
+    run proceeds; it never picks a file for them."""
+    out: list[tuple[int, object]] = []
+    for q in questions:
+        key = q.key if hasattr(q, "key") else q.get("key", "")
+        kind = q.kind if hasattr(q, "kind") else q.get("kind")
+        match = re.fullmatch(r"feeds\[(\d+)\]\.file_name_patterns", key or "")
+        if kind != "choice" or not match or contract is None:
+            continue
+        index = int(match.group(1))
+        if index < len(contract.feeds) and not contract.feeds[index].file_name_patterns:
+            out.append((index, contract.feeds[index]))
+    return out
+
+
+class RunNeedsAnswers(Exception):  # noqa: N818 — a run outcome, not an error
+    """Every feed of the run is held back (NEEDS_ANSWERS / left without a
+    file): the run ends in state ``needs_answers`` with ``needs_answers`` as
+    the list to answer — never a generic failure."""
+
+
+def _empty_answers() -> dict:
+    return {"sttm": {}, "frd": {}, "vdd": {}, "gaps": {}}
+
+
+def merge_answers(base: dict | None, extra: dict | None) -> dict:
+    """Answers payloads merged per document; ``extra`` wins per key."""
+    return {doc: {**((base or {}).get(doc) or {}), **((extra or {}).get(doc) or {})}
+            for doc in _empty_answers()}
+
+
+def _answer_as(question: dict) -> str:
+    """How an answer to ``question`` is posted: ``gap`` (gaps: {value, layer?}),
+    ``band_layer`` (sttm: a layer string), ``frd_cell`` (frd: a table cell
+    claim) or ``column`` (sttm / vdd: a column number)."""
+    from codegen.layout.profile import is_band_layer_key
+
+    if (question.get("kind") or "role") != "role":
+        return "gap"
+    if is_band_layer_key(str(question.get("key"))):
+        return "band_layer"
+    return "frd_cell" if question.get("document") == "frd" else "column"
+
+
+def needs_answer_item(question: dict, *, feed_name: str | None = None,
+                      sheet: str | None = None, reason: str | None = None) -> dict:
+    """One entry of ``status.needs_answers``: the answers-file key, its label
+    as the CLI prints it (QUESTION under gaps:, UNRESOLVED under answers:),
+    how the answer is posted, the held-back feed and the question itself (the
+    layout dialog's shape, so the page renders it with the same controls)."""
+    answer_as = _answer_as(question)
+    section = "gaps" if answer_as == "gap" else "answers"
+    return {"key": question["key"], "label": "QUESTION" if section == "gaps" else "UNRESOLVED",
+            "section": section, "answer_as": answer_as, "feed_name": feed_name,
+            "sheet": sheet if sheet is not None else question.get("sheet"),
+            "reason": reason or question.get("reason") or "", "question": question}
+
+
+def _unstated_question(unstated) -> dict:
+    """post57: a value no document states, as a typed question (gaps:)."""
+    return {"document": "frd", "key": unstated.key, "sheet": None, "layer": None,
+            "role": unstated.key, "kind": "text", "reason": unstated.reason,
+            "header": [], "candidates": [],
+            "title": f"{unstated.field} of {unstated.feed_id}",
+            "hint": "No document states this value; type it.", "suggested": None}
+
+
+def pending_question(pending, key: str, config) -> dict:
+    """The question for a held-back key no layout question carries: a band
+    layer (source | stage | standard) or a value no document states (text,
+    typed by the person — the agent never guesses a target)."""
+    from codegen.extract.generic import AUDIT_KEY_RE
+    from codegen.layout.hints import frd_field_help
+    from codegen.layout.profile import BAND_LAYER_KEY_RE
+    from codegen.layout.resolve import LayoutQuestion, band_layer_question
+
+    band =BAND_LAYER_KEY_RE.match(key)
+    if band is not None:
+        return band_layer_question("sttm", band.group("sheet"), f"band[{band.group('n')}]",
+                                   pending.reason).as_dict()
+    title = frd_field_help(key, [], config)[0]
+    if AUDIT_KEY_RE.match(key):
+        # Chunk B: the STTM lists no audit row — the person's list, in the
+        # shape codegen.extract.generic.parse_audit_answers reads.
+        hint = ("The STTM lists no audit row for this feed. Type its audit columns as "
+                "NAME:Type entries separated by ';' (Type String | Timestamp), as the source "
+                "team confirms them — used with source = you and gate-flagged; the agent never "
+                "adds an audit set silently.")
+    else:
+        hint = ("No document states this value. Type it as the source team confirms it — it "
+                "is used with source = you and gate-flagged; the agent never guesses a "
+                "target. Several tables: separate them with ';'.")
+    # post95: the extractor's proposal (a blank stage type: what the sheet pairs with
+    # the row's standard type) - one click, never pre-selected; typing still works
+    candidates = [{"value": value, "source": "proposed",
+                   "cell": "what this sheet's other rows use - confirm it"}
+                  for value in getattr(pending, "candidates", None) or []]
+    if candidates:
+        # post96: the wording matches - the row's own cell is blank, the suggestion
+        # comes from the sheet's other rows, nothing is filled in without the person
+        hint = ("This row leaves the value blank. The suggestion below comes from the "
+                "sheet's other rows — pick it, or type the value the source team confirms. "
+                "Nothing is filled in until you answer.")
+    return LayoutQuestion(
+        document="frd", sheet=None, layer=None, role=key, kind="text", reason=pending.reason,
+        title=title, hint=hint, candidates=candidates).as_dict()
+
+
+def layout_feed_key(key: str, run_feeds: list, layout_feeds: list) -> str:
+    """A held-back key as the LAYOUT stage numbers the feeds. The extractor
+    reads the run's FRD contract, which leaves out the feeds set aside without
+    a file — its ``feeds[j]`` is the layout contract's ``feeds[i]`` of the
+    same feed name (the index a ``gaps:`` answer is applied by)."""
+    match = re.match(r"^feeds\[(\d+)\]\.(.+)$", key)
+    if match is None or run_feeds is layout_feeds:
+        return key
+    index = int(match.group(1))
+    if index >= len(run_feeds):
+        return key
+    name = run_feeds[index].feed_name
+    for i, feed in enumerate(layout_feeds):
+        if feed.feed_name == name:
+            return f"feeds[{i}].{match.group(2)}"
+    return key
+
+
+def run_feed_answers(answers: dict, run_feeds: list, layout_feeds: list) -> dict:
+    """Per-feed answers keyed by the LAYOUT contract's feed index (the index
+    of a ``gaps:`` key, ``feeds[i].…``) re-keyed to the run FRD contract's —
+    the one the extractor numbers its feeds by, which leaves out the feeds set
+    aside without a file (the inverse of ``layout_feed_key``). An answer for
+    a feed the run does not read is dropped."""
+    if run_feeds is layout_feeds:
+        return dict(answers)
+    by_name = {feed.feed_name: j for j, feed in enumerate(run_feeds)}
+    return {by_name[layout_feeds[i].feed_name]: value for i, value in answers.items()
+            if i < len(layout_feeds) and layout_feeds[i].feed_name in by_name}
+
+
+def _dedup_items(items: list[dict]) -> list[dict]:
+    """One entry per key, the first kept (it carries the held-back feed)."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for item in items:
+        if item["key"] not in seen:
+            seen.add(item["key"])
+            out.append(item)
+    return out
 
 
 class DemoRunner:
     """One live run at a time; stage list is append-only per run."""
 
-    def __init__(self, store: GenerationStore, work=None) -> None:
+    def __init__(self, store: GenerationStore, work=None, *, index_warmup: bool = True) -> None:
         self._store = store
         self._work = work or self._execute  # injectable for tests
+        # M15d.3: VDD candidates the last pairing scored by NAME only (the
+        # index had not reached them); when the index stores one, the VDD
+        # pairing is re-scored and the chip updated — deferred past a run in
+        # progress (``_deferred_vdd_plan``), applied when it ends.
+        self._vdd_watch: set[str] = set()
+        self._repair_lock = threading.Lock()
+        self._repair_busy = False
+        self._repair_again = False
+        self._deferred_vdd_plan: dict | None = None
+        # M15d.2: the likely dictionaries the start-up warm-up queued; logged
+        # once when all of them are indexed. ``_warmup_done`` is set when the
+        # warm-up has queued everything (tests wait on it); ``_restored_folder``
+        # is the folder selection.json named, kept first in the queue.
+        self._vdd_warmup_pending: set[str] = set()
+        self._warmup_done = threading.Event()
+        self._restored_folder: str | None = None
+        # M15e: what the current / last run had to note about its inputs
+        # ("VDD not decided at run start: …") — a stage, a gate flag on every
+        # feed and a line in run_meta.json.
+        self.run_notes: list[str] = []
+        # 2026-10-13: the pairing NOTEs of the pairs a run uses ("VDD by
+        # content: <file>", a fuzzy name pair) — said in the report.
+        self.run_pairing_notes: list[str] = []
         self._lock = threading.Lock()
-        self.state: str = "idle"  # idle | running | needs_layout | done | failed
+        # idle | running | needs_layout | done | failed | needs_answers (every
+        # feed held back: ``needs_answers`` is the list, answered inline and
+        # re-run — never a generic failure).
+        self.state: str = "idle"
+        # What the last run's held-back feeds need — [needs_answer_item(...)]:
+        # with state needs_answers (all held), done (some) or failed (the
+        # questions left open at "Proceed with unresolved"). Answered through
+        # ``rerun_with_answers``; cleared when the next run starts.
+        self.needs_answers: list[dict] = []
+        # 2026-10-14 (D1 post44): values the last run's workbooks were written
+        # WITHOUT (INPUT_NEEDED: ACTIVE_START_DATE ...) — a non-blocking banner,
+        # never the needs_answers pause: [{key, question, feed}]
+        self.inputs_needed: list[dict] = []
+        # post60: the last App run's generate outcome, read from its
+        # CODEGEN_STAGES.json (codegen.generate_run) — never inferred here
+        self.outcome: str | None = None
+        # post80: the run's BLOCKING open lines (codegen.generate_run open items) —
+        # a QUESTION the App may not list anywhere else (the landing path), so the
+        # page's "Complete the blocking questions first" can name every one
+        self.blocking_lines: list[dict] = []
+        # post80: which pause the dialog is ("layout" — before any value is read —
+        # or "before_generate": the run's blocking questions, then one generate)
+        self.pause_kind = "layout"
+        # post59: the BSA's CONFIRMED input choices (key -> input_choices.Choice):
+        # the panel's radio sits on use_default, but only a Confirm records it,
+        # and only a recorded choice is applied by the next Generate
+        self.input_choices: dict = {}
+        # The readable form of the error that ended the last run (errors.py):
+        # type, message, the traceback's innermost frame, the health line.
+        self.error_detail: dict | None = None
+        # Answers carried INTO the run a re-run starts ({inputs, answers}: the
+        # (STTM, FRD) they were given for), set by every run start (None for
+        # an ordinary Generate) and dropped when the run ends — never armed
+        # for a later run; and the answers the last run's layout used, so a
+        # re-run never re-asks what the dialog already answered.
+        self._seed_answers: dict | None = None
+        self.last_answers: dict = _empty_answers()
+        # (sttm, frd) the last run read — a re-run with answers is refused
+        # once the documents changed (its keys name THOSE documents' sheets).
+        self._run_inputs: tuple | None = None
+        self._run_items: list[dict] = []
+        self._open_owed: list[dict] = []
         # M2.5 layout resolution: while a run waits for the human to place
         # unresolved roles, ``layout_questions`` holds the question list
         # (grouped by document in the UI) and ``_layout_answers`` the reply.
         self.layout_questions: list[dict] = []
         self.layout_report: dict | None = None
+        # Model advice for the pending questions (POST /api/demo/layout-advice):
+        # {"provider": name, "advice": {key: {index, rationale}}}; reset when the
+        # question set changes. Display + a pre-selection — never a value.
+        self.layout_advice: dict | None = None
+        # FRD fields taken from another document / the person's choice while
+        # resolving the layout: [{field, title, value, source, cell}].
+        self.layout_fills: list[dict] = []
+        # M9.1 "re-resolve layout": the next layout resolution bypasses every
+        # cached profile and overwrites the runtime entries (one shot — set
+        # before a run, or from the needs_layout dialog).
+        self.layout_refresh: bool = False
         self._layout_event = threading.Event()
+        # What the current / last run did with a model, per stage (list of
+        # codegen.reasoning.usage.StageUsage.as_dict — each carries its label).
+        # Built from the providers the run actually used, never from config.
+        self.model_usage: list[dict] = []
+        self._layout_providers: list = []
+        # post67: the last live runs per conventions profile (the confirm
+        # dialog's ranges) and the seconds the current run waited for the person
+        self.live_history = LiveRunHistory(lambda: self._store.config)
+        self._waited_for_person = 0.0
+        self._run_label: str | None = None         # the current run's folder name
+        # "Clear past runs" in progress: a run must not start into it.
+        self._clearing = False
+        # Recording the selection (selection.json in the state role) happens
+        # OFF the selection path: one background writer, the newest payload
+        # wins. It used to be the job's last step, BEFORE the choice was
+        # applied — a slow state-role write (Workspace API) kept the STTM
+        # unselected, and Generate disabled, for up to the step budget.
+        self._record_lock = threading.Lock()
+        self._record_pending: tuple[dict, dict | None] | None = None
+        self._record_busy = False
+        self._record_idle = threading.Event()
+        self._record_idle.set()
         self._layout_answers: dict | None = None
         self.stages: list[dict] = []
         self.error: str | None = None
         # Label of the most recent COMPLETED run, so the UI can restore its
         # results (via the past-live-run loader) from any later state.
         self.last_run_label: str | None = None
+        # Feeds the last run set aside (no file, question unanswered): [{label, error}]
+        self.set_aside: list[dict] = []
         # The operator's chosen STTM workbook. None = the config default.
         # In-memory only: a restart returns to config.demo.workbook.
         self.selected_workbook: Path | None = None
@@ -103,16 +401,248 @@ class DemoRunner:
         # template. In-memory only, like the output mode.
         self.conventions_profile: str | None = None
         self.iig_template: str | None = None
+        # 2026-10-14: the run's environment — None = the default; else
+        # {"name": <a choice>} or {"custom": {...}, "custom_name": <name>}
+        self.environment_choice: dict | None = None
         self.playbook_template: str | None = None
         # Structured hint for the failed-run card: when a feed-match
         # failure has a known companion FRD, the UI renders a one-click
         # "choose the pair" button from this. Never an auto-retry.
         self.error_hint: dict | None = None
+        # M8.1: input catalogs (sources + cached remote listings), per kind.
+        self._catalogs: dict[str, tuple] = {}
+        # M8.2: the last content-pairing decision per kind ("frd" / "vdd").
+        self.pair_decisions: dict = {}
+        # M9.3: the last selection that FAILED — {kind, name, message}. While
+        # set (and no STTM is chosen) a run is refused — never a silent fall
+        # back to the config default; cleared by the next successful selection
+        # or a Clear.
+        self.selection_error: dict | None = None
+        # M9.3: what choosing the STTM paired (or asks), per kind — returned by
+        # the select call itself and kept on the status.
+        self.last_pairing: dict = {}
+        # M9.3 addendum (APP_CHOOSER_BUG): choosing the STTM is a JOB — locate,
+        # download, classify, pair, record, each step in its own thread with a
+        # timeout. The POST returns the job at once, the status reports it, and
+        # nothing is selected until every step has succeeded. ``_lock`` guards
+        # state mutation only; no I/O ever happens under it.
+        self.selection_job: dict | None = None
+        # post141: the selection "Choose documents" opened on (Cancel restores it)
+        self._choosing_snapshot: dict | None = None
+        self._job_started = 0.0                    # time.monotonic() of the current job
+        self._job_seq = 0
+        self._job_done = threading.Event()
+        self._job_done.set()
+        # M15.2: the job is DONE (the STTM applied, Generate enabled) as soon
+        # as the workbook is classified; its FRD / VDD pairing lands behind it.
+        # Clear while a pairing is on its way; a run started meanwhile waits.
+        self._pairing_done = threading.Event()
+        self._pairing_done.set()
+        # Upstream contract listing (upstream.enabled only): refreshed in a
+        # background task with a hard timeout; request paths read this snapshot.
+        self._upstream: dict = {"state": "idle", "rows": [], "error": None, "at": 0.0}
+        self._upstream_seq = 0
+        # M9.3: content verdicts (workbook kind, pairing facts) computed in the
+        # background, kept in the state role — the list endpoints never open a
+        # document (ui/backend/docindex.py).
+        self._index = DocumentIndex(
+            lambda: self._store.config, self._index_path,
+            lambda: self._push_state_file(INDEX_FILE), REPO_ROOT,
+            local_path=self._index_local_path)
+        self._index.add_listener(self._on_indexed)
+        self._start_restore()
+        if index_warmup:
+            threading.Thread(target=self._index_warmup, name="index-warmup",
+                             daemon=True).start()
+        else:
+            self._warmup_done.set()
 
-    def effective_frd(self) -> Path:
-        return self.selected_frd or (
-            REPO_ROOT / self._store.config.contracts.dir / self._store.config.demo.frd
-        )
+    def _index_path(self) -> Path:
+        """The index file, PULLED from a remote state role (the read after a restart)."""
+        from ui.backend import stores as ui_stores
+
+        return ui_stores.state_file(self._store.config, INDEX_FILE, INDEX_PATH)
+
+    def _index_local_path(self) -> Path:
+        """The index file's local path, no pull (the writer overwrites it whole)."""
+        from ui.backend import stores as ui_stores
+
+        return ui_stores.state_local_path(self._store.config, INDEX_FILE, INDEX_PATH)
+
+    def _index_folder_first(self, source: str) -> None:
+        """Queue the documents of ``source`` (a listing label — the folder of the
+        STTM being selected, or of the one selection.json names at App start,
+        M15b.7) for the background index and read them before anything else
+        waiting (M15.8). A listing problem is reported elsewhere; never fatal."""
+        try:
+            docs = [*self._workbook_catalog().documents((".xlsx",)),
+                    *self._frd_catalog().documents((".contract.json", ".docx"))]
+        except Exception:  # noqa: BLE001 — status.input_errors carries it
+            return
+        for doc in docs:
+            if doc.source == source:
+                self._index.lookup(doc)
+        self._index.prioritize(source)
+
+    def _index_warmup(self) -> None:
+        """M15d.2: at App start the background index reads, in this order, the
+        folder selection.json names (the restore job queues it first), then
+        every workbook the index already classified as a VDD or that looks
+        like one by name, then everything else. Logged when all the likely
+        dictionaries are indexed. Never on a request thread."""
+        try:
+            self._job_done.wait(float(self._store.config.inputs.select_timeout_seconds) * 4)
+            try:
+                workbooks = self._workbook_catalog().documents((".xlsx",))
+                frds = self._frd_catalog().documents((".contract.json", ".docx"))
+            except Exception:  # noqa: BLE001 — status.input_errors carries it
+                return
+
+            def likely_vdd(doc) -> bool:
+                with self._index._lock:
+                    entry = self._index._load().get(doc.version)
+                return (entry["state"] == "vdd") if entry else bool(_LIKELY_VDD.search(doc.name))
+
+            likely = [d for d in workbooks if likely_vdd(d)]
+            pending = set()
+            for doc in likely:
+                if self._index.lookup(doc)["state"] == CLASSIFYING:
+                    pending.add(doc.version)
+            for doc in [*workbooks, *frds]:
+                self._index.lookup(doc)
+            self._vdd_warmup_pending = pending
+            if pending:
+                likely_versions = {d.version for d in likely}
+                self._index.prioritize(select=lambda d: d.version in likely_versions)
+                log.info("index warm-up: %d likely VDD candidate(s) queued first", len(pending))
+            else:
+                log.info("index warm-up: all %d VDD candidate(s) already indexed", len(likely))
+            if self._restored_folder:
+                self._index.prioritize(self._restored_folder)   # the recorded folder stays first
+        finally:
+            self._warmup_done.set()
+
+    def _on_indexed(self, doc, entry: dict) -> None:
+        """Index listener (off the request path): the warm-up log, and the VDD
+        re-pairing when a name-only candidate just got its verdict (M15d.3)."""
+        if self._vdd_warmup_pending:
+            self._vdd_warmup_pending.discard(doc.version)
+            if not self._vdd_warmup_pending:
+                log.info("index warm-up: all VDD candidates indexed")
+        if doc.name in self._vdd_watch and entry.get("state") != CLASSIFYING:
+            with self._repair_lock:
+                if self._repair_busy:
+                    self._repair_again = True       # the running re-scoring goes once more
+                    return
+                self._repair_busy, self._repair_again = True, False
+            threading.Thread(target=self._repair_vdd, name="repair-vdd", daemon=True).start()
+
+    def _repair_vdd(self) -> None:
+        """Re-score the VDD pairing from the index (no download, no parse) and
+        apply it when a candidate now WINS over the name-only pick; never
+        over a manual pick; deferred past a run in progress. Loops while
+        verdicts kept landing during a pass."""
+        while True:
+            try:
+                self._repair_vdd_once()
+            except Exception as exc:  # noqa: BLE001 — a re-scoring never breaks anything
+                log.warning("VDD re-scoring failed: %s: %s", type(exc).__name__, exc)
+            with self._repair_lock:
+                if not self._repair_again:
+                    self._repair_busy = False
+                    return
+                self._repair_again = False
+
+    def _repair_vdd_once(self) -> None:
+        job = self.selection_job
+        sttm = self.selected_workbook
+        manual_vdd = self.selected_vdd is not None and self.vdd_auto_paired is None
+        if job is None or job["kind"] != "sttm" or sttm is None or manual_vdd:
+            return
+        plan = self._plan_pair("vdd", sttm.name)
+        chosen = plan["decision"].chosen
+        current = (self.vdd_auto_paired or {}).get("vdd")
+        with self._lock:
+            if self.selection_job is not job:
+                return
+            self._vdd_watch = set(plan["outcome"].get("not_indexed", []))
+            previous_likely = (self.last_pairing.get("vdd") or {}).get("likely")
+            if chosen is None:
+                # Still undecided: a fresher "likely" / not-indexed list for the chip.
+                if self.vdd_auto_paired is None:
+                    self.last_pairing["vdd"] = plan["outcome"]
+                    job["pairing"]["vdd"] = plan["outcome"]
+                return
+            if chosen == current:
+                return
+            plan["outcome"]["upgraded_from"] = current or previous_likely
+            if self.state == "running":
+                self._deferred_vdd_plan = plan      # the run is not affected; the next one is
+                return
+            self._apply_pair("vdd", plan)
+            job["pairing"]["vdd"] = plan["outcome"]
+        log.info("VDD pairing decided by the index: %s (was %s)", chosen,
+                 current or previous_likely)
+
+    def _push_state_file(self, name: str) -> None:
+        from ui.backend import stores as ui_stores
+
+        ui_stores.push_state(self._store.config, name)
+
+    def _fetch(self, doc, timeout: float | None = None) -> Path:
+        """A selection's download, bounded by ``inputs.select_timeout_seconds``
+        (a hung transfer is a StorageError, never a hung request)."""
+        from codegen.storage import StorageError
+
+        if timeout is None:
+            timeout = float(self._store.config.inputs.select_timeout_seconds)
+        box: dict = {}
+
+        def job() -> None:
+            try:
+                box["path"] = fetch_exclusive(doc)
+            except Exception as exc:  # noqa: BLE001 — re-raised on the request thread
+                box["error"] = exc
+
+        thread = threading.Thread(target=job, name=f"fetch:{doc.name}", daemon=True)
+        thread.start()
+        thread.join(timeout)
+        if thread.is_alive():
+            # An OSError like any failed download (callers catch those), and a
+            # TIMEOUT on the selection job.
+            raise StepTimeout(f"downloading {doc.uri} did not finish within {timeout:g}s")
+        if "error" in box:
+            raise box["error"]
+        if not box["path"].is_file():
+            raise StorageError(f"downloading {doc.uri} left no file at {box['path']}")
+        return box["path"]
+
+    def effective_frd(self) -> Path | None:
+        """The FRD a run reads (2026-10-16): the one chosen or paired with the
+        STTM. Only with NO STTM chosen does a run fall back to the configured
+        demo pair (demo.workbook + demo.frd); a chosen STTM without a chosen or
+        paired FRD has none — the demo contract is never put beside a real
+        STTM, and the agent never guesses a pair."""
+        if self.selected_frd is not None:
+            return self.selected_frd
+        if self.selected_workbook is None:
+            return REPO_ROOT / self._store.config.contracts.dir / self._store.config.demo.frd
+        return None
+
+    def _frd_question_pending(self) -> bool:
+        """The run may still get an FRD: its pairing is still landing (the run
+        waits for it, M15.2) or is ambiguous (the run asks)."""
+        job = self.selection_job
+        if (job is not None and not self._pairing_done.is_set()
+                and "frd" in job.get("pairing_pending", [])):
+            return True
+        decision = self.pair_decisions.get("frd")
+        return decision is not None and decision.ambiguous
+
+    def _no_frd_message(self) -> str:
+        return (f"no FRD chosen for {self.effective_workbook().name} — choose its FRD (or "
+                "contract) in Choose documents… and generate again; the agent never "
+                "guesses a pair")
 
     def select_frd(self, path: Path, label: str) -> None:
         with self._lock:
@@ -144,84 +674,456 @@ class DemoRunner:
     def local_frd_candidates(self) -> dict[str, Path]:
         """FRDs a run can use without a network call: contract JSONs and
         FRD-named .docx in the contracts dir and the three inboxes (any .docx
-        in the uploads inbox — only a kind=frd upload puts one there)."""
-        from codegen.demo_sources import canonical_document_name
+        in the uploads inbox — only a kind=frd upload puts one there). An
+        FRD-named .docx carries the ``frd`` token ANYWHERE in its name
+        (2026-10-13: "<title>_FRD.docx" was never a candidate under the old
+        prefix rule)."""
+        from codegen.demo_sources import classify_document_name
 
-        contracts_dir = REPO_ROOT / self._store.config.contracts.dir
-        uploads = REPO_ROOT / "inputs" / "uploads"
-        dirs = (contracts_dir, REPO_ROOT / "inputs" / "databricks",
-                REPO_ROOT / "inputs" / "sharepoint", uploads)
         found: dict[str, Path] = {}
-        for directory in dirs:
-            if not directory.is_dir():
+        for doc in self._frd_catalog().documents((".contract.json", ".docx")):
+            if doc.name.lower().endswith(".docx") and not (
+                    doc.source == "inputs/uploads"
+                    or classify_document_name(doc.name).role == "frd"):
                 continue
-            for path in sorted(directory.glob("*.contract.json")):
-                found.setdefault(path.name, path)
-            for path in sorted(directory.glob("*.docx")):
-                if path.name.startswith("~$"):
-                    continue
-                if directory == uploads or canonical_document_name(path.name).startswith("frd"):
-                    found.setdefault(path.name, path)
+            # The working-copy path; a remote document is downloaded when the
+            # FRD is actually selected (``fetch_frd_candidate``). Listing queues
+            # its pairing facts for the background index — it never opens it.
+            if doc.name not in found:
+                self._index.lookup(doc)
+            found.setdefault(doc.name, doc.local_path())
         return found
+
+    def fetch_frd_candidate(self, name: str) -> Path | None:
+        """The named local FRD candidate as a file on disk (downloaded first
+        when it lives in a remote input root); None when no source has it."""
+        doc = self._frd_catalog().find(name, (".contract.json", ".docx"))
+        return self._fetch(doc) if doc is not None else None
 
     def auto_pair_frd(self, sttm_name: str) -> dict | None:
         """Select the FRD associated with the chosen STTM when one is present
         (config pairing map -> shared ticket -> unique name stem). A manual
         FRD choice is replaced only when a pair is found; a stale automatic
         pair from a previous STTM is cleared."""
-        from codegen.demo_sources import auto_pair_frd
-
-        candidates = self.local_frd_candidates()
-        match = auto_pair_frd(sttm_name, list(candidates),
-                              explicit_map=self._store.config.demo.pairing_map)
-        if match is None:
-            if self.frd_auto_paired is not None:
-                self.selected_frd = None
-                self.selected_frd_label = None
-                self.frd_auto_paired = None
-            return None
-        frd_name, rule = match
-        self.selected_frd = candidates[frd_name]
-        self.selected_frd_label = frd_name
-        self.frd_auto_paired = {"frd": frd_name, "rule": rule}
+        self._apply_pair("frd", self._plan_pair("frd", sttm_name))
         return self.frd_auto_paired
+
+    def _plan_pair(self, kind: str, sttm_name: str, deadline: float | None = None) -> dict:
+        """The ``kind`` ("frd" | "vdd") companion of the chosen STTM — by
+        CONTENT (codegen.pairing: explicit map, then what the documents say, the
+        ticket number one signal among several). COMPUTES only — a plan
+        ``_apply_pair`` records — so a step that is given up cannot change the
+        selection later. No document is opened in this process: facts come from
+        the index, else from the (killable) parser while the step's budget
+        lasts; a candidate that is unreadable or not read in time scores on its
+        name alone (``unread``)."""
+        from dataclasses import replace
+
+        from codegen.demo_sources import classify_document_name, document_stem
+        from codegen.pairing import empty_facts, pair_by_content, vdd_by_content_note
+        from codegen.storage import StorageError
+
+        config = self._store.config
+        if deadline is None:
+            deadline = time.monotonic() + float(config.inputs.select_timeout_seconds)
+        sttm_doc = self._workbook_catalog().find(sttm_name, (".xlsx",))
+        folder = sttm_doc.source if sttm_doc is not None else None
+        # 2026-10-13: the pairs override file wins over every automatic rule.
+        overrides = self._pair_overrides(folder, deadline)
+        wanted = overrides.lookup(sttm_name, kind)
+        if kind == "frd":
+            candidates = self.local_frd_candidates()
+            explicit_map = config.demo.pairing_map
+            catalog, suffixes = self._frd_catalog(), (".contract.json", ".docx")
+        else:
+            # A dictionary candidate needs a ``vdd`` token in its name or
+            # POSITIVE structural evidence from the index (a FILES / field
+            # sheet by its header signature — ``classify_workbook``); one still
+            # being read stays (scored by name, never applied until indexed —
+            # M15e). Never an IIG (a validation golden), never a workbook the
+            # index reads as an STTM, never an unclassified one (2026-10-13:
+            # an IIG golden was attached as the VDD as the folder's only
+            # workbook).
+            candidates = {}
+            for doc in self._workbook_catalog().documents((".xlsx",)):
+                if doc.name == sttm_name:
+                    continue
+                state = self._index.lookup(doc)["state"]
+                role = classify_document_name(doc.name).role
+                if state == "sttm" or role in ("iig", "sttm", "frd"):
+                    continue
+                if role == "vdd" or state in ("vdd", CLASSIFYING):
+                    candidates[doc.name] = doc.local_path()
+            explicit_map = config.demo.vdd_pairing_map
+            catalog, suffixes = self._workbook_catalog(), (".xlsx",)
+        if wanted and document_stem(wanted) not in {document_stem(n) for n in candidates}:
+            # The override may name a document the role gate left out.
+            named = next((d for d in catalog.documents(suffixes)
+                          if document_stem(d.name) == document_stem(wanted)), None)
+            if named is not None:
+                candidates[named.name] = named.local_path()
+        sttm_path = sttm_doc.local_path() if sttm_doc is not None else Path(sttm_name)
+        docs = {name: catalog.find(name, suffixes) for name in candidates}
+        sttm_facts = self._index.facts(sttm_doc) if sttm_doc is not None else None
+        known = {sttm_name: sttm_facts if sttm_facts is not None else empty_facts()}
+        unread: list[str] = []
+        # M15d.1: VDD candidates the background index has not reached yet —
+        # scored by NAME only, said so on the outcome, re-scored when indexed.
+        not_indexed: list[str] = []
+        # A workbook whose verdict -- once read, here or by the background index
+        # meanwhile -- is "sttm" is never a dictionary: dropped in every scope
+        # (a copy of the chosen STTM in the pair folder would otherwise score
+        # a perfect content match and be chosen as the VDD).
+        not_a_vdd: set[str] = set()
+        # M9.3: the STTM's OWN folder first (…/pair_1/{FRD, STTM, VDD}); the
+        # other input roots only when that folder holds no candidate.
+        in_folder = [n for n, d in docs.items() if d is not None and d.source == folder]
+        scopes = ([("same_folder", in_folder)] if in_folder else []) + [("all", list(candidates))]
+        # M15c: an explicit pairing_map entry decides WITHOUT reading anything
+        # (``_plan_pair`` used to read every candidate first, then let
+        # ``pair_by_content`` return the map's answer). The override file first.
+        explicit = {document_stem(k): document_stem(v) for k, v in (explicit_map or {}).items()}
+        by_stem = {document_stem(n): n for n in candidates}
+        mapped = explicit.get(document_stem(sttm_name))
+        if wanted and document_stem(wanted) in by_stem:
+            scopes = [("override", [by_stem[document_stem(wanted)]])]
+        elif mapped in by_stem:
+            scopes = [("pairing_map", [by_stem[mapped]])]
+        states: dict[str, str | None] = {}
+        decision, scope = None, "all"
+        for scope, names in scopes:
+            local: dict[str, Path] = {}
+            for name in names:
+                if name in not_a_vdd:
+                    continue
+                doc = docs[name]
+                local[name] = doc.local_path() if doc is not None else candidates[name]
+                if name in known:
+                    continue
+                facts = self._index.facts(doc) if doc is not None else None
+                state = self._index.lookup(doc)["state"] if doc is not None else None
+                # M15c: on the request path only the STTM's OWN folder and the
+                # LOCAL sources are read. REMOTE roots outside the folder score
+                # from indexed facts or names (``unread``) — a download + parse
+                # of every workbook of every pair folder for an inbox STTM took
+                # minutes, and the run waited for it; the background index
+                # (folder-first) closes the gap behind the person.
+                # M15d.1: a VDD candidate is NEVER downloaded or parsed on the
+                # request path — the index's stored facts score it in memory.
+                if (facts is None and doc is not None and state != UNREADABLE
+                        and kind != "vdd"
+                        and (scope == "same_folder" or doc.store.is_local)):
+                    left = deadline - time.monotonic()
+                    if left > 0:
+                        try:
+                            state = self._index.read_now(
+                                doc, self._fetch(doc, left),
+                                max(deadline - time.monotonic(), 0.05),
+                                lane="request" if kind == "frd" else "request-vdd")["state"]
+                        except StepTimeout:
+                            # M15.5: not read IN TIME is not unreachable — the
+                            # candidate stays, scored on its name (``unread``).
+                            pass
+                        except (StorageError, OSError):
+                            del local[name]           # unreachable candidate: not a contender
+                            continue
+                        facts = self._index.facts(doc)
+                if kind == "vdd" and state == "sttm":
+                    not_a_vdd.add(name)               # it reads as a mapping workbook
+                    del local[name]
+                    continue
+                if facts is None:
+                    if kind == "vdd" and state == CLASSIFYING:
+                        not_indexed.append(name)      # not reached yet: re-scored when it is
+                    else:
+                        unread.append(name)           # its NAME still speaks
+                states[name] = state
+                known[name] = facts if facts is not None else empty_facts()
+            decision = pair_by_content(kind, sttm_path, local, config, REPO_ROOT,
+                                       explicit_map=explicit_map, known_facts=known,
+                                       overrides=overrides)
+            nested = sttm_doc is not None and "/" in sttm_doc.rel
+            # 2026-10-13: the folder rescues a DICTIONARY only when it is one —
+            # a ``vdd`` token or the index's positive content verdict.
+            rescuable = len(local) == 1 and (kind == "frd" or any(
+                classify_document_name(n).role == "vdd" or states.get(n) == "vdd"
+                for n in local))
+            if (decision.chosen is None and scope == "same_folder" and nested
+                    and rescuable):
+                # A pair folder holding exactly ONE candidate of the kind: the
+                # folder is the person's pairing, whatever the content score
+                # (M15.4 — a weak score used to block this rescue). Never
+                # applied to a flat inbox.
+                (only,) = local
+                decision = replace(
+                    decision, chosen=only, rule="same_folder",
+                    reason=f"the only {kind.upper()} in the STTM's folder {folder!r} "
+                           f"(the content did not decide: {decision.reason})")
+            if decision.chosen is not None or decision.ambiguous:
+                break                        # decided, or a question among THESE candidates
+        assert decision is not None
+        likely = None
+        if (kind == "vdd" and decision.chosen is not None and decision.chosen in not_indexed
+                and decision.rule not in ("same_folder", "pairing_map", "override")):
+            # M15e: a candidate that matches by NAME only and is not indexed yet
+            # is SHOWN as likely, never applied — content, the folder or the
+            # pairing map decide; the index re-scores when it reaches it.
+            likely = decision.chosen
+            decision = replace(
+                decision, chosen=None, rule=None,
+                reason=f"{likely} matches by name only and is not indexed yet — likely, not "
+                       "decided (content, the folder or the pairing map decide)")
+        path = None
+        if decision.chosen is not None:
+            doc = docs.get(decision.chosen)
+            try:
+                path = (self._fetch(doc, max(deadline - time.monotonic(), 0.05))
+                        if doc is not None else candidates[decision.chosen])
+            except (StorageError, OSError) as exc:
+                # M15.5: chosen, but its file did not arrive in time — said on
+                # the outcome (the candidate stays listed), nothing selected.
+                decision = replace(
+                    decision, chosen=None, rule=None,
+                    reason=f"{decision.chosen} was chosen but could not be downloaded "
+                           f"within the step's budget ({exc}); choose it again or pick it "
+                           "in the chooser")
+        notes: list[str] = []
+        if decision.chosen is not None and decision.rule == "name_fuzzy":
+            notes.append(decision.reason)                  # names the files + stem words
+        content_vdd = vdd_by_content_note(decision)          # "VDD by content: <file>"
+        if content_vdd:
+            notes.append(content_vdd)
+        roles = self._folder_roles(folder, sttm_name)
+        sttms = [r["name"] for r in roles if r["role"] == "sttm"]
+        if len(sttms) > 1 and not (overrides.lookup(sttm_name, "frd")
+                                   or overrides.lookup(sttm_name, "vdd")):
+            notes.append(f"the folder holds {len(sttms)} STTM workbooks ({', '.join(sttms)}); "
+                         f"pairing for {sttm_name} (the one selected) — pin each STTM's "
+                         "companions with pairing_overrides.yaml")
+        if kind == "vdd" and decision.chosen is None and not decision.ambiguous and not likely:
+            left_out = [f"{r['name']} ({r['role']})" for r in roles
+                        if r["name"].lower().endswith(".xlsx") and r["name"] != sttm_name
+                        and r["role"] in ("iig", "unclassified")]
+            decision = replace(decision, reason=(
+                "no VDD: no workbook carries a 'vdd' token or reads as a dictionary by "
+                "content" + (f"; not candidates: {', '.join(left_out)}" if left_out else "")
+                + f" ({decision.reason})"))
+        outcome = {
+            "chosen": decision.chosen, "rule": decision.rule, "reason": decision.reason,
+            "scope": scope, "folder": folder,
+            # 2026-10-13: every file of the STTM's folder with its role and the
+            # rule that assigned it — nothing is skipped silently.
+            "folder_roles": roles,
+            # Every document of this kind in the input roots, candidate or not,
+            # with its name overlap — a file another folder holds is shown as
+            # not a candidate, never dropped from view.
+            "considered": self._considered(kind, sttm_name, decision, scope, folder,
+                                           candidates, catalog, suffixes),
+            "notes": notes,
+            "candidates": [{"name": c.name, "score": c.score, "signals": c.summary()}
+                           for c in decision.candidates],
+            # No question while dictionaries are still being indexed: the index
+            # decides shortly (M15e); a question now would be premature.
+            "question": (decision.question()
+                         if decision.ambiguous and not (kind == "vdd" and not_indexed)
+                         else None),
+            # Candidates scored on their NAME alone (unreadable / not read in time).
+            "unread": sorted(set(unread) & {c.name for c in decision.candidates}),
+            # M15d: VDD candidates the index has not reached yet (name-only for
+            # now; the pairing is re-scored when they are indexed).
+            "not_indexed": sorted(set(not_indexed) & {c.name for c in decision.candidates}),
+            # M15e: the name-only match shown while the index decides (never applied).
+            "likely": likely,
+        }
+        return {"decision": decision, "outcome": outcome, "path": path}
+
+    def _pair_overrides(self, folder: str | None, deadline: float):
+        """Every pairs override file the App can see, merged: one named
+        ``pairing_overrides.yaml|yml|json`` in an input folder (the STTM's
+        folder first — drop it next to the documents, no redeploy) and the
+        configured one (``CODEGEN_PAIRING_OVERRIDES`` /
+        ``inputs.pairing.overrides_file``). A broken file is an error that
+        names it (the pairing step's warning), never ignored."""
+        from codegen.pairing import (
+            OVERRIDE_FILE_NAMES,
+            PairOverrides,
+            configured_overrides_path,
+            load_pair_overrides,
+            parse_pair_overrides,
+        )
+
+        overrides = PairOverrides()
+        docs = [d for d in self._workbook_catalog().every_document((".yaml", ".yml", ".json"))
+                if d.name.lower() in OVERRIDE_FILE_NAMES]
+        for doc in sorted(docs, key=lambda d: d.source != folder):
+            path = self._fetch(doc, max(deadline - time.monotonic(), 0.05))
+            overrides = overrides.merged(parse_pair_overrides(
+                Path(path).read_text(encoding="utf-8"), f"{doc.source}/{doc.name}"))
+        configured = configured_overrides_path(self._store.config, REPO_ROOT)
+        if configured is not None:
+            overrides = overrides.merged(load_pair_overrides(configured))
+        return overrides
+
+    def _folder_roles(self, folder: str | None, sttm_name: str) -> list[dict]:
+        """Every file of the STTM's folder with its role and the rule that
+        assigned it: the name first (a role token anywhere; ``iig`` always),
+        then — for a workbook without one — the index's content verdict."""
+        from codegen.pairing import file_role
+
+        if folder is None:
+            return []
+        roles = []
+        for doc in self._workbook_catalog().every_document(("",)):
+            if doc.source != folder:
+                continue
+            if doc.name == sttm_name:
+                roles.append({"name": doc.name, "role": "sttm", "rule": "the chosen STTM"})
+                continue
+            content = None
+            if doc.name.lower().endswith(".xlsx"):
+                entry = self._index.lookup(doc)
+                content = (entry["state"], entry.get("reason") or entry["state"])
+            roles.append(file_role(doc.name, content).as_dict())
+        return roles
+
+    def _considered(self, kind: str, sttm_name: str, decision, scope: str,
+                    folder: str | None, candidates: dict, catalog, suffixes) -> list[dict]:
+        """Every document of the kind in the input roots — its folder, its
+        name overlap with the STTM and why it is (not) a candidate."""
+        from codegen.demo_sources import name_similarity
+        from codegen.pairing import file_role
+
+        scored = {c.name: c.score for c in decision.candidates}
+        out = []
+        for doc in catalog.every_document(suffixes):
+            if doc.name == sttm_name:
+                continue
+            if doc.name == decision.chosen:
+                status = f"chosen ({decision.rule})"
+            elif doc.name in scored:
+                status = f"candidate, score {scored[doc.name]:g}"
+            elif doc.name in candidates:
+                status = (f"not a candidate here — in {doc.source!r}; the STTM's own folder "
+                          f"{folder!r} decided" if scope == "same_folder" and doc.source != folder
+                          else f"not scored — {scope} decided")
+            else:
+                content = None
+                if doc.name.lower().endswith(".xlsx"):
+                    entry = self._index.lookup(doc)
+                    content = (entry["state"], entry.get("reason") or entry["state"])
+                role = file_role(doc.name, content)
+                status = f"not a candidate — {role.role}: {role.rule}"
+            out.append({"name": doc.name, "folder": doc.source,
+                        "name_score": round(name_similarity(sttm_name, doc.name), 2),
+                        "status": status})
+        return out
+
+    def _apply_pair(self, kind: str, plan: dict) -> None:
+        """Record a pairing plan: a manual choice is replaced only when a pair
+        was found; a stale automatic pair from a previous STTM is cleared."""
+        decision = plan["decision"]
+        self.pair_decisions[kind] = decision
+        self.last_pairing[kind] = plan["outcome"]
+        rule = decision.rule or "content"
+        if kind == "vdd":
+            # M15d.3: the candidates scored by name only — re-scored when indexed.
+            self._vdd_watch = set(plan["outcome"].get("not_indexed", []))
+        if decision.chosen is None:
+            self._drop_auto_pair(kind)
+            return
+        if kind == "frd":
+            self.selected_frd, self.selected_frd_label = plan["path"], decision.chosen
+            self.frd_auto_paired = {"frd": decision.chosen, "rule": rule}
+        else:
+            self.selected_vdd = plan["path"]
+            self.vdd_auto_paired = {"vdd": decision.chosen, "rule": rule}
+
+    def _drop_auto_pair(self, kind: str) -> None:
+        """Forget an AUTOMATIC pair (a manual pick stays). M15.3: called for the
+        previous STTM's pairs the moment a new STTM is applied, and for a
+        pairing step that returns nothing — an automatic pair from a prior
+        STTM never survives a new selection."""
+        if kind == "frd":
+            if self.frd_auto_paired is not None:
+                self.selected_frd = self.selected_frd_label = self.frd_auto_paired = None
+        elif self.vdd_auto_paired is not None:
+            self.selected_vdd = self.vdd_auto_paired = None
+
+    def _ask_pairing(self) -> None:
+        """Run start: an undecided pairing becomes a question in the layout
+        dialog (top candidates with their scores and the cells behind them).
+        A manual pick in the chooser always wins and is never asked about."""
+        pending = []
+        if self.selected_frd is None and "frd" in self.pair_decisions \
+                and self.pair_decisions["frd"].ambiguous:
+            pending.append(self.pair_decisions["frd"])
+        # M15e: never a VDD question while dictionaries are still being indexed —
+        # the run goes without a VDD (said in the report); the index decides.
+        vdd_indexing = bool((self.last_pairing.get("vdd") or {}).get("not_indexed"))
+        if self.selected_vdd is None and "vdd" in self.pair_decisions \
+                and self.pair_decisions["vdd"].ambiguous and not vdd_indexing:
+            pending.append(self.pair_decisions["vdd"])
+        if not pending:
+            return
+        self.layout_questions = [d.question() for d in pending]
+        self.layout_advice = None
+        self._layout_answers = None
+        self._layout_event.clear()
+        self.state = "needs_layout"
+        self._stage("needs pairing", "; ".join(d.reason for d in pending))
+        self._wait_for_person()
+        self.state = "running"
+        reply = self._layout_answers or {}
+        self.layout_questions = []
+        if reply.get("cancel"):
+            raise RunCancelled("pairing cancelled by the user")
+        gaps = (reply.get("answers") or {}).get("gaps") or {}
+        for decision in pending:
+            picked = (gaps.get(f"pair.{decision.kind}") or {}).get("value")
+            if picked not in {c.name for c in decision.candidates}:
+                if decision.kind == "frd":
+                    raise RuntimeError(
+                        f"no FRD chosen for {decision.sttm}: {decision.reason}. Choose the "
+                        "FRD in the document chooser (or answer the question) and run again "
+                        "— the agent never guesses a pair.")
+                continue                                   # a VDD is optional
+            if decision.kind == "frd":
+                self.selected_frd = self.fetch_frd_candidate(picked)
+                self.selected_frd_label = picked
+                self.frd_auto_paired = None                # the person chose
+            else:
+                doc = self._workbook_catalog().find(picked, (".xlsx",))
+                self.selected_vdd = doc.fetch() if doc is not None else None
+                self.vdd_auto_paired = None
+            self._stage("paired", f"{decision.kind.upper()}: {picked} (chosen by the user)")
 
     def auto_pair_vdd(self, sttm_name: str) -> dict | None:
         """Select the Vendor Data Dictionary associated with the chosen STTM
         when one is present among the listed workbooks (config vdd_pairing_map
         -> shared ticket -> unique name stem); same override rules as the FRD."""
-        from codegen.demo_sources import auto_pair_vdd
-
-        candidates = {c["name"]: c for c in self.workbook_choices() if c["name"] != sttm_name}
-        match = auto_pair_vdd(sttm_name, list(candidates),
-                              explicit_map=self._store.config.demo.vdd_pairing_map)
-        if match is None:
-            if self.vdd_auto_paired is not None:
-                self.selected_vdd = None
-                self.vdd_auto_paired = None
-            return None
-        vdd_name, rule = match
-        for _source, directory in self._workbook_dirs():
-            candidate = directory / vdd_name
-            if candidate.is_file():
-                self.selected_vdd = candidate
-                self.vdd_auto_paired = {"vdd": vdd_name, "rule": rule}
-                return self.vdd_auto_paired
-        return None
+        self._apply_pair("vdd", self._plan_pair("vdd", sttm_name))
+        return self.vdd_auto_paired
 
     @property
-    def output_mode(self) -> str | None:
-        """The generator mode the selected parts map onto; None = config
+    def output_mode(self) -> list[str] | None:
+        """The selected parts as the generator takes them; None = config
         default when nothing was selected, also None when the selection is
         empty (callers refuse a run in that case)."""
-        if self.output_parts is None:
+        if not self.output_parts:
             return None
-        return mode_for_parts(self.output_parts)
+        return list(self.output_parts)
 
     def effective_output_parts(self) -> list[str]:
+        """The selection, else the config default for the run's conventions
+        profile (output.profile_mode — acfc_prx: framework, 2026-10-13)."""
+        config = self._store.config
         if self.output_parts is not None:
-            return list(self.output_parts)
-        return parts_for_mode(self._store.config.output.mode)
+            # post91: a saved choice the App no longer offers is dropped
+            chosen = config.output.app_parts(self.output_parts)
+            if chosen or not self.output_parts:
+                return chosen
+        return config.output.default_parts(self.conventions_profile
+                                           or config.conventions.profile)
 
     def select_output_mode(self, mode: str | None) -> None:
         """Compatibility entry: a single mode selects its parts."""
@@ -230,9 +1132,9 @@ class DemoRunner:
                 raise LiveRunInProgress(
                     "cannot change the output mode while a live run is in progress"
                 )
-        if mode is not None and mode not in _MODE_TO_PARTS:
-            raise ValueError(f"unknown output mode {mode!r}")
-        self.output_parts = None if mode is None else parts_for_mode(mode)
+        # A retired mode maps (with a notice); an unknown one is a ValueError.
+        self.output_parts = (None if mode is None
+                             else self._offered(output_parts(mode, source="output-mode request")))
 
     def select_output_parts(self, parts: list[str] | None) -> None:
         """The UI's toggles: any subset of OUTPUT_PARTS, empty allowed
@@ -245,10 +1147,15 @@ class DemoRunner:
         if parts is None:
             self.output_parts = None
             return
-        unknown = [p for p in parts if p not in OUTPUT_PARTS]
-        if unknown:
-            raise ValueError(f"unknown output part(s) {unknown!r}; expected {OUTPUT_PARTS}")
-        self.output_parts = list(dict.fromkeys(parts))
+        self.output_parts = self._offered(output_parts(parts, source="output-parts request"))
+
+    def _offered(self, parts: list[str]) -> list[str]:
+        """post91: a part the App does not offer (output.app_options) is refused."""
+        hidden = [p for p in parts if p not in self._store.config.output.app_options]
+        if hidden:
+            raise ValueError(f"output {', '.join(hidden)} is not offered in the App "
+                             "(config output.app_options)")
+        return parts
 
     def select_generation_options(self, *, conventions_profile: str | None = None,
                                   iig_template: str | None = None,
@@ -265,6 +1172,94 @@ class DemoRunner:
         self.conventions_profile = conventions_profile
         self.iig_template = iig_template
         self.playbook_template = playbook_template
+
+    def run_environment(self, config=None):
+        """The environment the next run uses (codegen.environments): the
+        choice made on the run form, else the default."""
+        from codegen.environments import resolve
+
+        # post56: the CLI's resolver and precedence (one function)
+        config = config or self._store.config
+        choice = self.environment_choice or {}
+        return resolve(config, name=choice.get("name"), custom=choice.get("custom"),
+                       custom_name=choice.get("custom_name"),
+                       overrides=choice.get("overrides"))
+
+    def select_environment(self, *, name: str | None = None, custom: dict | None = None,
+                           custom_name: str | None = None,
+                           overrides: dict | None = None) -> None:
+        """Record the run form's environment (a name, "Other" values, or None =
+        the default); raises ValueError (EnvironmentSelectionError) when unusable.
+        2026-10-15: ``overrides`` = the profile's fields as edited on the form
+        (a named profile, or the default when ``name`` is None)."""
+        with self._lock:
+            if self.state == "running":
+                raise LiveRunInProgress(
+                    "cannot change the environment while a live run is in progress")
+        from codegen.environments import resolve
+
+        edited = {k: str(v) for k, v in (overrides or {}).items() if str(v or "").strip()}
+        if custom is not None:
+            choice = {"custom": dict(custom), "custom_name": custom_name or "custom"}
+        elif name or edited:
+            choice = {"name": name, "overrides": edited or None}
+        else:
+            choice = None
+        if choice is not None:
+            resolve(self._store.config, name=choice.get("name"), custom=choice.get("custom"),
+                    custom_name=choice.get("custom_name"),
+                    overrides=choice.get("overrides"))              # validates
+        self.environment_choice = choice
+
+    def environment_options(self) -> dict:
+        """The run form's selector: the environment profiles (one default),
+        each with its values prefilled (its codegen-state profile file over its
+        overlay block), the required keys and which are missing; the choice in
+        effect, its source and origin (the banner); the "Other" box's fields."""
+        from codegen.environments import (
+            banner,
+            default_name,
+            display_path,
+            expected_keys,
+            flat_values,
+            missing_required,
+            profiles_dir,
+            required_keys,
+            resolve,
+        )
+
+        config = self._store.config
+        env = self.run_environment(config)
+        default = default_name(config)
+        fields = expected_keys(config) if default else []
+        profiles = []
+        for name, entry in config.environments.items():
+            resolved = resolve(config, name=name, live=False)
+            profiles.append({"name": name, "default": entry.default,
+                             "description": entry.description,
+                             # post99: where each value came from (display only)
+                             "provenance": dict(entry.provenance),
+                             "values": flat_values(resolved.entry),
+                             "origin": resolved.origin,
+                             "sources": dict(resolved.sources),
+                             "missing_required": missing_required(config, resolved.entry)})
+        return {
+            "options": profiles,
+            "required": required_keys(config),
+            "missing_required": missing_required(config, env.entry) if env is not None else [],
+            "origin": env.origin if env is not None else None,
+            # post56: per field, where the run's value comes from (the picker)
+            "sources": dict(env.sources) if env is not None else {},
+            "profiles_dir": display_path(profiles_dir()),
+            "banner": banner(config, env) if env is not None else None,
+            "edited": (self.environment_choice or {}).get("overrides") or None,
+            "default": default,
+            "selected": env.name if env is not None else None,
+            "source": env.source if env is not None else None,
+            "custom": flat_values(env.entry) if env is not None and env.source == "custom"
+                      else None,
+            "fields": fields,
+        }
 
     def generation_options(self) -> dict:
         """What the selectors offer + what is selected (None = config default)."""
@@ -296,8 +1291,12 @@ class DemoRunner:
         (where ``sharepoint-fetch --dest`` and the UI picker deliver files).
         """
         configured = REPO_ROOT / self._store.config.demo.workbook
+        try:                      # an absolute demo.workbook is outside the repo
+            label = configured.parent.relative_to(REPO_ROOT).as_posix()
+        except ValueError:
+            label = configured.parent.as_posix()
         return (
-            (configured.parent.relative_to(REPO_ROOT).as_posix(), configured.parent),
+            (label, configured.parent),
             ("inputs/sharepoint", REPO_ROOT / "inputs" / "sharepoint"),
             # Where `codegen databricks-fetch` and the UI's volume fetch land
             # documents — same treatment as the SharePoint inbox.
@@ -306,6 +1305,58 @@ class DemoRunner:
             # documents — same treatment as the other two inboxes.
             ("inputs/uploads", REPO_ROOT / "inputs" / "uploads"),
         )
+
+    def _input_sources(self, first: tuple[str, Path]):
+        """``first`` (a repo directory), the three inboxes of the inputs role,
+        then every extra input root at the configured scan depth."""
+        from codegen.storage.catalog import InputSource, local_source
+        from ui.backend import stores as ui_stores
+
+        config = self._store.config
+        stores = ui_stores.get_stores(config)
+        sources = [local_source(*first)]
+        for sub in ("sharepoint", "databricks", "uploads"):
+            default = REPO_ROOT / "inputs" / sub
+            if ui_stores.inbox_dir(config, sub, default) == default:
+                sources.append(local_source(f"inputs/{sub}", default))
+            else:
+                sources.append(InputSource(f"inputs/{sub}", stores.inputs, sub, 0))
+        for extra in stores.extra_inputs:
+            label = extra.backend.root.rstrip("/").rsplit("/", 1)[-1] or extra.uri()
+            sources.append(InputSource(label, extra, "", config.inputs.scan_depth))
+        return sources
+
+    def _catalog(self, key: str, first: tuple[str, Path]):
+        from codegen.storage.catalog import InputCatalog
+
+        cached = self._catalogs.get(key)
+        if cached is None or cached[0] is not self._store.config:
+            config = self._store.config
+            cached = (config, InputCatalog(
+                self._input_sources(first), ttl_seconds=config.inputs.listing_ttl_seconds,
+                timeout_seconds=config.inputs.listing_timeout_seconds))
+            self._catalogs[key] = cached
+        return cached[1]
+
+    def _workbook_catalog(self):
+        label, directory = self._workbook_dirs()[0]
+        return self._catalog("workbooks", (label, directory))
+
+    def _frd_catalog(self):
+        contracts_dir = REPO_ROOT / self._store.config.contracts.dir
+        return self._catalog("frds", (self._store.config.contracts.dir, contracts_dir))
+
+    def refresh_inputs(self) -> None:
+        """Drop cached remote listings (after an upload / a fetch)."""
+        for _config, catalog in self._catalogs.values():
+            catalog.refresh()
+
+    def input_errors(self) -> dict[str, str]:
+        """Input roots whose last listing failed: label -> message."""
+        errors: dict[str, str] = {}
+        for _config, catalog in self._catalogs.values():
+            errors.update(catalog.errors)
+        return errors
 
     def effective_workbook(self) -> Path:
         return self.selected_workbook or (REPO_ROOT / self._store.config.demo.workbook)
@@ -316,47 +1367,598 @@ class DemoRunner:
         Only an EXPLICIT pick counts as selected — before one, the UI shows
         "none chosen" and no row is badged, even though a run would fall
         back to the config default.
+
+        M9.3: listing METADATA only (name, source, size, modified) — bounded
+        time, no workbook is downloaded or opened here. ``kind`` is the
+        background index's verdict by content (sttm | vdd | unclassified),
+        ``classifying`` until it exists, ``unreadable`` (with the reason) for a
+        file that failed or timed out — listed all the same, never retried in a
+        loop.
         """
-        effective = self.selected_workbook
-        seen: set[str] = set()
-        choices: list[dict] = []
-        for source, directory in self._workbook_dirs():
-            if not directory.is_dir():
+        from codegen.demo_sources import classify_document_name
+        from codegen.layout.classify import IIG_KINDS
+
+        chosen = self.selection()
+        choices = []
+        for doc in self._workbook_catalog().documents((".xlsx",)):
+            # 2026-10-16: an IIG / IIG review copy is never an input — by its
+            # name (an ``iig`` token) or, once read, by its sheet names
+            if classify_document_name(doc.name).role == "iig":
                 continue
-            for path in sorted(directory.glob("*.xlsx")):
-                if path.name.startswith("~$") or path.name in seen:  # Excel lock files / dupes
-                    continue
-                seen.add(path.name)
-                choices.append(
-                    {"name": path.name, "source": source, "selected": path == effective}
-                )
+            verdict = self._index.lookup(doc)
+            if verdict["state"] in IIG_KINDS:
+                continue
+            choices.append({"name": doc.name, "source": doc.source, "size": doc.size,
+                            "modified": doc.modified,
+                            # The SAME record the status reports (``selection``).
+                            "selected": doc.name == chosen["sttm"],
+                            "selected_as": next((k for k in ("sttm", "vdd")
+                                                 if chosen[k] == doc.name), None),
+                            "kind": verdict["state"], "kind_reason": verdict["reason"]})
         return choices
 
-    def select_workbook(self, name: str) -> Path:
-        """Pick a workbook BY NAME from the scanned dirs — never a raw path."""
+    def reclassify_workbook(self, name: str) -> None:
+        """A person asked for an ``unreadable`` workbook to be read again."""
+        doc = self._workbook_catalog().find(name, (".xlsx",))
+        if doc is None:
+            raise FileNotFoundError(f"no workbook named {name!r} in the input folders")
+        self._index.retry(doc)
+
+    # -- selection: succeed, or say why (M9.3) ---------------------------------
+
+    def _fail_selection(self, kind: str, name: str, exc: Exception, step: str) -> SelectionFailed:
+        message = (f"{kind.upper()} {name!r} was NOT selected — {step} failed: "
+                   f"{type(exc).__name__}: {exc}")
+        self.selection_error = {"kind": kind, "name": name, "message": message}
+        return SelectionFailed(message)
+
+    def selection(self) -> dict:
+        """THE record of what is selected — the status, the workbook list's
+        ``selected`` flag and ``selection.json`` all read it (on site the list
+        and the chooser disagreed: two derivations of one fact). Names, or None
+        = not chosen."""
+        return {"sttm": self.selected_workbook.name if self.selected_workbook else None,
+                "frd": self.selected_frd_label if self.selected_frd else None,
+                "vdd": self.selected_vdd.name if self.selected_vdd else None}
+
+    def _persist_selection(self, payload: dict | None = None) -> None:
+        """Record the chosen documents in the state role (a REMOTE one only: an
+        App container restart otherwise returns to 'none chosen' while the
+        person believes the pair is set). Raises on failure — the caller turns
+        that into a failed selection."""
+        from ui.backend import stores as ui_stores
+
+        if ui_stores.state_is_default(self._store.config):
+            return
+        # No pull before the write (M15.1): the file is overwritten whole.
+        path = ui_stores.state_local_path(self._store.config, SELECTION_FILE, SELECTION_PATH)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = payload if payload is not None else self.selection()
+        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
+        ui_stores.push_state(self._store.config, SELECTION_FILE)
+
+    def _record_later(self, payload: dict | None = None, job: dict | None = None) -> None:
+        """Record ``payload`` (default: the selection now) in the state role in
+        the background; never blocks the caller. A failure or a timeout is a
+        ``record`` warning on ``job`` — the choice stands either way."""
+        from ui.backend import stores as ui_stores
+
+        if ui_stores.state_is_default(self._store.config):
+            return                                 # the default role records nothing
+        payload = dict(payload if payload is not None else self.selection())
+        with self._record_lock:
+            self._record_pending = (payload, job)
+            if self._record_busy:
+                return                             # the running writer picks it up
+            self._record_busy = True
+            self._record_idle.clear()
+        threading.Thread(target=self._record_loop, name="record-selection",
+                         daemon=True).start()
+
+    def _record_loop(self) -> None:
+        timeout = float(self._store.config.inputs.select_timeout_seconds)
+        while True:
+            with self._record_lock:
+                item, self._record_pending = self._record_pending, None
+                if item is None:
+                    self._record_busy = False
+                    self._record_idle.set()
+                    return
+            payload, job = item
+            box: dict = {}
+
+            def write(payload=payload, box=box) -> None:
+                try:
+                    self._persist_selection(payload)
+                except BaseException as exc:  # noqa: BLE001 — reported on the job
+                    box["error"] = exc
+
+            writer = threading.Thread(target=write, name="record-selection-write", daemon=True)
+            started = time.monotonic()
+            writer.start()
+            writer.join(timeout)
+            seconds = round(time.monotonic() - started, 2)
+            if writer.is_alive():
+                problem = (f"no answer from the state role within {timeout:g}s — the choice "
+                           "stands, but is not remembered across an App restart")
+            elif "error" in box:
+                problem = f"{type(box['error']).__name__}: {box['error']}"
+            else:
+                problem = None
+            if job is not None:
+                job["steps"].append({"step": "record", "state": "warning" if problem else "done",
+                                     "detail": problem or "", "seconds": seconds})
+                if problem:
+                    job.setdefault("warnings", []).append(f"record: {problem}")
+
+    def wait_recorded(self, timeout: float = 60.0) -> bool:
+        """Tests / scripts: block until the background recorder is idle."""
+        return self._record_idle.wait(timeout)
+
+    # -- the selection job (M9.3 addendum) ------------------------------------------
+
+    def _job_budget(self) -> float:
+        """The longest a job can legitimately run: every step is bounded (the
+        listing, up to four ``select_timeout_seconds`` steps — locate, download,
+        classify, or a restore's reads — the parser start, an upstream read),
+        each plus the grace ``_step`` allows. A running job older than this is
+        STALE: no step of it can still be working."""
+        inputs = self._store.config.inputs
+        return (float(inputs.listing_timeout_seconds)
+                + 4 * (float(inputs.select_timeout_seconds) + _STEP_GRACE_SECONDS)
+                + float(inputs.parser_start_timeout_seconds) + _STEP_GRACE_SECONDS
+                + float(self._store.config.upstream.timeout_seconds))
+
+    def _running_job(self) -> dict | None:
+        """Under ``_lock``: the job still in flight, or None. A job older than its
+        budget is superseded here (2026-10-12: one that never reached a terminal
+        state used to refuse every later choice with 409 until a restart)."""
+        current = self.selection_job
+        if current is None or current["state"] != "running":
+            return None
+        age = time.monotonic() - self._job_started
+        if age > self._job_budget():
+            self._supersede(current, f"stale — still running {age:.0f}s after it started, "
+                                     f"beyond every step's budget ({self._job_budget():.0f}s)")
+            return None
+        return current
+
+    def _new_job(self, kind: str, name: str) -> dict:
+        """Under ``_lock``: register the one running job. A person's choice
+        supersedes a startup RESTORE still in flight (its results are dropped)
+        and a STALE job (``_running_job``)."""
+        current = self._running_job()
+        if current is not None and current["kind"] == "restore":
+            self._supersede(current, "superseded by a new selection")
+        elif current is not None:
+            raise SelectionInProgress(
+                f"{self.selection_job['name']!r} is still being selected — wait for it "
+                "(each step has a timeout) and choose again")
+        self._job_seq += 1
+        job = {"id": self._job_seq, "kind": kind, "name": name, "state": "running",
+               "steps": [], "error": None, "pairing": {}, "result": None, "warnings": [],
+               # M15.2: the pairs still on their way once the job is done.
+               "pairing_pending": []}
+        self.selection_job = job
+        self._job_started = time.monotonic()
+        self._job_done.clear()
+        self._pairing_done.set()                  # a previous job's pairing is moot
+        return job
+
+    def _new_step(self, job: dict, step: str) -> dict:
+        """Append a step entry to the job's trace and return it. M15.6: every
+        step carries how long it took (``seconds``, null while it runs)."""
+        entry = {"step": step, "state": "running", "detail": "", "seconds": None}
+        job["steps"].append(entry)
+        return entry
+
+    def _try_step(self, job: dict, step: str, work, timeout: float, fallback):
+        """A step that must NEVER discard the person's choice: pairing is an
+        assist and recording is a convenience — a failure is a ``warning`` on
+        the job (and a note the UI shows), not a failed selection. Only
+        locating and reading the document itself can fail a selection. The
+        entry is this step's OWN (M15b.6: two pairing steps run at once —
+        ``steps[-1]`` may be the other one's)."""
+        entry = self._new_step(job, step)
+        try:
+            return self._step(job, step, work, timeout, entry=entry)
+        except Exception as exc:  # noqa: BLE001 — said on the step, never fatal
+            entry["state"] = "warning"
+            job.setdefault("warnings", []).append(f"{step}: {exc}")
+            return fallback
+
+    def _step(self, job: dict, step: str, work, timeout: float, entry: dict | None = None):
+        """Run ONE step in its own thread and wait ``timeout`` for it. ``work``
+        takes the step's deadline (time.monotonic) and returns a value — it must
+        not change the runner: a step that is given up keeps running nowhere
+        that matters. Late = ``StepTimeout``, shown on the job."""
+        started = time.monotonic()
+        if entry is None:
+            entry = self._new_step(job, step)
+        deadline = started + timeout
+        box: dict = {}
+
+        def run() -> None:
+            try:
+                box["value"] = work(deadline)
+            except BaseException as exc:  # noqa: BLE001 — re-raised on the job thread
+                box["error"] = exc
+
+        thread = threading.Thread(target=run, name=f"select:{step}", daemon=True)
+        thread.start()
+        thread.join(timeout + _STEP_GRACE_SECONDS)
+        entry["seconds"] = round(time.monotonic() - started, 2)
+        if thread.is_alive():
+            entry.update(state="timed_out", detail=f"no answer within {timeout:g}s")
+            raise StepTimeout(f"no answer within {timeout:g}s")
+        if "error" in box:
+            late = isinstance(box["error"], StepTimeout)
+            entry.update(state="timed_out" if late else "failed",
+                         detail=f"{type(box['error']).__name__}: {box['error']}")
+            raise box["error"]
+        entry["state"] = "done"
+        return box["value"]
+
+    def _supersede(self, job: dict, why: str) -> None:
+        """Under ``_lock``: the job's results will be dropped (its steps are
+        bounded; it ends on its own and changes nothing)."""
+        job["state"], job["error"] = "failed", {"code": "superseded", "message": why}
+        job["pairing_pending"] = []
+        self._job_done.set()
+        self._pairing_done.set()
+
+    def _finish_job(self, job: dict, error: dict | None = None) -> None:
+        if self.selection_job is not job:
+            return                                  # superseded: a newer job owns the status
+        job["error"] = error
+        job["state"] = "failed" if error else "done"
+        self._job_done.set()
+
+    def job_view(self) -> dict | None:
+        job = self.selection_job
+        if job is None:
+            return None
+        return {**job, "steps": [dict(s) for s in job["steps"]],
+                "warnings": list(job.get("warnings", [])),
+                "pairing_pending": list(job.get("pairing_pending", []))}
+
+    def wait_selection(self, timeout: float = 60.0) -> dict | None:
+        """Block until the current selection job has finished AND its pairing
+        has landed (tests, the upload route's own bounded wait). Returns the
+        job. M15.2: the job is done before the pairs are; a caller that wants
+        only the STTM waits on ``_job_done``."""
+        deadline = time.monotonic() + timeout
+        self._job_done.wait(timeout)
+        self._pairing_done.wait(max(deadline - time.monotonic(), 0.0))
+        return self.job_view()
+
+    def wait_paired(self, timeout: float = 60.0) -> bool:
+        """Tests / scripts: block until the current job's FRD / VDD pairing landed."""
+        return self._pairing_done.wait(timeout)
+
+    def start_selection(self, name: str, *, join: bool = False) -> dict:
+        """Choose the STTM: returns the JOB at once. Progress, the pairing and
+        any failure are on the status (``selection_job``). ``join`` (the
+        workbook route): choosing the SAME workbook while its job is still
+        running returns that job, marked ``joined`` — idempotent, never a 409
+        (a re-click or a client retry). A different workbook still waits."""
         with self._lock:
             if self.state == "running":
                 raise LiveRunInProgress("cannot change the STTM while a live run is in progress")
-        for _source, directory in self._workbook_dirs():
-            if not directory.is_dir():
+            current = self._running_job()
+            if (join and current is not None and current["kind"] == "sttm"
+                    and current["name"] == name):
+                return {**(self.job_view() or current), "joined": True}
+            job = self._new_job("sttm", name)
+        threading.Thread(target=self._run_selection, args=(job,),
+                         name=f"select:{name}", daemon=True).start()
+        return self.job_view() or job
+
+    def _run_selection(self, job: dict) -> None:
+        name = job["name"]
+        timeout = float(self._store.config.inputs.select_timeout_seconds)
+        step = "locating it in the input folders"
+        try:
+            doc = self._step(job, "locate",
+                             lambda _d: self._workbook_catalog().find(name, (".xlsx",)), timeout)
+            if doc is None:
+                sources = " or ".join(s.label for s in self._workbook_catalog().sources)
+                self._finish_job(job, {"code": "not_found",
+                                       "message": f"no STTM workbook named {name!r} in {sources}"})
+                return
+            # M15.8: the background index reads THIS folder's documents next,
+            # so the pairing steps find their facts indexed more often.
+            self._index_folder_first(doc.source)
+            step = f"downloading {doc.uri}"
+            local = self._step(job, "download", lambda _d: self._fetch(doc, timeout), timeout)
+            step = "starting the document parser"
+            try:
+                # Two request lanes (M15b.6): the FRD and VDD pairings read in
+                # parallel, each on its own parser process.
+                self._step(job, "start parser",
+                           lambda _d: [self._index.ensure_parser(lane)
+                                       for lane in ("request", "request-vdd")],
+                           float(self._store.config.inputs.parser_start_timeout_seconds))
+            except Exception:  # noqa: BLE001 — said on the step; the choice still stands
+                # No parser (an environment that cannot start a child process):
+                # the documents go unread — pairing falls back to names and the
+                # folder — rather than every selection being refused.
+                job["steps"][-1]["state"] = "warning"
+            step = "reading the workbook"
+            verdict = self._step(
+                job, "classify",
+                lambda d: self._index.read_now(doc, local, max(d - time.monotonic(), 0.05)),
+                timeout)
+            job["steps"][-1]["detail"] = f"{verdict['state']}: {verdict.get('reason', '')}"
+            if verdict.get("timed_out"):
+                # A workbook the parser cannot read within the budget would hang
+                # the RUN too (which reads it in-process): refuse it, visibly.
+                job["steps"][-1]["state"] = "timed_out"
+                raise StepTimeout(verdict["reason"])
+            if verdict["state"] == UNREADABLE:
+                # Not a reason to refuse the person's choice (the run will say
+                # what is wrong with the file) — but said: it pairs by name only.
+                job["steps"][-1]["state"] = "warning"
+            # From here on the STTM IS the person's choice — applied NOW, the
+            # job done, Generate enabled (M15.2). Pairing it is an assist that
+            # lands BEHIND the job (its steps keep appending to the trace and
+            # ``pairing_pending`` names what is still on its way; a run started
+            # meanwhile waits for it in ``_await_pairing``), and recording it is
+            # a convenience — neither is ever a reason to throw the choice away.
+            step = "applying the choice"
+            with self._lock:                       # state mutation ONLY — no I/O in here
+                if self.selection_job is not job or job["state"] != "running":
+                    return                           # superseded (a Clear): change nothing
+                if self.state == "running":
+                    raise LiveRunInProgress("a live run started while the STTM was being "
+                                            "selected — the selection was not applied")
+                self.selected_workbook = local
+                self.last_pairing = {}
+                self.pair_decisions = {}
+                # M15.3: the PREVIOUS STTM's automatic pairs go the moment the
+                # new STTM is applied — never shown as this STTM's.
+                self._drop_auto_pair("frd")
+                self._drop_auto_pair("vdd")
+                self.selection_error = None
+                job["pairing_pending"] = ["frd", "vdd"]
+                self._pairing_done.clear()
+            self._finish_job(job)
+            step = "pairing its FRD / VDD"
+
+            # M15b.6: the FRD and the VDD pairing run in PARALLEL threads (own
+            # step entry, own parser lane, nothing shared until ``_apply_pair``
+            # under the lock) and each is applied as it lands — total pairing
+            # time is max(frd, vdd), and the FRD chip never waits for the VDD.
+            def pair(kind: str) -> None:
+                plan = self._try_step(job, f"pair {kind.upper()}",
+                                      lambda d, k=kind: self._plan_pair(k, name, d),
+                                      timeout, None)
+                if plan is not None:
+                    job["pairing"][kind] = plan["outcome"]
+                with self._lock:                   # state mutation ONLY
+                    if self.selection_job is not job:
+                        return                       # superseded: a newer choice owns the pairs
+                    if plan is not None:
+                        self._apply_pair(kind, plan)
+                    else:
+                        self._drop_auto_pair(kind)   # M15.3: nothing paired = nothing kept
+                    job["pairing_pending"] = [k for k in job["pairing_pending"] if k != kind]
+                    if not job["pairing_pending"]:
+                        # Remembering the choice across a restart is a background
+                        # write — queued BEFORE the event, so a waiter that sees
+                        # "paired" also sees the record in flight.
+                        self._record_later(self.selection(), job)
+                        self._pairing_done.set()
+
+            threads = [threading.Thread(target=pair, args=(kind,), name=f"select:pair-{kind}",
+                                        daemon=True) for kind in ("frd", "vdd")]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        except BaseException as exc:  # noqa: BLE001 — a job thread must end in a visible state
+            # Nothing half-selected, nothing from before, and NOT the config
+            # default: the person sees why and chooses again.
+            with self._lock:
+                if self.selection_job is not job or job["state"] != "running":
+                    return                           # superseded: the status is not ours
+                self.selected_workbook = None
+                self.selected_frd = self.selected_frd_label = self.frd_auto_paired = None
+                self.selected_vdd = self.vdd_auto_paired = None
+                self.pair_decisions = {}
+                self.last_pairing = {}
+                failed = self._fail_selection("sttm", name, exc, step)
+            self._finish_job(job, {
+                "code": "timeout" if isinstance(exc, StepTimeout) else "failed",
+                "message": str(failed)})
+        finally:
+            with self._lock:                       # a run waiting on the pairing never hangs
+                if self.selection_job is job:
+                    job["pairing_pending"] = []
+                    self._pairing_done.set()
+                    if job["state"] == "running":
+                        # Every path above ends the job; one that raised inside its
+                        # own error handling must not hold the one job slot.
+                        job["state"] = "failed"
+                        job["error"] = {"code": "failed",
+                                        "message": "the selection ended without a result"}
+                        self._job_done.set()
+
+    def _start_restore(self) -> None:
+        """After a restart under a remote state role: bring the recorded pair
+        back IN THE BACKGROUND (a job like any selection — App start never waits
+        for a download), or say which document could not be."""
+        from ui.backend import stores as ui_stores
+
+        try:
+            if ui_stores.state_is_default(self._store.config):
+                return
+        except Exception:  # noqa: BLE001 — no usable state role: nothing to restore
+            return
+        with self._lock:
+            job = self._new_job("restore", "the recorded selection")
+        threading.Thread(target=self._run_restore, args=(job,), name="select:restore",
+                         daemon=True).start()
+
+    def _run_restore(self, job: dict) -> None:
+        try:
+            self._restore_selection(job)
+            self._finish_job(job, None if self.selection_error is None else {
+                "code": "failed", "message": self.selection_error["message"]})
+        except BaseException as exc:  # noqa: BLE001 — visible, never a dead thread
+            self._finish_job(job, {"code": "failed", "message": f"{type(exc).__name__}: {exc}"})
+
+    def _restore_selection(self, job: dict) -> None:
+        from ui.backend import stores as ui_stores
+
+        timeout = float(self._store.config.inputs.select_timeout_seconds)
+
+        def read(_deadline):
+            path = ui_stores.state_file(self._store.config, SELECTION_FILE, SELECTION_PATH)
+            return json.loads(path.read_text(encoding="utf-8"))
+
+        try:
+            recorded = self._step(job, "read selection.json", read, timeout)
+        except Exception:  # noqa: BLE001 — nothing recorded (or unreadable): none chosen
+            job["steps"][-1].update(state="done", detail="nothing recorded")
+            return
+        for kind, catalog, suffixes in (
+                ("sttm", self._workbook_catalog, (".xlsx",)),
+                ("frd", self._frd_catalog, (".contract.json", ".docx")),
+                ("vdd", self._workbook_catalog, (".xlsx",))):
+            name = recorded.get(kind)
+            if not name:
                 continue
-            for path in directory.glob("*.xlsx"):
-                if path.name == name and not path.name.startswith("~$"):
-                    self.selected_workbook = path
-                    self.auto_pair_frd(name)
-                    self.auto_pair_vdd(name)
-                    return path
-        raise FileNotFoundError(
-            f"no STTM workbook named {name!r} in "
-            + " or ".join(src for src, _ in self._workbook_dirs())
-        )
+            def locate(_deadline, name=name, kind=kind, catalog=catalog, suffixes=suffixes):
+                doc = catalog().find(name, suffixes)
+                if doc is None:
+                    raise FileNotFoundError(f"{name!r} is no longer in the input folders")
+                if kind == "sttm":
+                    # M15b.7: at App start, the folder selection.json names is
+                    # indexed first — before any person acts.
+                    self._restored_folder = doc.source
+                    self._index_folder_first(doc.source)
+                return self._fetch(doc, timeout)
+
+            try:
+                local = self._step(job, f"restore {kind}", locate, timeout)
+            except Exception as exc:  # noqa: BLE001 — surfaced; the rest still restores
+                if self.selection_job is job:
+                    self._fail_selection(kind, name, exc, "restoring the recorded selection")
+                continue
+            with self._lock:
+                if self.selection_job is not job:
+                    return                              # the person chose meanwhile
+                if kind == "sttm":
+                    self.selected_workbook = local
+                elif kind == "frd":
+                    self.selected_frd, self.selected_frd_label = local, name
+                else:
+                    self.selected_vdd = local
+
+    def select_workbook(self, name: str) -> Path:
+        """``start_selection`` and WAIT for the job — for callers that are not a
+        request (tests, scripts). Every step is bounded, so this returns; a
+        failed job is ``SelectionFailed`` (``FileNotFoundError`` for an unknown
+        name), the STTM left UNSELECTED with ``selection_error`` set."""
+        started = self.start_selection(name)
+        self._job_done.wait()
+        self._pairing_done.wait()
+        self.wait_recorded(float(self._store.config.inputs.select_timeout_seconds) + 5)
+        job = self.selection_job
+        if job is None or job["id"] != started["id"]:
+            raise SelectionFailed(f"the selection of {name!r} was superseded")
+        if job["error"] is not None:
+            if job["error"]["code"] == "not_found":
+                raise FileNotFoundError(job["error"]["message"])
+            raise SelectionFailed(job["error"]["message"])
+        assert self.selected_workbook is not None
+        return self.selected_workbook
+
+    def select_vdd_by_name(self, name: str) -> Path:
+        """M9.3: a VDD from ANY input root (the route used to look in the local
+        directories only — a dictionary in a workspace folder was a 404)."""
+        from codegen.storage import StorageError
+
+        doc = self._workbook_catalog().find(name, (".xlsx",))
+        if doc is None:
+            raise FileNotFoundError(f"no workbook named {name!r} in the input folders")
+        try:
+            local = self._fetch(doc)
+            self.select_vdd(local)
+            self._record_later()
+        except (StorageError, OSError) as exc:
+            raise self._fail_selection("vdd", name, exc, f"downloading {doc.uri}") from exc
+        if self.selection_error and self.selection_error.get("kind") == "vdd":
+            self.selection_error = None
+        return local
+
+    # post141 (Aruna, via Soham 2026-10-28): "Choose documents" gets a Cancel. A
+    # pick applies at once (download, classify, pair), so Cancel restores the
+    # selection as it was when the dialog opened - every field a pick or its
+    # pairing sets - and Done keeps the new one.
+    _SELECTION_FIELDS = ("selected_workbook", "selected_frd", "selected_frd_label",
+                         "frd_auto_paired", "selected_vdd", "vdd_auto_paired", "pair_decisions",
+                         "selection_error", "last_pairing", "_vdd_watch", "_deferred_vdd_plan",
+                         "selection_job")
+
+    def begin_choosing(self) -> None:
+        """The dialog opened: remember the selection a Cancel goes back to."""
+        import copy
+
+        with self._lock:
+            if self.state in ("running", "needs_layout"):
+                raise LiveRunInProgress("cannot change the documents while a live run is "
+                                        "in progress")
+            snapshot = {}
+            for name in self._SELECTION_FIELDS:
+                value = getattr(self, name, None)
+                try:
+                    snapshot[name] = copy.deepcopy(value)
+                except Exception:  # noqa: BLE001 — an opaque plan object: kept as is
+                    snapshot[name] = copy.copy(value)
+            self._choosing_snapshot = snapshot
+
+    def cancel_choosing(self) -> bool:
+        """Cancel: the selection goes back to what it was when the dialog opened.
+        A selection still running is superseded first (its results are dropped).
+        False = nothing to restore (no dialog was open)."""
+        with self._lock:
+            snapshot = self._choosing_snapshot
+            if snapshot is None:
+                return False
+            job = self.selection_job
+            if job is not None and job["state"] == "running" \
+                    and job is not snapshot["selection_job"]:
+                self._supersede(job, "cancelled in Choose documents")
+            for name, value in snapshot.items():
+                setattr(self, name, value)
+            self._choosing_snapshot = None
+            self._job_done.set()
+            self._pairing_done.set()
+        self._record_later()
+        return True
+
+    def end_choosing(self) -> None:
+        """Done: the new selection stands; nothing to go back to."""
+        with self._lock:
+            self._choosing_snapshot = None
 
     def clear_workbook(self) -> None:
-        """Back to 'none chosen' — the presenter's reset for the choose step."""
+        """Back to 'none chosen' — the presenter's reset for the choose step. A
+        selection still running is superseded (it will change nothing)."""
         with self._lock:
             if self.state == "running":
                 raise LiveRunInProgress("cannot change the STTM while a live run is in progress")
+            job = self.selection_job
+            if job is not None and job["state"] == "running":
+                self._supersede(job, "cleared while it was running")
         self.selected_workbook = None
+        self.pair_decisions = {}
+        self.selection_error = None
+        self.last_pairing = {}
+        self._vdd_watch = set()
+        self._deferred_vdd_plan = None
         if self.frd_auto_paired is not None:
             self.selected_frd = None
             self.selected_frd_label = None
@@ -364,28 +1966,142 @@ class DemoRunner:
         if self.vdd_auto_paired is not None:
             self.selected_vdd = None
             self.vdd_auto_paired = None
+        self._record_later()
 
     def status(self) -> dict:
         return {
             "state": self.state,
             "stages": list(self.stages),
             "error": self.error,
+            # The readable form of that error: {type, message, where, cause,
+            # health, health_line} (ui/backend/errors.py); None when no run failed.
+            "error_detail": self.error_detail,
             "last_run_label": self.last_run_label,
+            "set_aside": list(self.set_aside),
+            # What the last run's held-back feeds need, answered inline and
+            # re-run (POST /api/demo/rerun-with-answers): [{key, label, section,
+            # answer_as, feed_name, sheet, reason, question}] — and which
+            # documents those keys belong to.
+            "needs_answers": list(self.needs_answers),
+            # never blocking: the workbooks are written with these cells empty
+            "inputs_needed": list(self.inputs_needed),
+            # post60: the run's generate outcome from its CODEGEN_STAGES.json
+            "outcome": self.outcome,
+            # post80: every blocking line the last run left open ({key, scope, feed})
+            "blocking": list(self.blocking_lines),
+            "pause_kind": self.pause_kind,
+            # post59: the choices the BSA confirmed (applied by the next Generate)
+            "input_choices": {key: {"choice": c.choice, "standard": c.standard}
+                              for key, c in self.input_choices.items()},
+            "needs_answers_inputs": ({"sttm": Path(self._run_inputs[0]).name,
+                                      "frd": Path(self._run_inputs[1]).name}
+                                     if self.needs_answers and self._run_inputs else None),
+            # True once other documents are selected: the list names THAT run's
+            # sheets and a re-run is refused — the page hides its controls.
+            "needs_answers_stale": bool(self.needs_answers and self._run_inputs is not None
+                                        and self._current_inputs() != self._run_inputs),
             "layout_questions": list(self.layout_questions),
             "layout_report": self.layout_report,
+            "layout_advice": self.layout_advice,
+            "layout_fills": list(self.layout_fills),
+            "layout_refresh": self.layout_refresh,
+            # M9.3: the last FAILED selection ({kind, name, message}) and what
+            # choosing the STTM paired / asks, per kind.
+            "selection_error": self.selection_error,
+            "pairing": dict(self.last_pairing),
+            # M9.3 addendum: THE record of what is selected (names; None = not
+            # chosen) and the selection job — {id, kind, name, state: running |
+            # done | failed, steps: [{step, state, detail}], error: {code,
+            # message}, pairing}.
+            "selection": self.selection(),
+            "selection_job": self.job_view(),
             "frd_auto_paired": self.frd_auto_paired,
             "vdd_auto_paired": self.vdd_auto_paired,
+            # M8.1: input roots whose last listing failed (label -> API message).
+            "input_errors": self.input_errors(),
+            # M8.2: undecided pairings (asked in the dialog when the run starts).
+            "pair_candidates": {
+                kind: {"reason": d.reason,
+                       "candidates": [{"name": c.name, "score": c.score, "signals": c.summary()}
+                                      for c in d.candidates]}
+                for kind, d in self.pair_decisions.items() if d.ambiguous},
             "output_parts": self.effective_output_parts(),
+            # Retired output values met in config / saved state / requests,
+            # each announced once (codegen.output_modes).
+            "output_notices": output_notices(),
+            "model_usage": list(self.model_usage),
         }
 
+    def advise_layout(self, *, dry_run: bool = False) -> dict:
+        """One model call over the pending questions' texts and candidate
+        labels (never a data row); the validated advice is stored on the
+        runner and shown in the dialog. The mock provider (dry-run / mock
+        lock / no transport) answers with offline heuristics and says so."""
+        from codegen.layout.model import (
+            build_advice_request,
+            build_layout_provider,
+            validate_advice,
+        )
+
+        if self.state != "needs_layout" or not self.layout_questions:
+            raise LiveRunInProgress("no live run is waiting for layout answers")
+        from codegen.reasoning.usage import layout_usage
+
+        provider = build_layout_provider(self._store.config, dry_run=dry_run, base_dir=REPO_ROOT)
+        # The advice call belongs to this run's layout stage record.
+        self._layout_providers.append(provider)
+        response = provider.advise_layout(build_advice_request(self.layout_questions))
+        self.layout_advice = {"provider": provider.name,
+                              "usage": layout_usage(provider).as_dict(),
+                              "advice": validate_advice(response, self.layout_questions)}
+        return self.layout_advice
+
     def answer_layout(self, answers: dict | None, *, proceed: bool = False,
-                      cancel: bool = False) -> None:
+                      cancel: bool = False, refresh: bool = False) -> None:
         """Deliver the human's role placements to the waiting run (or tell
-        it to proceed with empties / to stop)."""
+        it to proceed with empties / to stop). ``refresh`` (M9.1) re-resolves
+        the layout past every cached profile instead."""
         if self.state != "needs_layout":
             raise LiveRunInProgress("no live run is waiting for layout answers")
-        self._layout_answers = {"answers": answers or {}, "proceed": proceed, "cancel": cancel}
+        self._layout_answers = {"answers": answers or {}, "proceed": proceed, "cancel": cancel,
+                                "refresh": refresh}
         self._layout_event.set()
+
+    def _current_inputs(self) -> tuple:
+        """(STTM, FRD) — what the held-back keys name. The VDD is left out: a
+        dictionary paired after the run (the index reaching it) changes no key."""
+        return (str(self.effective_workbook()), str(self.effective_frd() or ""))
+
+    def rerun_with_answers(self, answers: dict | None) -> None:
+        """Start a run of the SAME documents with the answers the last run's
+        held-back feeds need (given inline on the Generate page) on top of the
+        answers that run's layout dialog received. Band layers / roles go to
+        the STTM answers, gaps keys to the gaps answers — the shapes
+        ``parse_answers`` validates (ValueError = HTTP 400). Refused while a
+        run is in progress and once the documents changed."""
+        from codegen.extract.generic import parse_audit_answers
+        from codegen.layout.resolve import parse_answers
+
+        parsed = parse_answers(answers or {})
+        parse_audit_answers(parsed["gaps"])    # NAME:Type entries (a ValueError, like the above)
+        with self._lock:
+            if self.state in ("running", "needs_layout"):
+                raise LiveRunInProgress("a live run is in progress — answer in its dialog, or "
+                                        "wait for it to finish")
+        if self._run_inputs is not None and self._current_inputs() != self._run_inputs:
+            raise ValueError("the documents changed since that run — its questions name the "
+                             "sheets of the documents it read; Generate afresh instead")
+        # Bound to the documents they answer: the run drops them when its own
+        # inputs differ (a run-start pairing question may change the FRD).
+        self.start_live(seed={"inputs": self._current_inputs(),
+                              "answers": merge_answers(self.last_answers, parsed)})
+
+    def set_layout_refresh(self, enabled: bool) -> None:
+        """Arm / disarm "re-resolve layout" for the NEXT run (one shot)."""
+        if self.state in ("running", "needs_layout"):
+            raise LiveRunInProgress("a live run is in progress — re-resolve from its layout "
+                                    "dialog, or wait for it to finish")
+        self.layout_refresh = bool(enabled)
 
     def _resolve_layout(self, workbook_path: Path, frd_path: Path, config,
                         vdd_path: Path | None = None):
@@ -394,74 +2110,750 @@ class DemoRunner:
         chooses to proceed with the unresolved roles read as empty."""
         from codegen.layout.model import build_layout_provider
         from codegen.layout.resolve import parse_answers, resolve_pair
+        from ui.backend import stores as ui_stores
 
         provider = build_layout_provider(config, dry_run=False, base_dir=REPO_ROOT)
-        runtime_cache = REPO_ROOT / config.layout.runtime_cache_dir
-        answers: dict = {"sttm": {}, "frd": {}, "vdd": {}}
+        self._layout_providers.append(provider)
+        runtime_cache = ui_stores.layout_cache_dir(config)
+        # A re-run with answers (rerun_with_answers) starts from them — one
+        # shot, and only for the documents they were given for.
+        seed, self._seed_answers = self._seed_answers, None
+        if seed and tuple(seed["inputs"]) != (str(workbook_path), str(frd_path)):
+            self._stage("answers not carried",
+                        f"they were given for {Path(seed['inputs'][0]).name} + "
+                        f"{Path(seed['inputs'][1]).name}; this run reads {workbook_path.name} "
+                        f"+ {frd_path.name} — its questions are asked afresh")
+            seed = None
+        answers: dict = merge_answers(_empty_answers(), seed["answers"] if seed else None)
+        if seed:
+            self._stage("answers carried", f"{sum(len(v) for v in answers.values())} answer(s) "
+                                           "from the Answers-needed list and the last run's "
+                                           "layout dialog")
+        self._open_owed = []
+        refresh, self.layout_refresh = self.layout_refresh, False        # one shot
         while True:
+            if refresh:
+                self._stage("re-resolve layout", "cached layout profiles bypassed; the runtime "
+                                                 "entries are overwritten")
             result = resolve_pair(workbook_path, frd_path, config, provider=provider,
                                   answers=answers, runtime_cache_dir=runtime_cache,
-                                  base_dir=REPO_ROOT, vdd_path=vdd_path)
+                                  base_dir=REPO_ROOT, vdd_path=vdd_path, refresh=refresh)
+            refresh = False
             self.layout_report = result.report()
+            self.layout_fills = list(result.gap_fills)
+            self.last_answers = merge_answers(_empty_answers(), answers)
             if not result.questions:
+                ui_stores.push_layout_cache(config)
                 return result
             self.layout_questions = [q.as_dict() for q in result.questions]
+            self.layout_advice = None
             self._layout_answers = None
             self._layout_event.clear()
             self.state = "needs_layout"
             self._stage("needs layout", f"{len(result.questions)} unresolved role(s) — "
                                         "waiting for the human")
-            self._layout_event.wait()
+            self._wait_for_person()
             self.state = "running"
             reply = self._layout_answers or {}
             self.layout_questions = []
             if reply.get("cancel"):
-                raise RuntimeError("layout resolution cancelled by the user")
-            merged = parse_answers(reply.get("answers") or {})
-            answers = {"sttm": {**answers["sttm"], **merged["sttm"]},
-                       "frd": {**answers["frd"], **merged["frd"]},
-                       "vdd": {**answers.get("vdd", {}), **merged.get("vdd", {})}}
+                raise RunCancelled("layout resolution cancelled by the user")
+            if reply.get("refresh"):
+                # Start over past the caches: the answers given so far were
+                # answers to the OLD profile's questions.
+                answers = {"sttm": {}, "frd": {}, "vdd": {}, "gaps": {}}
+                refresh = True
+                continue
+            answers = merge_answers(answers, parse_answers(reply.get("answers") or {}))
+            self.last_answers = merge_answers(_empty_answers(), answers)
             if reply.get("proceed"):
                 result = resolve_pair(workbook_path, frd_path, config, provider=provider,
                                       answers=answers, runtime_cache_dir=runtime_cache,
                                       base_dir=REPO_ROOT, vdd_path=vdd_path)
                 self.layout_report = result.report()
+                self.layout_fills = list(result.gap_fills)
+                ui_stores.push_layout_cache(config)
+                self._open_owed = self._owed_open_questions(result)
                 return result
 
-    def start_live(self) -> None:
+    def _owed_open_questions(self, result) -> list[dict]:
+        """The questions "Proceed with unresolved" left open that the run
+        cannot complete a feed without (the CLI's QUESTION / UNRESOLVED lines,
+        ``codegen.cli._owed_key``) — listed for a re-run whatever the run's
+        outcome (done, every feed held back, failed)."""
+        from codegen.cli import _owed_key
+
+        return [needs_answer_item(q.as_dict()) for q in result.questions
+                if _owed_key(q.document, q.key, q.kind, result.frd_contract)]
+
+    def _resolve_specs(self, frd_path, contract_path, config, vdd_contract_path, gaps,
+                       label: str = "the FRD"):
+        """The contract resolver with the gaps answers: (specs, unstated values) —
+        post57: a value no document states is a question; the feeds that
+        resolved still run."""
+        from codegen.resolve.resolver import ContractUnstatedError
+
+        self._stage("resolving contracts", f"{label} ⋈ extracted contract")
+        try:
+            return resolve_pair(frd_path, contract_path, config, vdd_path=vdd_contract_path,
+                                gaps=gaps or None), []
+        except ContractUnstatedError as exc:
+            return exc.specs, list(exc.questions)
+
+    def _before_generate_questions(self, specs, unstated, config, frd_path) -> list[dict]:
+        """post80: the BLOCKING questions known before anything is generated, in the
+        layout dialog's shape: a required environment value (document ``run``), a
+        value no document states, the LOB per file, and — on a notebook run — the
+        landing (inbound) path no document states (its convention pre-filled)."""
+        from codegen.environments import required_items
+        from codegen.metadata_template import landing_question
+        from codegen.owed_inputs import _template, frd_feed_index
+        from codegen.resolve.resolver import lob_question_item
+
+        out = []
+        for key, reason in required_items(config):
+            out.append({"document": "run", "key": key, "sheet": None, "layer": None,
+                        "role": key, "kind": "text", "reason": reason, "header": [],
+                        "candidates": [], "title": f"{key.rsplit('.', 1)[-1]} of this "
+                        "run's environment", "hint": "A required environment value: it is "
+                        "kept for the next runs too (the environment picker).",
+                        "suggested": None})
+        out += [_unstated_question(u) for u in unstated]
+        for spec in specs:
+            lob = lob_question_item(spec)
+            if lob is not None:
+                out.append(lob)
+        parts = self.effective_output_parts()
+        if "notebook" in parts:
+            tpl = _template(config, parts, self.iig_template)
+            for spec in specs:
+                asked = landing_question(tpl, spec, frd_feed_index(frd_path, spec.feed_id,
+                                                                   config))
+                if asked is None:
+                    continue
+                key, reason, proposal = asked
+                out.append({"document": "frd", "key": key, "sheet": None, "layer": None,
+                            "role": key, "kind": "text", "reason": reason, "header": [],
+                            "candidates": ([{"value": proposal, "source": "convention"}]
+                                           if proposal else []),
+                            "title": f"the landing (inbound) path of {spec.feed_id}",
+                            "hint": "No document states it, and the notebook cannot run "
+                                    "without it: type the container-relative path.",
+                            "suggested": 0 if proposal else None,
+                            "suggested_reason": ("the landing convention's proposal"
+                                                 if proposal else None)})
+        return out
+
+    def _ask_before_generate(self, questions: list[dict]) -> bool:
+        """Pause the run on ``questions`` (the layout dialog). True = answers given
+        (the run re-resolves with them), False = proceed without. A required
+        environment value answered becomes the picker's override for the run."""
+        self.layout_questions = questions
+        self.layout_advice = None
+        self._layout_answers = None
+        self._layout_event.clear()
+        self.pause_kind = "before_generate"
+        self.state = "needs_layout"
+        self._stage("needs answers before generating",
+                    f"{len(questions)} blocking question(s) — answer them and the run "
+                    "generates once")
+        self._wait_for_person()
+        self.state = "running"
+        self.pause_kind = "layout"
+        reply = self._layout_answers or {}
+        self.layout_questions = []
+        if reply.get("cancel"):
+            raise RunCancelled("run cancelled by the user")
+        from codegen.layout.resolve import parse_answers
+
+        parsed = parse_answers(reply.get("answers") or {})
+        env = {key.rsplit(".", 1)[-1]: v["value"] for key, v in parsed["gaps"].items()
+               if key.startswith("run.environment.") and str(v.get("value") or "").strip()}
+        if env:
+            choice = dict(self.environment_choice or {})
+            if choice.get("custom") is not None:
+                choice["custom"] = {**choice["custom"], **env}
+            else:
+                choice["overrides"] = {**(choice.get("overrides") or {}), **env}
+            self.environment_choice = choice
+        self.last_answers = merge_answers(self.last_answers or _empty_answers(), parsed)
+        answered = any(str(v.get("value") or "").strip() for v in parsed["gaps"].values())
+        return answered and not reply.get("proceed")
+
+    def start_live(self, *, seed: dict | None = None) -> None:
+        """Start a live run. ``seed`` ({inputs, answers}) is a re-run's answers
+        (``rerun_with_answers``) for THIS run only; an ordinary Generate
+        carries none — every start replaces what an earlier one left."""
         if self.output_parts == []:
-            raise ValueError("no output selected — choose at least one of notebook, "
-                             "framework artefacts, RFC package, or All")
+            raise ValueError("no output selected — choose Notebook, Framework artefacts, "
+                             "or both")
 
         with self._lock:
-            if self.state == "running":
+            job = self._running_job()             # a stale job is superseded, never waited on
+        if job is not None and job["state"] == "running" and job["kind"] == "restore":
+            # The startup restore is not the person's act: starting a run
+            # supersedes it (as choosing a document does), so a slow workspace
+            # cannot refuse Generate for as long as the restore takes.
+            with self._lock:
+                if self.selection_job is job and job["state"] == "running":
+                    self._supersede(job, "a run was started before it finished")
+        elif job is not None and job["state"] == "running" and job["kind"] != "frd_upstream":
+            # The documents are still being chosen: never the config default meanwhile.
+            raise ValueError(f"{job['name']!r} is still being selected — wait for it to "
+                             "finish before generating")
+        if self.selection_error is not None and self.selected_workbook is None:
+            # Never the config default in place of a document that failed to load.
+            raise ValueError(f"{self.selection_error['message']} — choose the STTM again (or "
+                             "Clear it) before generating")
+        if self.effective_frd() is None and not self._frd_question_pending():
+            # 2026-10-16: a chosen STTM with no chosen / paired FRD — never the demo FRD
+            raise ValueError(self._no_frd_message())
+        with self._lock:
+            # needs_layout: a run is paused on its dialog — still in progress.
+            if self.state in ("running", "needs_layout"):
                 raise LiveRunInProgress("a live demo run is already in progress")
+            if self._clearing:
+                raise LiveRunInProgress("past runs are being cleared — generate when it finishes")
             self.state = "running"
+            self._seed_answers = seed
             self.stages = []
             self.error = None
+            self.error_detail = None
+            self.needs_answers = []
+            self.set_aside = []
+            self.model_usage = []
+            self._layout_providers = []
         thread = threading.Thread(target=self._run, name="live-demo-run", daemon=True)
         thread.start()
 
-    def _run(self) -> None:
+    def clear_runs(self) -> dict:
+        """Delete every past run folder in the outputs role (a remote role's
+        copy too). Refused while a run is in progress — it writes into one."""
+        from ui.backend import stores as ui_stores
+
+        with self._lock:                       # state mutation ONLY — no I/O in here
+            if self.state in ("running", "needs_layout"):
+                raise LiveRunInProgress("a live run is in progress — clear runs after it "
+                                        "finishes")
+            if self._clearing:
+                raise LiveRunInProgress("past runs are already being cleared")
+            self._clearing = True              # start_live refuses meanwhile
         try:
+            deleted = ui_stores.clear_runs(self._store.config)
+        finally:
+            with self._lock:
+                self._clearing = False
+        unloaded = self._store.forget_runs(deleted)
+        with self._lock:
+            if self.last_run_label in deleted:
+                self.last_run_label = None
+            # Every finished state, needs_answers included: the last run's
+            # questions, error and steps go with its folder. A run that started
+            # after the deletion (running / paused) is left alone.
+            if self.state not in ("running", "needs_layout"):
+                self._reset_run_view()
+                self.state = "idle"
+        return {"deleted": deleted, "unloaded_current": unloaded}
+
+    def _reset_run_view(self) -> None:
+        """Forget what the last run left on the page (its steps, error,
+        questions, layout dialog, usage) - the call holds ``self._lock``. The
+        run's folder, the selection and the confirmed input choices stay."""
+        self.stages = []
+        self.error = None
+        self.error_detail = None
+        self.error_hint = None
+        self.needs_answers = []
+        self.inputs_needed = []
+        self.outcome = None
+        self.blocking_lines = []
+        self.set_aside = []
+        self.layout_questions = []
+        self.layout_report = None
+        self.layout_advice = None
+        self.layout_fills = []
+        self.model_usage = []
+        self.pause_kind = "layout"
+        self._run_items = []
+        self._open_owed = []
+        self._run_inputs = None
+
+    def cancel_run(self, *, wait_seconds: float = 5.0) -> None:
+        """Cancel run (the button beside a run's questions). A run paused on
+        its dialog stops (the same as the dialog's cancel) and the page goes
+        back to idle; a run that ended on questions (needs_answers, a done run
+        with blocking lines, a failure that kept its open questions) has them
+        dropped. Refused (409) while a run is working and asks nothing."""
+        with self._lock:
+            state = self.state
+            if state == "running":
+                raise LiveRunInProgress("the run is working, not asking questions - it can "
+                                        "be cancelled when it asks")
+            if state != "needs_layout":
+                self._reset_run_view()
+                self.state = "idle"
+                return
+        self.answer_layout({}, cancel=True)
+        deadline = time.monotonic() + wait_seconds
+        while self.state in ("needs_layout", "running") and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+    def _await_pairing(self) -> None:
+        """M15.2: Generate enables as soon as the STTM is classified; a run that
+        starts while the FRD / VDD pairing is still landing waits for it here
+        (every pairing step is bounded), so a run never takes the config
+        default in place of a pair that is on its way."""
+        job = self.selection_job
+        if self._pairing_done.is_set() or job is None:
+            return
+
+        def frd_pending() -> bool:
+            current = self.selection_job
+            return (current is job and self.selected_frd is None
+                    and "frd" in job.get("pairing_pending", []))
+
+        # M15c: wait ONLY for an FRD still on its way while NONE is selected (a
+        # run cannot proceed without one). Never for the VDD — it is optional,
+        # and one that lands later is simply not part of this run. In ACFC the
+        # run sat on "waiting for the FRD / VDD pairing" for minutes while the
+        # VDD scan of every folder ran, with the FRD long since paired.
+        if not frd_pending():
+            return
+        self._stage("pairing", f"waiting for the FRD pairing of {job['name']!r} to finish "
+                               "(no FRD is selected yet)")
+        deadline = time.monotonic() + float(
+            self._store.config.inputs.select_timeout_seconds) + _STEP_GRACE_SECONDS
+        while time.monotonic() < deadline:
+            if not frd_pending():
+                return
+            time.sleep(0.1)
+        self._stage("pairing", "the FRD pairing did not finish in time — running with what is "
+                               "selected now")
+
+    def _generate_specs(self, specs, config, *, run_env, frd_path: Path, run_root: Path,
+                        reports_root: Path, held: list, unstated: list,
+                        extra_flags: list[str], layout_usage=None,
+                        sttm_path: Path | None = None):
+        """post60: the App's generate — the CLI's entry point
+        (codegen.generate_run.GenerateRun over cli.generate_feed_result): the
+        BSA's confirmed choices, the owed inputs, CRASHED / GATE_FAIL /
+        written and ``<run>/CODEGEN_STAGES.json``, built by the same code as
+        ``codegen generate``. Returns (runs by slug, the failed feeds, the
+        manifest); :attr:`outcome` is the manifest's."""
+        from codegen import run_stages
+        from codegen.environments import with_environment
+        from codegen.generate_run import GenerateRun, run_level_lines
+
+        run_config = with_environment(config, run_env)
+        parts = self.effective_output_parts()
+        gen = GenerateRun(run_config, out_root=run_root, command="generate", output_mode=parts,
+                          iig_template=self.iig_template,
+                          conventions_profile=self.conventions_profile, inputs={},
+                          choices=self.input_choices, base=REPO_ROOT, say=lambda _line: None)
+        gen.run_level(*run_level_lines(
+            run_config, {}, output_mode=parts, iig_template=self.iig_template,
+            choices={k: c for k, c in self.input_choices.items() if k.startswith("run.")}))
+        gen.unstated(unstated)          # the CLI's order: unstated, then held back
+        gen.held_back(held, sttm_path)
+        runs: dict[str, FeedRun] = {}
+        failures: list[FailedRun] = []
+        jobs: dict = {}                    # post76: each feed's Layer-2 work
+        for feed_no, spec in enumerate(specs, 1):
+            slug = spec.feed_slug
+            which = {"n": feed_no, "of": len(specs)}     # post146: the progress bar
+            result = gen.feed(
+                spec, feed_no, len(specs), frd_path=frd_path, reraise=False,
+                sttm_path=sttm_path,
+                produce=lambda faq_answers, spec=spec, slug=slug, which=which:
+                self._store._generate_feed(  # noqa: SLF001
+                    spec, dry_run=False, skip_tests=True, out_root=run_root,
+                    reports_dir=reports_root,
+                    on_stage=lambda detail, slug=slug, which=which: self._stage(
+                        f"{slug}: {detail}", feed=which),
+                    output_mode=parts, extra_flags=extra_flags,
+                    conventions_profile=self.conventions_profile,
+                    iig_template=self.iig_template, playbook_template=self.playbook_template,
+                    layout_usage=layout_usage, environment=run_env, faq_answers=faq_answers,
+                    frd_path=frd_path, sttm_path=sttm_path, layer2="later",
+                    layer2_jobs=jobs, framework_out=gen.framework))
+            if result is None:
+                failures.append(FailedRun(label=slug, error=gen.errors.get(spec.feed_id, "")))
+                continue
+            gen.keep_layer2(spec, jobs.get(spec.feed_id), feed_no, len(specs))
+            runs[slug] = result
+        self.inputs_needed += [o.as_dict() for o in gen.owed if o.scope == "feed"]
+        self.outcome, _code = gen.finish()
+        seen: set[str] = set()
+        self.blocking_lines = []
+        for item in gen.open_items:
+            if item.get("blocking") and item["key"] not in seen:
+                seen.add(item["key"])
+                self.blocking_lines.append({"key": item["key"], "scope": item["scope"],
+                                            "feed": item.get("feed")})
+        # post80: a BLOCKING open landing (the notebook cannot run without it) is
+        # answered here: a typed value posted as gaps: — the next run's resolver
+        # sets the feed's landing from it (the CLI's inputs: / gaps: answer)
+        listed = {i["key"] for i in self._run_items}
+        for asked in gen.landing_asked:
+            if asked["key"] in seen and asked["key"] not in listed:
+                listed.add(asked["key"])
+                self._run_items.append(needs_answer_item(
+                    {"document": "frd", "key": asked["key"], "sheet": None, "layer": None,
+                     "role": asked["key"], "kind": "text", "reason": asked["reason"],
+                     "header": [],
+                     # the convention's proposal pre-fills the box (the person confirms)
+                     "candidates": ([{"value": asked["proposal"], "source": "convention"}]
+                                    if asked["proposal"] else []),
+                     "title": f"the landing (inbound) path of {asked['feed']}",
+                     "hint": ("No document states it, and the notebook cannot run without "
+                              "it: type the container-relative path."),
+                     "suggested": 0 if asked["proposal"] else None,
+                     "suggested_reason": ("the landing convention's proposal"
+                                          if asked["proposal"] else None)},
+                    feed_name=asked["feed"], reason=asked["reason"]))
+        # post76: the Layer-2 stage after the outcome — the App defers it by default
+        # (reasoning.layer2_app): "review candidates: pending" until the review
+        # panel asks (POST /api/demo/layer2)
+        from codegen import cli
+        from ui.backend.service import with_layer2
+
+        mode = run_config.reasoning.layer2_app
+        self._stage("layer2", f"{mode}: {sum(j.rules for j in gen.layer2_jobs)} unmapped "
+                              f"rule(s) over {len(gen.layer2_jobs)} feed(s)")
+        results = gen.layer2(mode, dry_run=False, build=cli.build_provider, console=False)
+        for slug, run in list(runs.items()):
+            if run.spec.feed_id in results:
+                runs[slug] = with_layer2(run, *results[run.spec.feed_id], gen.layer2_block)
+        # post66: the open lines each feed's IIG review faces (the artefacts
+        # panel's summary line)
+        for slug, run in list(runs.items()):
+            if run.framework is not None:
+                runs[slug] = run.model_copy(update={"framework": {
+                    **run.framework, "open": gen.review_open(run.spec.feed_id)}})
+        manifest = run_stages.read_stage_manifest(run_root) or {}
+        # a GATE_FAIL feed's files were moved under <feed>/quarantine/
+        quarantined = {e["quarantine"].split("/", 1)[0] for e in manifest.get("feeds") or []
+                       if e.get("quarantine")}
+        for slug in quarantined & set(runs):
+            run = runs[slug]
+            runs[slug] = run.model_copy(update={"written_files": [
+                path.replace(f"/{slug}/", f"/{slug}/{run_stages.QUARANTINE_DIR}/", 1)
+                if f"/{slug}/" in path else path for path in run.written_files]})
+        # post68: a feed whose notebook a blocking line withheld lists only what stayed
+        for slug, run in list(runs.items()):
+            if gen.blocking_for(run.spec.feed_id) and "notebook" in parts:
+                notebook_only = "framework" not in parts
+                runs[slug] = run.model_copy(update={"written_files": [
+                    path for path in run.written_files
+                    if not run_stages.is_notebook_file(Path(path))
+                    and not (notebook_only and run_stages.emit_stage(Path(path)) is not None)]})
+        return runs, failures, manifest
+
+    def run_deferred_layer2(self) -> dict:
+        """post76: the served run's deferred Layer 2, asked now — one request per
+        feed (codegen.layer2_stage.run_pending); candidates.json, the reports
+        and the manifest's layer2 block updated, the run pushed again.
+        ValueError = HTTP 400 (no run loaded, nothing deferred)."""
+        from codegen import cli
+        from codegen.layer2_stage import pending_jobs, run_pending
+        from ui.backend import stores as ui_stores
+
+        store = self._store
+        if store.mode != "live" or store.label is None:
+            raise ValueError("no generated run is loaded")
+        if not pending_jobs(store.out_root):
+            raise ValueError("this run has no deferred Layer-2 review")
+        config = store.config
+        block, results = run_pending(store.out_root, config=config, dry_run=False,
+                                     base_dir=REPO_ROOT, reports_dir=store.reports_root,
+                                     say=None, console=False, build=cli.build_provider)
+        changed = store.apply_layer2(results, block)
+        ui_stores.push_run(config, store.label)
+        return {"feeds": changed, "rules": sum(r["rules"] for r in block["feeds"]),
+                "calls": sum(r["calls"] for r in block["feeds"])}
+
+    def _landing_choices(self) -> dict[str, str]:
+        """post84: the confirmed landing paths (``<feed key>.src_adls_path`` with
+        ``naming_standard`` + the path) as gaps: answers."""
+        from codegen.metadata_template import LANDING_KEY
+
+        return {key: choice.standard.strip() for key, choice in self.input_choices.items()
+                if key.endswith("." + LANDING_KEY) and choice.choice == "naming_standard"
+                and (choice.standard or "").strip()}
+
+    def confirm_input_choices(self, choices: dict) -> dict:
+        """post59: record the BSA's confirmed choices — ``{key: {choice,
+        standard?}}`` (``null`` withdraws one). Applied by the next Generate
+        (CLI parity: the answers file's ``choice:`` / ``standard:``).
+        ValueError = HTTP 400."""
+        from codegen.input_choices import parse_choice, validate_choice
+
+        updated = dict(self.input_choices)
+        for key, entry in (choices or {}).items():
+            if entry is None:
+                updated.pop(str(key), None)
+                continue
+            choice = parse_choice(str(key), entry)
+            if choice is None:
+                raise ValueError(f"inputs[{key!r}]: no choice given")
+            problem = validate_choice(str(key), choice)
+            if problem is not None:
+                raise ValueError(problem)
+            updated[str(key)] = choice
+        self.input_choices = updated
+        return self.status()
+
+    def _resolved_inputs(self, spec, config, frd_path) -> list:
+        """post59: the feed's defaulted inputs under the confirmed choices."""
+        from codegen.faq import faq_for_spec
+        from codegen.input_choices import resolve_feed
+        from codegen.owed_inputs import _template, frd_feed_index
+
+        tpl = _template(config, self.effective_output_parts(), self.iig_template)
+        if tpl is None or not tpl.owed_cells:
+            return []
+        return resolve_feed(spec, profile=config.conventions.get(self.conventions_profile),
+                            tpl=tpl, inputs={}, choices=self.input_choices,
+                            index=frd_feed_index(frd_path, spec.feed_id, config),
+                            faq=faq_for_spec(spec, config, base_dir=REPO_ROOT), base=REPO_ROOT,
+                            config=config)
+
+    def _owed_inputs(self, spec, config, frd_path, resolved=None) -> list[dict]:
+        """The INPUT_NEEDED items of one generated feed (codegen.owed_inputs):
+        the cells its IIG workbook was written without. post59: a defaulted
+        one carries its options, proposal, template and preview tokens."""
+        from codegen.faq import faq_for_spec, with_faq_answers
+        from codegen.input_choices import faq_answers
+        from codegen.owed_inputs import frd_feed_index, owed_inputs
+
+        index = frd_feed_index(frd_path, spec.feed_id, config)
+        faq = with_faq_answers(faq_for_spec(spec, config, base_dir=REPO_ROOT),
+                               faq_answers(resolved or []))
+        return [item.as_dict() for item in owed_inputs(
+            spec, config, index=index, faq=faq,
+            output_mode=self.effective_output_parts(), iig_template=self.iig_template,
+            resolved=resolved, profile=config.conventions.get(self.conventions_profile))]
+
+    def _run_level_inputs(self, config) -> list[dict]:
+        """The run-level banner items (scope "run"), once per run: the
+        environment assumed (the default) or a custom one's unset keys, and the
+        run-scoped owed cells (APPLICATION_NAME, EMAIL_TO)."""
+        from codegen.environments import required_items
+        from codegen.owed_inputs import environment_inputs, run_owed_inputs
+
+        parts = self.effective_output_parts()
+        # 2026-10-15: a required environment value unset — blocking (exit 3 on the
+        # CLI); post68: whatever the output mode, as codegen.generate_run.run_level_lines
+        required = [{"key": key, "question": reason, "feed": "", "scope": "run",
+                     "required": True} for key, reason in required_items(config)]
+        return required + [item.as_dict() for item in (
+            *environment_inputs(config, output_mode=parts, iig_template=self.iig_template),
+            *run_owed_inputs(config, {}, output_mode=parts, iig_template=self.iig_template,
+                             choices={k: c for k, c in self.input_choices.items()
+                                      if k.startswith("run.")}))]
+
+    def _note_undecided_vdd(self) -> None:
+        """M15e: a run started while the dictionaries are still being indexed
+        runs WITHOUT a VDD and says so — never with a name-only guess."""
+        self.run_notes = []
+        self.run_pairing_notes = [
+            note for kind, auto in (("frd", self.frd_auto_paired), ("vdd", self.vdd_auto_paired))
+            if auto is not None
+            for note in (self.last_pairing.get(kind) or {}).get("notes", [])]
+        outcome = self.last_pairing.get("vdd") or {}
+        if self.selected_vdd is None and outcome.get("not_indexed"):
+            likely = outcome.get("likely")
+            note = "VDD not decided at run start" + (
+                f" (likely {likely}, by name only — not applied)" if likely else
+                f" ({len(outcome['not_indexed'])} dictionary candidate(s) not indexed yet)")
+            self.run_notes.append(note)
+            self._stage("VDD not decided at run start", note + " — running without a VDD")
+
+    def _wait_for_person(self) -> None:
+        """Wait for the dialog's reply; the time is left out of the run's
+        recorded wall-clock (it measures the run, not the person)."""
+        started = time.monotonic()
+        try:
+            self._layout_event.wait()
+        finally:
+            self._waited_for_person += time.monotonic() - started
+
+    def live_history_profile(self) -> str:
+        """The conventions profile a run would use (the history's key)."""
+        return self.conventions_profile or self._store.config.conventions.profile
+
+    def _record_live_run(self, started: float, profile: str) -> None:
+        """Add the run to the live-run record under (profile, its outcome) — a
+        live run with a kept outcome only (run_history), and never at the
+        run's expense (a failed write is logged, not raised)."""
+        try:
+            entry = run_entry(label=self._run_label, model_usage=self.model_usage,
+                              wall_seconds=time.monotonic() - started - self._waited_for_person,
+                              outcome=self.outcome,
+                              prices=self._store.config.reasoning.prices)
+            if entry is not None:
+                self.live_history.record(profile, entry)
+        except Exception:  # noqa: BLE001 — the record is best-effort
+            log.exception("live-run record not written")
+
+    def _run(self) -> None:
+        self._run_items = []
+        self._open_owed = []
+        self.inputs_needed = []
+        self.outcome = None
+        self.blocking_lines = []
+        started = time.monotonic()
+        self._waited_for_person = 0.0
+        self._run_label = None
+        profile = self.live_history_profile()
+        try:
+            self._await_pairing()
+            self._note_undecided_vdd()
             self._work()
+            self._record_live_run(started, profile)
+            # Some feeds held back: the run is done, the list says what they
+            # need — and the owed questions "Proceed with unresolved" left
+            # open (a feed that failed without one is answered inline too;
+            # the CLI prints their QUESTION / UNRESOLVED lines at exit 0).
+            self.needs_answers = _dedup_items([*self._run_items, *self._open_owed])
             self.state = "done"
+        except RunNeedsAnswers:
+            # EVERY feed held back: not a failure — the list is the outcome.
+            self._record_live_run(started, profile)
+            self.needs_answers = _dedup_items([*self._run_items, *self._open_owed])
+            self.state = "needs_answers"
+        except RunCancelled:
+            # Cancel run while it asked its questions: back to idle, nothing
+            # recorded, no failure card and no questions left on the page.
+            with self._lock:
+                self._reset_run_view()
+                self.state = "idle"
         except Exception as exc:  # noqa: BLE001 — must release the guard and surface, not crash
+            if self.outcome == "GATE_FAIL":
+                # every feed's files quarantined: a run that stopped, kept in
+                # the record (any other failure is not)
+                self._record_live_run(started, profile)
             self.error = f"{type(exc).__name__}: {exc}"
+            self.error_detail = error_detail(exc)
+            # The questions left open (Proceed with unresolved) stay answerable.
+            self.needs_answers = _dedup_items([*self._run_items, *self._open_owed])
             self.state = "failed"
+        finally:
+            # A re-run's answers the run never reached (it failed before its
+            # layout) are not carried to a later run.
+            self._seed_answers = None
+            # M15d.3: a VDD re-scored while the run was in progress lands now —
+            # that run was not affected; the next one is.
+            with self._lock:
+                plan, self._deferred_vdd_plan = self._deferred_vdd_plan, None
+                manual_vdd = self.selected_vdd is not None and self.vdd_auto_paired is None
+                if plan is not None and self.selection_job is not None and not manual_vdd:
+                    self._apply_pair("vdd", plan)
+                    self.selection_job["pairing"]["vdd"] = plan["outcome"]
+
+    def upstream_snapshot(self) -> dict:
+        """The upstream contract listing as last read — NEVER a call: with
+        ``upstream.enabled`` a stale snapshot starts a background refresh (hard
+        timeout ``upstream.timeout_seconds``) and this returns what is known
+        now; disabled (the default, standalone doctrine) nothing is ever
+        called. {enabled, state: disabled | loading | ready | failed, rows,
+        error}."""
+        cfg = self._store.config.upstream
+        if not cfg.enabled:
+            return {"enabled": False, "state": "disabled", "rows": [], "error": None}
+        with self._lock:
+            snap = self._upstream
+            stale = snap["state"] == "idle" or (
+                snap["state"] != "loading"
+                and time.monotonic() - snap["at"] >= cfg.refresh_seconds)
+            if stale:
+                self._upstream_seq += 1
+                snap = self._upstream = {**snap, "state": "loading"}
+                threading.Thread(target=self._refresh_upstream,
+                                 args=(self._upstream_seq, float(cfg.timeout_seconds)),
+                                 name="upstream-contracts", daemon=True).start()
+        return {"enabled": True, "state": snap["state"], "rows": list(snap["rows"]),
+                "error": snap["error"]}
+
+    def _refresh_upstream(self, seq: int, timeout: float) -> None:
+        box: dict = {}
+
+        def call() -> None:
+            try:
+                from codegen import upstream_contracts
+
+                box["rows"] = upstream_contracts.list_contracts(self._store.config)
+            except Exception as exc:  # noqa: BLE001 — the chooser stays usable offline
+                box["error"] = (str(exc).splitlines() or [type(exc).__name__])[0][:160]
+
+        thread = threading.Thread(target=call, name="upstream-contracts-call", daemon=True)
+        thread.start()
+        thread.join(timeout)
+        if thread.is_alive():
+            box = {"error": f"the FRD→STTM contract table did not answer within {timeout:g}s "
+                            "(the query was given up)"}
+        with self._lock:
+            if seq != self._upstream_seq:
+                return                                  # a newer refresh owns the snapshot
+            self._upstream = {"state": "failed" if "error" in box else "ready",
+                              "rows": box.get("rows", []), "error": box.get("error"),
+                              "at": time.monotonic()}
+
+    def start_upstream_frd(self, doc_id: str) -> dict:
+        """Select an UPSTREAM contract (a warehouse read): a job, never awaited
+        by the request. Refused while ``upstream.enabled`` is false."""
+        cfg = self._store.config.upstream
+        if not cfg.enabled:
+            raise PermissionError(
+                "upstream contract lookups are off (upstream.enabled: false) — choose an FRD "
+                "document from the input folders")
+        with self._lock:
+            if self.state == "running":
+                raise LiveRunInProgress("cannot change the FRD while a live run is in progress")
+            job = self._new_job("frd_upstream", doc_id)
+
+        def run() -> None:
+            def read(_deadline):
+                from codegen import upstream_contracts
+
+                return upstream_contracts.materialize(self._store.config, doc_id, REPO_ROOT)
+
+            try:
+                path, contract, meta = self._step(job, "read the contract", read,
+                                                  float(cfg.timeout_seconds))
+                self.select_frd(path, doc_id)
+                job["result"] = {
+                    "selected": doc_id, "kind": "upstream", "audited_at": meta["audited_at"],
+                    "feeds": [{
+                        "feed_name": f.feed_name,
+                        "stage": f"{f.stage_target.schema_name}."
+                                 f"{','.join(f.stage_target.tables)}",
+                        "standard": (f"{f.standard_target.schema_name}."
+                                     f"{','.join(f.standard_target.tables)}"
+                                     if f.standard_target.tables else None),
+                    } for f in contract.feeds]}
+                self._finish_job(job)
+            except BaseException as exc:  # noqa: BLE001 — visible, never a dead thread
+                failed = self._fail_selection("frd", doc_id, exc, "reading the upstream contract")
+                self._finish_job(job, {
+                    "code": "timeout" if isinstance(exc, StepTimeout) else "failed",
+                    "message": str(failed)})
+
+        threading.Thread(target=run, name=f"select:upstream:{doc_id}", daemon=True).start()
+        return self.job_view() or job
 
     def _attach_pairing_hint(self, exc: Exception, workbook_path: Path,
                              frd_label: str) -> None:
         """On a feed-match failure, name the FRD the run used and — when
         the pairing helpers know a companion — offer it. Information only;
-        choosing remains the human's act, and there is no auto-retry."""
+        choosing remains the human's act, and there is no auto-retry. Reads the
+        upstream SNAPSHOT only (nothing when ``upstream.enabled`` is false)."""
         if "matches 0 FRD feeds" not in str(exc):
             return
         try:
             from codegen.demo_sources import pair_sttm_with_frd, suggest_pairs
-            from codegen.upstream_contracts import list_contracts
 
-            doc_ids = [row["doc_id"] for row in list_contracts(self._store.config)]
+            doc_ids = [row["doc_id"] for row in self.upstream_snapshot()["rows"]]
             explicit = pair_sttm_with_frd(
                 [workbook_path.name], doc_ids,
                 explicit_map=self._store.config.demo.pairing_map,
@@ -484,22 +2876,37 @@ class DemoRunner:
                 ),
             }
 
-    def _stage(self, name: str, detail: str = "") -> None:
-        self.stages.append({"stage": name, "detail": detail, "at": time.time()})
+    def _stage(self, name: str, detail: str = "", *, feed: dict | None = None) -> None:
+        # post146: a feed's own steps say which feed of how many (the progress bar)
+        self.stages.append({"stage": name, "detail": detail, "at": time.time(),
+                            **({"feed": feed} if feed else {})})
 
     def _execute(self) -> None:
         config = self._store.config
+        # post47b: under provider=live a named environment with a key unset fails
+        # HERE, naming the keys — before anything is written (mock: INPUT_NEEDED)
+        self.run_environment(config)
         label = f"demo_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        run_root = REPO_ROOT / config.output.dir / label
+        self._run_label = label
+        from ui.backend import stores as ui_stores
+
+        # Generated into the outputs role's local directory (./out by default;
+        # a remote role's working copy otherwise) and pushed up once complete.
+        run_root = ui_stores.outputs_root(config) / label
         reports_root = run_root / "reports"
         run_root.mkdir(parents=True, exist_ok=True)
 
-        frd_path = self.effective_frd()
-        frd_label = self.selected_frd_label or frd_path.name
         workbook_path = self.effective_workbook()
         contract_path = run_root / "extracted_sttm.contract.json"
 
         self.error_hint = None
+        self._ask_pairing()
+        frd_path = self.effective_frd()
+        if frd_path is None:
+            raise RuntimeError(self._no_frd_message())
+        frd_label = self.selected_frd_label or frd_path.name
+        # The documents this run reads: a re-run with answers must read the same.
+        self._run_inputs = self._current_inputs()
         # Self-contained run directory: copy the FRD the run actually used
         # (content-identical => provenance hashes unchanged) and record run
         # metadata, so a past run reloads with ITS pair — never the pinned
@@ -509,33 +2916,83 @@ class DemoRunner:
 
         run_frd = run_root / "frd.contract.json"
         frd_is_docx = frd_path.suffix.lower() == ".docx"
-        if frd_is_docx:
-            # M2: a .docx FRD is extracted into the run's own contract file
-            # (deterministic, stdlib) — the rest of the path is unchanged.
-            from codegen.extract.frd_docx import contract_to_json, extract_frd_contract
+        # Layout first: the resolved layout also produces the FRD contract
+        # (a .docx read through its profile, with any FRD gaps filled from the
+        # STTM / VDD / FAQ or the person's choice — resolve/gapfill.py).
+        self._stage("resolving layout", f"{workbook_path.name} (+ {frd_label})")
+        resolution = self._resolve_layout(workbook_path, frd_path, config,
+                                          vdd_path=self.selected_vdd)
+        from codegen.reasoning.usage import layout_usage as _layout_usage
+        from codegen.reasoning.usage import run_usage
 
-            self._stage("extracting FRD", f"{frd_path.name} → FRD feed contract (docx)")
-            frd_contract, _profile = extract_frd_contract(frd_path, config)
-            run_frd.write_text(contract_to_json(frd_contract), encoding="utf-8", newline="\n")
+        layout_usage = _layout_usage(*self._layout_providers)
+        self.model_usage = [layout_usage.as_dict()]
+        self._stage("layout recognizer", layout_usage.label)
+        from codegen.extract.frd_docx import contract_to_json
+
+        # A feed the person left without a file (Proceed unresolved on its
+        # 'File for table …' question) cannot be extracted: set it aside as
+        # a failed feed WITH the remedy and carry on with the others.
+        set_aside = feeds_left_without_a_file(resolution.questions, resolution.frd_contract)
+        pre_failures: list[FailedRun] = []
+        skip_tables: set[str] = set()
+        # The layout contract's feeds (a gaps: answer is keyed by THEIR index)
+        # and the questions still open, by key — what a held-back feed needs.
+        layout_feeds = list(resolution.frd_contract.feeds) if resolution.frd_contract else []
+        open_questions = {q.key: q.as_dict() for q in resolution.questions}
+        if set_aside:
+            kept = [f for i, f in enumerate(resolution.frd_contract.feeds)
+                    if i not in {i for i, _f in set_aside}]
+            for index, feed in set_aside:
+                skip_tables.update(feed.stage_target.tables)
+                pre_failures.append(FailedRun(
+                    label=feed.feed_name,
+                    error=(f"skipped: no document names the file that feeds stage table(s) "
+                           f"{feed.stage_target.tables} and the question 'File for table "
+                           f"{feed.feed_name}' was left unanswered. Answer it under 'Answers "
+                           "needed' on the Generate page and re-run, or add the file name to "
+                           "the FRD — the agent never guesses a file."),
+                ))
+                key = f"feeds[{index}].file_name_patterns"
+                if key in open_questions:
+                    self._run_items.append(needs_answer_item(open_questions[key],
+                                                             feed_name=feed.feed_name))
+            resolution.frd_contract = resolution.frd_contract.model_copy(update={"feeds": kept})
+            self._stage("feeds set aside",
+                        f"{len(set_aside)} feed(s) without a file: "
+                        + ", ".join(f.feed_name for _i, f in set_aside))
+            if not kept:
+                self.set_aside = [f.model_dump() for f in pre_failures]
+                self._stage("needs answers", f"every feed is held back — {len(set_aside)} "
+                                             "file question(s) left unanswered")
+                raise RunNeedsAnswers("every feed was set aside without a file")
+        if frd_is_docx or resolution.gap_fills or set_aside:
+            self._stage("extracting FRD" if frd_is_docx else "filling FRD gaps",
+                        f"{frd_path.name} → FRD feed contract"
+                        + (f" ({len(resolution.gap_fills)} field(s) from other documents)"
+                           if resolution.gap_fills else ""))
+            run_frd.write_text(contract_to_json(resolution.frd_contract), encoding="utf-8",
+                               newline="\n")
         else:
-            shutil.copyfile(frd_path, run_frd)
+            shutil.copyfile(frd_path, run_frd)  # content-identical: hashes unchanged
         (run_root / "run_meta.json").write_text(
             json_module.dumps({
                 "frd_label": frd_label,
                 "sttm_workbook": workbook_path.name,
-                "output_mode": self.output_mode or config.output.mode,
+                "output_mode": self.effective_output_parts(),
                 "conventions_profile": self.conventions_profile or config.conventions.profile,
                 "iig_template": self.iig_template or config.metadata.template,
                 "playbook_template": self.playbook_template or config.playbook.template,
+                "vdd": self.selected_vdd.name if self.selected_vdd else None,
+                # M15e: "VDD not decided at run start"; 2026-10-13: the pairing NOTEs
+                "notes": [*self.run_notes, *self.run_pairing_notes],
+                "codegen": _codegen_source_line(),      # which code produced this run
+                # 2026-10-12: + the commit (tools/iig_diff.py reads it)
+                "build": _build_identity(),
             }, indent=2) + "\n",
             encoding="utf-8", newline="\n",
         )
         frd_path = run_frd
-
-        self._stage("resolving layout", f"{workbook_path.name} (+ {frd_label})")
-        resolution = self._resolve_layout(
-            workbook_path, self.effective_frd() if frd_is_docx else frd_path, config,
-            vdd_path=self.selected_vdd)
         layout_flags = list(resolution.flags)
         vdd_contract_path: Path | None = None
         if self.selected_vdd is not None and resolution.vdd is not None:
@@ -551,40 +3008,143 @@ class DemoRunner:
 
         self._stage("extracting workbook",
                     f"{workbook_path.name} → STTM mapping contract (FRD: {frd_label})")
+        from codegen.extract import NeedsAnswersError
+        from codegen.extract.generic import answers_section, parse_audit_answers
+
+        run_feeds = list(resolution.frd_contract.feeds) if resolution.frd_contract else []
+        if not set_aside:
+            run_feeds = layout_feeds              # the same contract: keys need no mapping
+        # The gaps answers this run's layout used (the dialog's, a re-run's
+        # inline ones) are keyed by the layout contract's feed index; the
+        # extractor numbers the run FRD's feeds. M9.2: byte widths ride on the
+        # fields; Chunk B: feeds[i].audit_columns for a sheet the STTM gives
+        # no audit row (answers.yaml's gaps: on the CLI, cli.extract_sttm).
+        width_answers = run_feed_answers(getattr(resolution, "width_answers", None) or {},
+                                         run_feeds, layout_feeds)
+        audit_answers = run_feed_answers(parse_audit_answers(self.last_answers.get("gaps")),
+                                         run_feeds, layout_feeds)
+
+        def hold_back(pending_list) -> None:
+            """A feed no document completes is held back (NEEDS_ANSWERS) with
+            the key that unblocks it — listed for an inline answer + re-run."""
+            for pending in pending_list:
+                key = layout_feed_key(pending.key, run_feeds, layout_feeds)
+                section = answers_section(key)
+                pre_failures.append(FailedRun(
+                    label=pending.feed_name,
+                    error=(f"NEEDS_ANSWERS: {key} — {pending.reason} (sheet {pending.sheet}). "
+                           "Answer it under 'Answers needed' on the Generate page and re-run "
+                           f"(answers file: under `{section}:`) — the agent never guesses."),
+                ))
+                question = open_questions.get(key) or pending_question(pending, key, config)
+                self._run_items.append(needs_answer_item(
+                    question, feed_name=pending.feed_name, sheet=pending.sheet,
+                    reason=pending.reason))
+
         try:
-            extract_to_file(workbook_path, frd_path, contract_path, config,
-                            layout=resolution.sttm.profile)
+            contract = extract_to_file(
+                workbook_path, frd_path, contract_path, config,
+                layout=resolution.sttm.profile,
+                skip_stage_tables=sorted(skip_tables),
+                width_answers=width_answers or None,
+                audit_answers=audit_answers or None)
+        except NeedsAnswersError as exc:
+            # EVERY sheet is held back: the run ends as needs-answers with the
+            # list — never "live run produced no feeds".
+            hold_back(exc.pending)
+            self.set_aside = [f.model_dump() for f in pre_failures]
+            self._stage("needs answers", f"every feed is held back — {len(exc.pending)} "
+                                         "answer(s) needed: "
+                                         + ", ".join(p.key for p in exc.pending))
+            raise RunNeedsAnswers(str(exc)) from exc
         except Exception as exc:
             self._attach_pairing_hint(exc, workbook_path, frd_label)
             raise
+        # A feed whose targets no document states is held back (NEEDS_ANSWERS)
+        # with the answers-file key; the others run.
+        hold_back(contract.needs_answers)
+        held = list(contract.needs_answers)          # post60: the manifest's lines too
+        if contract.needs_answers:
+            self._stage("feeds set aside",
+                        f"{len(contract.needs_answers)} answer(s) needed: "
+                        + ", ".join(p.key for p in contract.needs_answers))
 
-        self._stage("resolving contracts", f"{frd_label} ⋈ extracted contract")
-        specs = resolve_pair(frd_path, contract_path, config, vdd_path=vdd_contract_path)
+        # 2026-10-14: the run's environment (the run form's choice, else the
+        # default — then a non-blocking "inputs needed" item names it). post47:
+        # chosen BEFORE resolving — the catalogs are the environment's — and the
+        # run-level inputs listed once (scope "run"), never per feed.
+        from codegen.environments import with_environment
 
-        runs: dict[str, FeedRun] = {}
-        failures: list[FailedRun] = []
-        for spec in specs:
-            slug = spec.feed_slug
-            try:
-                runs[slug] = self._store._generate_feed(  # noqa: SLF001
-                    spec,
-                    dry_run=False,
-                    skip_tests=True,
-                    out_root=run_root,
-                    reports_dir=reports_root,
-                    on_stage=lambda detail, slug=slug: self._stage(f"{slug}: {detail}"),
-                    output_mode=self.output_mode,
-                    extra_flags=layout_flags,
-                    conventions_profile=self.conventions_profile,
-                    iig_template=self.iig_template,
-                    playbook_template=self.playbook_template,
-                )
-            except Exception as exc:  # noqa: BLE001 — one bad feed must not sink the run
-                failures.append(FailedRun(label=slug, error=f"{type(exc).__name__}: {exc}"))
-        if not runs:
+        # post80: every blocking question known BEFORE generating (a required
+        # environment value, a value no document states, the LOB per file, the
+        # landing a notebook needs) is asked ONCE here, in the run's dialog —
+        # then the run generates with the answers. "Proceed with unresolved"
+        # generates without them (they are then listed after the run, as before).
+        asked_before = False
+        while True:
+            run_env = self.run_environment(config)
+            gaps = {key: str(value.get("value") or "")
+                    for key, value in ((self.last_answers or {}).get("gaps") or {}).items()
+                    if isinstance(value, dict) and str(value.get("value") or "").strip()}
+            # post84: a landing changed in "Change defaults" (input-choices) sets the
+            # feed's landing — the profile's convention is then not applied
+            gaps.update(self._landing_choices())
+            specs, unstated_values = self._resolve_specs(
+                frd_path, contract_path, with_environment(config, run_env), vdd_contract_path,
+                gaps, frd_label)
+            questions = self._before_generate_questions(
+                specs, unstated_values, with_environment(config, run_env), frd_path)
+            if not questions or asked_before:
+                break
+            asked_before = True
+            if not self._ask_before_generate(questions):
+                break                                      # proceed with unresolved
+        self.inputs_needed += self._run_level_inputs(with_environment(config, run_env))
+        if gaps:
+            from codegen.layout.answers_template import write_applied_answers
+
+            write_applied_answers(run_root / "answers.yaml", gaps, stage="this App run")
+        for unstated in unstated_values:
+            self._run_items.append(needs_answer_item(
+                _unstated_question(unstated), feed_name=unstated.feed_id,
+                reason=unstated.reason))
+        # post47: a feed whose files no document keys to ONE LOB asks ONE question
+        # (every file a key, the FRD's codes a dropdown) before generating.
+        # post138 (Soham): asked ONCE - left unanswered, its LOB cells stay open
+        # and flagged (lob_unkeyed, iig_lob) and the run is not held for it, so
+        # it is never re-listed here (this list reads as blocking on the page).
+
+        runs, failures, manifest = self._generate_specs(
+            specs, config, run_env=run_env, frd_path=frd_path, run_root=run_root,
+            reports_root=reports_root, held=held, unstated=unstated_values,
+            # M15e: "VDD not decided at run start" is a flag on every feed — the
+            # report says the run went without a VDD.
+            extra_flags=[*layout_flags,
+                         *(f"vdd_not_decided_at_run_start: {n}" for n in self.run_notes),
+                         *(f"pairing_note: {n}" for n in self.run_pairing_notes)],
+            layout_usage=layout_usage, sttm_path=contract_path)
+        failures = [*pre_failures, *failures]
+        # post60: the run state from the manifest — its outcome and each feed's
+        # ``written`` — never inferred from which feeds returned
+        written = [f for f in manifest.get("feeds") or [] if f.get("written")]
+        if not written:
+            if self.outcome == "NEEDS_ANSWERS":
+                # Every feed is held back or set aside — answers, not a failure.
+                self.set_aside = [f.model_dump() for f in pre_failures]
+                self._stage("needs answers", "no workbook written — every feed waits for an "
+                                             "answer (CODEGEN_STAGES.json: NEEDS_ANSWERS)")
+                raise RunNeedsAnswers("every feed is held back")
             details = "; ".join(f"{f.label}: {f.error}" for f in failures) or "no feeds resolved"
-            raise RuntimeError(f"live run produced no feeds — {details}")
+            raise RuntimeError(f"live run produced no feeds ({self.outcome}) — {details}")
 
+        self.model_usage = run_usage([r.model_usage or [] for r in runs.values()], layout_usage)
+        self._stage("model usage", "; ".join(f"{u['stage']}: {u['label']}"
+                                             for u in self.model_usage))
+        self.set_aside = [f.model_dump() for f in pre_failures]
+        sent = ui_stores.push_run(config, label)
+        if sent:
+            self._stage("storing outputs", f"{len(sent)} file(s) → "
+                        f"{ui_stores.get_stores(config).outputs.uri(label)}")
         self._stage("publishing results", f"{len(runs)} feed(s), {len(failures)} failure(s)")
         self._store.adopt(
             runs,
@@ -593,5 +3153,8 @@ class DemoRunner:
             label=label,
             out_root=run_root,
             reports_root=reports_root,
+            layout_usage=layout_usage,
+            iig_template=self.iig_template or config.metadata.template,
+            run_provider=run_provider_of(config),
         )
         self.last_run_label = label

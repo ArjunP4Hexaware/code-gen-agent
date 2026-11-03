@@ -26,6 +26,8 @@ from ui.backend.replay import (  # noqa: E402
 )
 from ui.backend.service import GenerationStore  # noqa: E402
 
+from ui_select import select_sttm  # noqa: E402
+
 REPLAY_SET = "live_e2e_20260807"
 # The tracked replay set was removed from the repo 2026-08-22 (no client
 # documents, raw or derived, in the repository); the two tests that read it
@@ -44,6 +46,27 @@ def decisions_path(monkeypatch, tmp_path):
     path = tmp_path / "decisions.json"
     monkeypatch.setattr(service, "DECISIONS_PATH", path)
     return path
+
+
+def _index_idle() -> None:
+    """M9.3: the chooser reads listed documents in a background task; wait for
+    it before deleting a file it may have open (a Windows sharing violation)."""
+    from ui.backend import main
+
+    if main.runner is not None:
+        main.runner._index.wait_idle(30)
+
+
+def _job_done(client, job_id: int, timeout: float = 90.0) -> dict:
+    """Poll the status until selection job ``job_id`` has finished."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        job = client.get("/api/demo/status").json()["selection_job"]
+        if (job and job["id"] == job_id and job["state"] != "running"
+                and not job.get("pairing_pending")):          # M15.2: pairs land behind
+            return job
+        time.sleep(0.05)
+    raise AssertionError(f"selection job {job_id} did not finish")
 
 
 def _adopt_empty(store: GenerationStore, *, mode: str, label: str | None) -> None:
@@ -116,7 +139,7 @@ def test_live_failure_surfaces_and_releases_guard():
 
 def test_needs_layout_pauses_the_run_until_answered(monkeypatch):
     """M2.5 §6: unresolved roles pause the run in ``needs_layout`` with the
-    question list on the status; answers resume it; ``cancel`` fails it."""
+    question list on the status; answers resume it; ``cancel`` ends it idle."""
     from codegen.layout import resolve as resolve_module
     from codegen.layout.profile import LayoutProfile
     from codegen.layout.resolve import DocumentResolution, LayoutQuestion, PairResolution
@@ -158,11 +181,11 @@ def test_needs_layout_pauses_the_run_until_answered(monkeypatch):
             break
         time.sleep(0.02)
     assert runner.state == "done" and seen["questions"] == []
-    assert calls[-1] == {"sttm": {"S/stage/column": 1}, "frd": {}, "vdd": {}}
+    assert calls[-1] == {"sttm": {"S/stage/column": 1}, "frd": {}, "vdd": {}, "gaps": {}}
     # Not waiting -> answering is refused.
     with pytest.raises(LiveRunInProgress):
         runner.answer_layout({})
-    # A cancel fails the run loudly.
+    # A cancel stops the run and the page goes back to idle: no failure, no questions.
     runner._work = work
     runner.start_live()
     for _ in range(100):
@@ -171,10 +194,92 @@ def test_needs_layout_pauses_the_run_until_answered(monkeypatch):
         time.sleep(0.02)
     runner.answer_layout({}, cancel=True)
     for _ in range(100):
-        if runner.state == "failed":
+        if runner.state == "idle":
             break
         time.sleep(0.02)
-    assert runner.state == "failed" and "cancelled" in (runner.error or "")
+    status = runner.status()
+    assert runner.state == "idle" and runner.error is None and status["error_detail"] is None
+    assert status["layout_questions"] == [] and status["stages"] == []
+
+
+def test_re_resolve_layout_is_a_one_shot_refresh_before_a_run_and_from_the_dialog(monkeypatch):
+    """M9.1: "re-resolve layout" bypasses every cached profile — armed for the
+    next run (one shot), or asked from the needs_layout dialog, where it also
+    drops the answers given to the OLD profile's questions."""
+    from codegen.layout import resolve as resolve_module
+    from codegen.layout.profile import LayoutProfile
+    from codegen.layout.resolve import DocumentResolution, LayoutQuestion, PairResolution
+
+    calls: list[dict] = []
+
+    def fake_resolve_pair(sttm, frd, config, **kwargs):
+        calls.append({"refresh": kwargs.get("refresh"), "answers": kwargs.get("answers")})
+        profile = LayoutProfile(fingerprint="f", sheets=[], source="synonyms",
+                                strategy="content")
+        doc = DocumentResolution("sttm", profile)
+        if len(calls) < 3:          # two rounds of questions, then complete
+            doc.questions = [LayoutQuestion("sttm", "S", "stage", "schema", "why",
+                                            ["A: x"], [{"col": 1, "header": "x"}])]
+        return PairResolution(sttm=doc, frd=None, frd_contract=None)
+
+    monkeypatch.setattr(resolve_module, "resolve_pair", fake_resolve_pair)
+    store = GenerationStore("config/config.yaml")
+    runner = DemoRunner(store)
+    runner._work = lambda: runner._resolve_layout(REPO / "x.xlsx", REPO / "y.docx", store.config)
+
+    assert runner.status()["layout_refresh"] is False
+    runner.set_layout_refresh(True)
+    assert runner.status()["layout_refresh"] is True
+    runner.start_live()
+    for _ in range(100):
+        if runner.state == "needs_layout":
+            break
+        time.sleep(0.02)
+    assert runner.state == "needs_layout"
+    assert calls[0]["refresh"] is True and runner.layout_refresh is False      # consumed
+    assert any(s["stage"] == "re-resolve layout" for s in runner.status()["stages"])
+    with pytest.raises(LiveRunInProgress):
+        runner.set_layout_refresh(True)             # a run is in progress: use its dialog
+    # An ordinary answer round: no refresh, the answer is carried.
+    runner.answer_layout({"sttm": {"S/stage/schema": 1}})
+    for _ in range(100):
+        if len(calls) == 2 and runner.state == "needs_layout":
+            break
+        time.sleep(0.02)
+    assert calls[1]["refresh"] is False and calls[1]["answers"]["sttm"] == {"S/stage/schema": 1}
+    # "Re-resolve layout" from the dialog: refresh again, the old answers dropped.
+    runner.answer_layout({}, refresh=True)
+    for _ in range(100):
+        if runner.state == "done":
+            break
+        time.sleep(0.02)
+    assert runner.state == "done"
+    assert calls[2]["refresh"] is True and calls[2]["answers"]["sttm"] == {}
+
+
+def test_status_returning_posts_carry_the_full_status(client):
+    """post83: a POST that answers with the status returns the SAME shape as
+    GET /api/demo/status — mode / label included. Confirm on the inputs panel
+    returned the runner's bare status, so "View results" (keyed on mode +
+    label) fell back to load-live-run: a full re-run, seconds of lag."""
+    full = client.get("/api/demo/status").json()
+    for path, body in (("/api/demo/input-choices", {"choices": {}}),
+                       ("/api/demo/layout-refresh", {"enabled": False})):
+        got = client.post(path, json=body)
+        assert got.status_code == 200, path
+        assert set(got.json()) == set(full), path
+        assert (got.json()["mode"], got.json()["label"]) == (full["mode"], full["label"])
+
+
+def test_layout_refresh_endpoint(client):
+    r = client.post("/api/demo/layout-refresh", json={"enabled": True})
+    assert r.status_code == 200 and r.json()["layout_refresh"] is True
+    assert client.get("/api/demo/status").json()["layout_refresh"] is True
+    r = client.post("/api/demo/layout-refresh", json={"enabled": False})
+    assert r.status_code == 200 and r.json()["layout_refresh"] is False
+    # The dialog's re-resolve needs a waiting run, like every other answer.
+    r = client.post("/api/demo/layout-answers", json={"answers": {}, "refresh": True})
+    assert r.status_code == 409
 
 
 def test_layout_answers_endpoint_guards(client):
@@ -192,28 +297,41 @@ def test_run_live_requires_explicit_confirm(client):
     assert response.status_code == 400
 
 
-def test_run_live_without_key_is_rejected(client):
+def test_run_live_without_key_is_rejected(client, monkeypatch):
+    # 2026-10-13: LIVE is asked for explicitly (CODEGEN_PROVIDER); it cannot run
+    # without the key — refused, never a quiet mock.
+    monkeypatch.setenv("CODEGEN_PROVIDER", "live")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     response = client.post("/api/demo/run-live", json={"confirm": True})
     assert response.status_code == 400
     assert "ANTHROPIC_API_KEY" in response.json()["detail"]
 
 
 def test_live_available_is_boolean_only(client, monkeypatch):
+    # The default: provider=mock — available, and it says so.
     payload = client.get("/api/demo/live-available").json()
     assert (payload["available"], payload["provider"], payload["reason"]) == (
-        False, "mock", "no ANTHROPIC_API_KEY in the backend env")
+        True, "mock (locked)", "")
+    assert payload["transport"]["detected_by"] == "provider=mock (default)"
+    monkeypatch.setenv("CODEGEN_PROVIDER", "live")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    payload = client.get("/api/demo/live-available").json()
+    assert (payload["available"], payload["provider"]) == (False, "mock")
+    assert "ANTHROPIC_API_KEY is unset" in payload["reason"]
     assert payload["transport"]["runtime"] == "local"
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-never-echoed")
     payload = client.get("/api/demo/live-available").json()
     assert (payload["available"], payload["provider"], payload["reason"]) == (
         True, "anthropic", "")
-    assert payload["transport"]["label"].startswith("Anthropic API (")
+    assert "Anthropic API" in payload["transport"]["label"]
     assert "test-key-never-echoed" not in repr(payload)
 
 
 def test_live_available_fmapi_needs_no_key(client, monkeypatch):
     # FMAPI availability is pure config resolution — no key, no network.
     from ui.backend import main
+
+    monkeypatch.setenv("CODEGEN_PROVIDER", "live")
 
     reasoning = main.store.config.reasoning.model_copy(
         update={"provider": "databricks_fmapi"}
@@ -230,19 +348,16 @@ def test_live_available_fmapi_needs_no_key(client, monkeypatch):
     assert payload["transport"]["runtime"] == "local"
 
 
-def test_databricks_runtime_forces_the_foundation_model_endpoint(client, monkeypatch):
-    """Inside a Databricks runtime (Apps injects DATABRICKS_APP_PORT) the
-    transport is the Foundation Model endpoint even when the yaml says
-    anthropic — and the override is reported, never silent."""
+def test_a_databricks_runtime_never_makes_a_run_live(client, monkeypatch):
+    """2026-10-13: the Apps runtime's DATABRICKS_APP_PORT is detected and
+    reported, never inferred into live — the provider switch says so."""
     monkeypatch.setenv("DATABRICKS_APP_PORT", "8080")
     payload = client.get("/api/demo/live-available").json()
     transport = payload["transport"]
-    assert payload["provider"] == "databricks_fmapi" and payload["available"] is True
+    assert payload["provider"] == "mock (locked)" and payload["available"] is True
     assert transport["runtime"] == "databricks_app"
-    assert transport["detected_by"] == "DATABRICKS_APP_PORT"
-    assert transport["configured"] == "anthropic" and transport["overridden"] is True
-    assert "inside Databricks the Foundation Model endpoint is used" in transport["reason"]
-    assert transport["label"].startswith("Databricks Foundation Model endpoint ")
+    assert transport["detected_by"] == "provider=mock (default)"
+    assert transport["overridden"] is False
 
 
 @needs_replay_set
@@ -404,12 +519,17 @@ def test_upload_sttm_workbook_lands_and_selects(client):
             files={"file": (name, buf.getvalue(), "application/octet-stream")},
         )
         assert r.status_code == 201
-        assert r.json() == {"stored": name, "kind": "sttm", "selected": True}
+        body = r.json()
+        # Stored at once; SELECTED by the job (M9.3 addendum) — poll the status.
+        assert (body["stored"], body["kind"], body["selected"]) == (name, "sttm", False)
+        job = _job_done(client, body["job"]["id"])
+        assert job["state"] == "done", job
         rows = client.get("/api/demo/workbooks").json()["workbooks"]
         mine = [w for w in rows if w["name"] == name]
         assert mine and mine[0]["selected"] and mine[0]["source"] == "inputs/uploads"
     finally:
         client.delete("/api/demo/workbook")
+        _index_idle()
         (uploads / name).unlink(missing_ok=True)
 
 
@@ -432,7 +552,7 @@ def test_upload_frd_docx_lands_and_selects(client):
         assert r.json() == {"stored": name, "kind": "frd", "selected": True}
         choices = client.get("/api/demo/frd-choices").json()
         assert name in choices["local"]
-        assert choices["current"] == {"label": name, "chosen": True}
+        assert choices["current"] == {"label": name, "chosen": True, "paired": False}
         assert choices["no_contract"] == []
         # Selecting a local docx by name works the same way as a contract.
         assert client.post("/api/demo/frd", json={"kind": "local", "id": name}).status_code == 200
@@ -445,6 +565,7 @@ def test_upload_frd_docx_lands_and_selects(client):
         assert "not an F1/F2 FRD document" in bogus.json()["detail"]
     finally:
         client.delete("/api/demo/frd")
+        _index_idle()
         (uploads / name).unlink(missing_ok=True)
 
 
@@ -467,9 +588,10 @@ def test_upload_frd_contract_lands_and_selects(client):
         assert r.json() == {"stored": stored, "kind": "frd", "selected": True}
         choices = client.get("/api/demo/frd-choices").json()
         assert stored in choices["local"]
-        assert choices["current"] == {"label": stored, "chosen": True}
+        assert choices["current"] == {"label": stored, "chosen": True, "paired": False}
     finally:
         client.delete("/api/demo/frd")
+        _index_idle()
         (uploads / stored).unlink(missing_ok=True)
 
 
@@ -547,25 +669,23 @@ def test_choosing_an_sttm_auto_pairs_its_frd(client):
     if not (REPO / "fixtures" / "workbooks" / "demo_sttm_cv_golden.xlsx").is_file():
         pytest.skip("CV golden workbook not restored")
     try:
-        r = client.post("/api/demo/workbook", json={"name": "demo_sttm_cv_golden.xlsx"})
-        assert r.status_code == 200
-        status = client.get("/api/demo/status").json()
+        status = select_sttm(client, "demo_sttm_cv_golden.xlsx")
+        assert status["selection_job"]["state"] == "done", status["selection_job"]
         assert status["frd_chosen"] is True
         assert status["frd_name"] == "FRD_demo_cv_golden.contract.json"
         assert status["frd_auto_paired"] == {"frd": "FRD_demo_cv_golden.contract.json",
-                                             "rule": "name_stem"}
-        assert status["frd_warning"] is False
+                                             "rule": "name_key"}
+        assert status["frd_paired"] is True                   # 2026-10-16: labelled paired
         choices = client.get("/api/demo/frd-choices").json()
         assert choices["current"] == {"label": "FRD_demo_cv_golden.contract.json",
-                                      "chosen": True}
+                                      "chosen": True, "paired": True}
         # A manual pick of the same file is a manual pick.
         r = client.post("/api/demo/frd", json={"kind": "local",
                                                "id": "FRD_demo_cv_golden.contract.json"})
         assert r.status_code == 200
         assert client.get("/api/demo/status").json()["frd_auto_paired"] is None
         # Re-choosing the STTM pairs again; clearing the STTM clears the pair.
-        client.post("/api/demo/workbook", json={"name": "demo_sttm_cv_golden.xlsx"})
-        assert client.get("/api/demo/status").json()["frd_auto_paired"] is not None
+        assert select_sttm(client, "demo_sttm_cv_golden.xlsx")["frd_auto_paired"] is not None
         client.delete("/api/demo/workbook")
         status = client.get("/api/demo/status").json()
         assert status["frd_chosen"] is False and status["frd_auto_paired"] is None
@@ -590,15 +710,20 @@ def test_choosing_an_sttm_auto_pairs_its_vdd(client):
     buf = io.BytesIO()
     Workbook().save(buf)
     vdd.write_bytes(buf.getvalue())
+    # 2026-10-23: a VDD that matches by name only is "likely, not decided" until the
+    # background index has read it (DemoRunner._repair_vdd_once decides then), so the
+    # assert below raced the index. As the chooser does: list (which queues the new
+    # file for the index), wait for the index, then choose.
+    client.get("/api/demo/workbooks")
+    _index_idle()
     try:
-        client.post("/api/demo/workbook", json={"name": "demo_sttm_cv_golden.xlsx"})
-        status = client.get("/api/demo/status").json()
+        status = select_sttm(client, "demo_sttm_cv_golden.xlsx")
         assert status["vdd_name"] == "VDD_demo_cv_golden.xlsx"
         assert status["vdd_auto_paired"] == {"vdd": "VDD_demo_cv_golden.xlsx",
-                                             "rule": "name_stem"}
+                                             "rule": "name_key"}
         client.post("/api/demo/vdd", json={"name": "VDD_demo_cv_golden.xlsx"})
         assert client.get("/api/demo/status").json()["vdd_auto_paired"] is None
-        client.post("/api/demo/workbook", json={"name": "demo_sttm_cv_golden.xlsx"})
+        select_sttm(client, "demo_sttm_cv_golden.xlsx")
         client.delete("/api/demo/workbook")
         status = client.get("/api/demo/status").json()
         assert status["vdd_name"] is None and status["vdd_auto_paired"] is None
@@ -606,20 +731,24 @@ def test_choosing_an_sttm_auto_pairs_its_vdd(client):
         client.delete("/api/demo/workbook")
         client.delete("/api/demo/frd")
         client.delete("/api/demo/vdd")
+        _index_idle()
         vdd.unlink(missing_ok=True)
 
 
+@pytest.mark.usefixtures("notebooks_in_app")   # post91: notebooks off in the shipped App
 def test_output_parts_are_independent_and_empty_refuses_a_run(client, monkeypatch):
-    """The Output toggles are a real multi-select: any subset, none allowed
-    (run-live then 400), All its own state; the generator mode is derived."""
+    """The Output toggles are a real multi-select over exactly Notebook and
+    Framework artefacts: any subset, none allowed (run-live then 400); a
+    retired part (rfc / all) maps to both with a notice, never an error."""
     try:
         r = client.post("/api/demo/output-parts", json={"parts": ["notebook", "rfc"]})
         assert r.status_code == 200
-        assert r.json()["output_parts"] == ["notebook", "rfc"] and r.json()["output_mode"] == "all"
+        assert r.json()["output_parts"] == ["notebook", "framework"] == r.json()["output_mode"]
+        assert any("'rfc'" in n for n in r.json()["output_notices"])
         r = client.post("/api/demo/output-parts", json={"parts": ["all"]})
-        assert r.json()["output_parts"] == ["all"] and r.json()["output_mode"] == "all"
+        assert r.status_code == 200 and r.json()["output_parts"] == ["notebook", "framework"]
         r = client.post("/api/demo/output-parts", json={"parts": ["framework"]})
-        assert r.json()["output_mode"] == "framework"
+        assert r.json()["output_mode"] == ["framework"]
         r = client.post("/api/demo/output-parts", json={"parts": []})
         assert r.status_code == 200
         assert r.json()["output_parts"] == [] and r.json()["output_mode"] is None

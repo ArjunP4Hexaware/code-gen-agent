@@ -1,0 +1,37 @@
+{
+  "skillOverrides": {
+    "spiral-breaker-general": "off"
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash|PowerShell|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/spiral_detector.py"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash|PowerShell|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/spiral_detector.py"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

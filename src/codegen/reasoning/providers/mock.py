@@ -13,6 +13,12 @@ from codegen.reasoning.schema import CandidateResponse, ContextPack
 
 class MockProvider:
     name = "mock"
+    calls = 0   # a mock never sends a model call (codegen.reasoning.usage)
+
+    def __init__(self, reason: str | None = None) -> None:
+        # Why the mock answered: a lock env var, an unreachable endpoint,
+        # dry-run — set by build_provider; "test" when constructed directly.
+        self.mock_reason = reason or "test"
 
     def complete(self, pack: ContextPack) -> CandidateResponse:
         sketch = (
@@ -31,3 +37,7 @@ class MockProvider:
             ),
             citations=[pack.rule_text],
         )
+
+    def complete_batch(self, packs: list[ContextPack]) -> dict[int, CandidateResponse]:
+        """post76: the feed's batch, answered rule by rule (no model call)."""
+        return {n: self.complete(pack) for n, pack in enumerate(packs, 1)}

@@ -34,7 +34,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
 from codegen.config import Config
-from codegen.contracts.frd import FrdContract, FrdFeed
+from codegen.contracts.frd import FrdContract, FrdFeed, stated_source
 from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.demo_sources import feed_source_files
 from codegen.resolve.resolver import normalize_feed_name
@@ -55,6 +55,9 @@ BADGE_LABELS = {
     # Engineering standards (three-input model, input #2) — e.g. the EDO
     # WF_/NB_ naming patterns and the prod-support alert DL.
     "from_standards": "from standards",
+    # M10.2: the FRD's ADLS Location carried a storage scheme — a location
+    # URI, validated as one, never re-rooted as a folder path.
+    "location_uri": "from FRD (location URI)",
     "synthetic": "SYNTHETIC",
     "needs_template": "NEEDS CLIENT TEMPLATE",
 }
@@ -62,7 +65,7 @@ BADGE_LABELS = {
 # Badges that count as "derived" in coverage (everything traceable to an
 # input document/answer, as opposed to synthetic stand-ins or blanks).
 DERIVED_BADGES = ("from_sttm", "from_sttm_unmapped", "from_frd", "from_faq",
-                  "from_standards")
+                  "from_standards", "location_uri")
 
 _ALWAYS_BLANK_TOOLTIP = (
     "assigned by the ACFC framework / manual by client instruction — "
@@ -85,16 +88,51 @@ def _cell(value, badge: str, tooltip: str | None = None) -> dict:
     return {"value": "" if value is None else value, "badge_entry": entry}
 
 
+def unstated_source_cell() -> dict:
+    """post125 (audit #5): a source cell when no input states the source —
+    blank and flagged (``iig_blank:``), never the docx reader's placeholder."""
+    return _cell("", "needs_template",
+                 "the FRD states no source (no Data Source / Vendor label) - to be "
+                 "filled by the BSA")
+
+
+def _source_system_cell(feed: FrdFeed) -> dict:
+    """The FRD's source system as a cell; blank and flagged when unstated."""
+    source = stated_source(feed.source_system)
+    return _cell(source, "from_frd") if source is not None else unstated_source_cell()
+
+
+def feed_lob_cell(lobs: list[str], why: str | None = None, tab: str | None = None) -> dict:
+    """A feed-level LOB cell (2026-10-14, D1 pair_12): a LOB cell holds ONE
+    code. One LOB -> written; several (and no file naming one) -> OPEN with a
+    NOTE, never the comma-joined list (the gate's iig_single_value check fails
+    a multi-value cell)."""
+    if len(lobs) <= 1:
+        return _cell(lobs[0] if lobs else "", "from_frd", why)
+    where = f"{tab}." if tab else ""
+    cell = _cell("", "needs_template",
+                 f"open — the feed lists {len(lobs)} LOBs ({', '.join(lobs)}) and nothing "
+                 "names this row's one: a LOB cell holds ONE code")
+    cell["badge_entry"]["note"] = (
+        f"lob_multi_value_open:{where}LOB — the feed lists {len(lobs)} LOBs "
+        f"({', '.join(lobs)}); no single LOB for the row, left open (never a list in the cell)")
+    return cell
+
+
 def _row(headers: list[str], always_blank: set[str], cells: dict[str, dict],
          **extra) -> dict:
     """Assemble one row: every configured header gets a value + one badge."""
     values: dict = {}
     badges: dict = {}
     for header in headers:
-        if header in always_blank:
+        given = cells.get(header)
+        if header in always_blank and not (given and given["badge_entry"].get("convention")):
+            # A builder fills an always-blank column only by a CITED framework
+            # convention (multi-table: OBJECT_ID = the object's position in its
+            # group); everything else stays blank, never invented.
             cell = _cell("", "needs_template", _ALWAYS_BLANK_TOOLTIP)
         else:
-            cell = cells.get(header) or _cell("", "needs_template", None)
+            cell = given or _cell("", "needs_template", None)
         values[header] = cell["value"]
         badges[header] = cell["badge_entry"]
     return {"values": values, "badges": badges, **extra}
@@ -113,13 +151,38 @@ def _faq_cell(answer, tooltip_prefix: str):
     return _cell(answer.value, "from_faq", tooltip + ")")
 
 
+_AUDIT_BY_HEADERS = ("CREATED_BY", "UPDATED_BY", "CRETAED_BY")   # the iig_v1 typo is real
+_AUDIT_BY_TOOLTIP = ("the RFC number stamps CREATED_BY / UPDATED_BY (framework walkthrough, "
+                     "docs/acfc/METADATA_DB_SEMANTICS.md §1) — load-pattern FAQ rfc_number")
+
+
+def audit_by_cells(headers: list[str], faq) -> dict[str, dict]:
+    """M7 §5: CREATED_BY / UPDATED_BY = the RFC number when the FAQ answers
+    rfc_number (badged from_faq); otherwise nothing — the cell stays blank
+    and flagged, never invented."""
+    answer = getattr(faq, "rfc_number", None) if faq is not None else None
+    if answer is None or answer.source == "unknown":
+        return {}
+    value = f"RFC{answer.value}"
+    return {h: _cell(value, "from_faq", f"{_AUDIT_BY_TOOLTIP} (source: {answer.source})")
+            for h in headers if h in _AUDIT_BY_HEADERS}
+
+
+def _claim_type_cell(config: Config) -> dict | None:
+    default = config.metadata.claim_type_id_default
+    if default is None:
+        return None
+    return _cell(default, "synthetic", "CLAIM_TYPE_ID default (config metadata."
+                 "claim_type_id_default; framework walkthrough §7: 'null only or even NA')")
+
+
 def _file_layout_row(feed: FrdFeed, config: Config,
                      spec: ResolvedFeedSpec | None, faq=None) -> dict[str, dict]:
     source = feed_source_files(feed, config)  # Part A's synthesis rules, reused
     landing = source["landing_root"]
     cells = {
         "feed_name": _cell(feed.feed_name, "from_frd"),
-        "source_system": _cell(feed.source_system, "from_frd"),
+        "source_system": _source_system_cell(feed),
         "landing_path": _cell(
             landing["value"],
             "synthetic" if landing["synthetic"] else "from_frd",
@@ -177,9 +240,12 @@ def _load_config_rows(feed: FrdFeed, config: Config,
         if not target.tables:
             continue  # stage-only feeds declare no standard target
         faq_keys = ", ".join(getattr(faq, "dedup_keys", []) or [])
+        # post70: iig_v1 (the SFMC 7-tab, byte for byte) keys on the not-null
+        # list as it always did — docs/acfc/OPEN_QUESTIONS.md; iig_v2 proposes a
+        # key only from an explicit signal (codegen.primary_key).
         if layer == "standard" and spec is not None:
             dedup = _cell(
-                ", ".join(spec.natural_key_columns), "from_sttm",
+                ", ".join(spec.not_null_columns), "from_sttm",
                 "the mapping contract's natural key columns",
             )
         elif layer == "standard" and faq_keys:
@@ -277,13 +343,35 @@ def _standards_name_cell(config: Config, feed: FrdFeed, slug: str, faq,
 
 def _landing_cells(feed: FrdFeed, config: Config) -> tuple[dict, dict]:
     """(SRC_CONTAINER_NAME, SRC_ADLS_PATH) from the FRD landing convention."""
+    from codegen.gate.derivations import location_scheme, split_location
+
     landing = feed_source_files(feed, config)["landing_root"]
-    value = str(landing["value"]).replace("\\", "/").strip("/")
+    raw = str(landing["value"])
+    scheme = location_scheme(raw)
+    if scheme and not landing["synthetic"]:
+        # M10.2: a location URI — the container is the authority's user part
+        # (abfss://<container>@<account>…) or the authority itself; the path
+        # is the URI's own path. Badge location_uri, nothing re-spelt.
+        _s, authority, path = split_location(raw)
+        container = authority.split("@", 1)[0] if "@" in authority else authority
+        tooltip = f"location URI ({scheme}://) from the FRD ADLS Location"
+        return (_cell(container, "location_uri", tooltip),
+                _cell(path or "/", "location_uri", tooltip))
+    value = raw.replace("\\", "/").strip("/")
     container, _, rest = value.partition("/")
     badge = "synthetic" if landing["synthetic"] else "from_frd"
     tooltip = _LANDING_TOOLTIP if landing["synthetic"] else None
-    return (_cell(container, badge, tooltip),
-            _cell("/" + rest if rest else "/", badge, tooltip))
+    path = "/" + rest if rest else "/"
+    # First ACFC run: the FRD's own punctuation never reaches the path cell —
+    # normalised, with a path_normalised note (before / after) for the gate.
+    from codegen.gate.derivations import normalise_path, path_normalised_flag
+
+    normalised, changes = normalise_path(path)
+    path_cell = _cell(normalised, badge, tooltip)
+    if changes:
+        path_cell["badge_entry"]["path_note"] = path_normalised_flag(
+            "SRC_ADLS_PATH", path, normalised, changes)
+    return (_cell(container, badge, tooltip), path_cell)
 
 
 def _stage_names(feed: FrdFeed, spec: ResolvedFeedSpec | None):
@@ -308,9 +396,9 @@ def _adls_delta_row(feed: FrdFeed, config: Config, spec, faq,
         "OBJECT_NAME": _cell(feed.feed_name, "from_frd"),
         "DOMAIN": _cell(feed.domain or "", "from_frd"),
         "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
-        "SOURCE": _cell(feed.source_system, "from_frd"),
+        "SOURCE": _source_system_cell(feed),
         "FREQUENCY": _frequency_cell(feed, faq),
-        "LOB": _cell(", ".join(feed.lobs), "from_frd"),
+        "LOB": feed_lob_cell(list(feed.lobs)),
         "SRC_CONTAINER_NAME": container,
         "SRC_ADLS_PATH": src_path,
         "SRC_FILE_NAME": _cell("; ".join(feed.file_name_patterns), "from_frd"),
@@ -326,6 +414,9 @@ def _adls_delta_row(feed: FrdFeed, config: Config, spec, faq,
                         or _cell("", "needs_template",
                                  "no header indicator in the FRD contract")),
     }
+    claim_type = _claim_type_cell(config)
+    if claim_type is not None:
+        cells["CLAIM_TYPE_ID"] = claim_type
     if feed.delimiter:
         cells["SRC_FILE_DELIMITER"] = _cell(feed.delimiter, "from_frd")
     elif spec is not None:
@@ -345,9 +436,9 @@ def _adls_delta_row(feed: FrdFeed, config: Config, spec, faq,
             ",".join(f.stage_datatype for f in fields), "from_sttm")
         cells["MANDATORY_FIELD_LIST"] = _cell(
             ",".join(spec.not_null_columns), "from_sttm")
-        if spec.natural_key_columns:
+        if spec.not_null_columns:
             cells["TGT_PRIMARY_KEY"] = _cell(
-                ",".join(spec.natural_key_columns), "from_sttm",
+                ",".join(spec.not_null_columns), "from_sttm",
                 "the mapping contract's natural key columns")
         if is_detail:
             cells["TGT_RJT_TABLE_NAME"] = _cell(
@@ -366,9 +457,18 @@ def _adls_delta_row(feed: FrdFeed, config: Config, spec, faq,
                 cells["MAPPING_EXPRESSION"] = _cell(
                     "; ".join(mapped_rules), "from_frd",
                     "FRD business rule(s), verbatim")
-        tgt_path = f"/{feed.domain or ''}/{feed.sub_domain or ''}/Processed/{stage_table}"
-        cells["TGT_ADLS_PATH"] = _cell(tgt_path.replace("//", "/"),
-                                       "synthetic", _SYNTHETIC_PATH_TOOLTIP)
+        if config.metadata.synthetic_path_slug:
+            # M7.1: segments slugified like the names (no whitespace in a path).
+            from codegen.emit.context import _sanitize_name_part
+            from codegen.gate.derivations import join_path
+
+            tgt_path = "/" + join_path(_sanitize_name_part(feed.domain),
+                                       _sanitize_name_part(feed.sub_domain),
+                                       "Processed", stage_table)
+        else:
+            tgt_path = (f"/{feed.domain or ''}/{feed.sub_domain or ''}/Processed/{stage_table}"
+                        ).replace("//", "/")
+        cells["TGT_ADLS_PATH"] = _cell(tgt_path, "synthetic", _SYNTHETIC_PATH_TOOLTIP)
     return cells
 
 
@@ -393,6 +493,15 @@ def _stg_std_row(feed: FrdFeed, config: Config, spec, faq,
     ]
 
 
+def _catalog_tooltip(table) -> str | None:
+    """The catalog_map citation of a mapped catalog (multi-table rule 7), else
+    no tooltip — unmapped cells render exactly as before."""
+    from codegen.metadata_template import catalog_mapping_note
+
+    note = catalog_mapping_note(table)
+    return f"catalog{note}" if note else None
+
+
 def _stg_std_leg_row(feed: FrdFeed, config: Config, spec, faq,
                      stage, standard, fields) -> dict[str, dict]:
     stage_schema = stage.schema_name
@@ -402,10 +511,11 @@ def _stg_std_leg_row(feed: FrdFeed, config: Config, spec, faq,
         "OBJECT_NAME": _cell(feed.feed_name, "from_frd"),
         "DOMAIN": _cell(feed.domain or "", "from_frd"),
         "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
-        "SOURCE": _cell(feed.source_system, "from_frd"),
+        "SOURCE": _source_system_cell(feed),
         "FREQUENCY": _frequency_cell(feed, faq),
-        "LOB": _cell(", ".join(feed.lobs), "from_frd"),
-        "SRC_CATALOG_NAME": _cell(stage.catalog or "", "from_frd"),
+        "LOB": feed_lob_cell(list(feed.lobs)),
+        "SRC_CATALOG_NAME": _cell(stage.catalog or "", "from_frd",
+                                  _catalog_tooltip(stage)),
         "SRC_SCHEMA_NAME": _cell(stage_schema, "from_frd"),
         "SRC_TABLE_NAME": _cell(stage_table, "from_frd"),
         "SRC_FORMAT": _cell("delta", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
@@ -415,7 +525,8 @@ def _stg_std_leg_row(feed: FrdFeed, config: Config, spec, faq,
         "SRC_DATA_TYPE": _cell(
             ",".join(f"{f.stage_datatype}:{f.standard_datatype}" for f in fields),
             "from_sttm"),
-        "TGT_CATALOG_NAME": _cell(standard.catalog or "", "from_frd"),
+        "TGT_CATALOG_NAME": _cell(standard.catalog or "", "from_frd",
+                                  _catalog_tooltip(standard)),
         "TGT_SCHEMA_NAME": _cell(standard.schema_name, "from_frd"),
         "TGT_TABLE_NAME": _cell(standard.table, "from_frd"),
         "TGT_FORMAT": _cell("delta", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
@@ -429,9 +540,9 @@ def _stg_std_leg_row(feed: FrdFeed, config: Config, spec, faq,
             "from_frd" if spec.standard_load_strategy else "synthetic",
             None if spec.standard_load_strategy else _LOAD_STRATEGY_TOOLTIP),
     }
-    if spec.natural_key_columns:
+    if spec.not_null_columns:
         cells["TGT_PRIMARY_KEY"] = _cell(
-            ",".join(spec.natural_key_columns), "from_sttm",
+            ",".join(spec.not_null_columns), "from_sttm",
             "the mapping contract's natural key columns")
     return cells
 
@@ -473,7 +584,7 @@ def _pipeline_schedule_rows(feed: FrdFeed, config: Config, spec, faq,
                 _cell(frequency_word, "from_frd",
                       f"FRD frequency: {feed.frequency!r}")
                 if frequency_word else _frequency_cell(feed, faq)),
-            "APPLICATION_NAME": _cell(feed.source_system, "from_frd"),
+            "APPLICATION_NAME": _source_system_cell(feed),
             "PROCESS_NAME": _cell(feed.feed_name, "from_frd"),
             "LAYER_NAME": _cell(layer, "from_frd"),
             **({"DAY_OF_SCHEDULE": _cell(day_of_schedule, "from_frd",
@@ -627,10 +738,10 @@ def _static_information_rows(feed: FrdFeed, config: Config, spec, faq,
     return [{
         "FILE_NAME": _cell("; ".join(feed.file_name_patterns), "from_frd"),
         "DESCRIPTION": _cell(feed.feed_name, "from_frd"),
-        "LOB": _cell(", ".join(feed.lobs), "from_frd"),
+        "LOB": feed_lob_cell(list(feed.lobs)),
         "FILE_TYPE": _cell(feed.file_format, "from_frd"),
-        "SUPPLIER": _cell(feed.source_system, "from_frd"),
-        "vendor_name": _cell(feed.source_system, "from_frd"),
+        "SUPPLIER": _source_system_cell(feed),
+        "vendor_name": _source_system_cell(feed),
         "FREQUENCY": _frequency_cell(feed, faq),
         "ACTIVE_TERM_STATUS": _cell("Y", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
         "PROCESS_NAME": _cell(feed.feed_name, "from_frd"),
@@ -703,6 +814,7 @@ def _feed_from_spec(spec: ResolvedFeedSpec) -> FrdFeed:
         phi_pii_notes=None,
         sttm_reference=None,
         requirement_ids=[],
+        frequency_mentions=list(spec.frequency_mentions),
     )
 
 
@@ -718,6 +830,7 @@ def metadata_sheet_payload(
     faq_by_slug: dict | None = None,
     frd_path: Path | None = None,
     template: str | None = None,
+    conventions_profile: str | None = None,
 ) -> dict:
     """The whole preview. ``specs`` (a run's resolved feeds) populate the
     STTM-derived cells; without them the ``columns`` tab is empty with an
@@ -731,6 +844,12 @@ def metadata_sheet_payload(
     contract = FrdContract.model_validate(json.loads(frd_path.read_text(encoding="utf-8")))
 
     template_name, template_cfg = config.metadata.resolve(template)
+    if template_cfg is not None:
+        # 2026-10-14: the run's environment fills the template's environment_cells
+        from codegen.environments import apply_environment
+
+        template_cfg = apply_environment(template_cfg, config)
+    profile = config.conventions.get(conventions_profile)
     sheet = template_cfg if template_cfg is not None else config.demo.metadata_sheet
     always_blank = set(sheet.always_blank)
     spec_by_id = {s.feed_id: s for s in (specs or [])}
@@ -778,7 +897,9 @@ def metadata_sheet_payload(
                 slug = normalize_feed_name(feed.feed_name)
                 spec = spec_by_id.get(slug)
                 for cells in template_tab_rows(name, feed, config, spec,
-                                               faq_by_slug.get(slug), template_cfg):
+                                               faq_by_slug.get(slug), template_cfg,
+                                               profile=profile):
+                    cells = {**cells, **audit_by_cells(tab.headers, faq_by_slug.get(slug))}
                     rows.append(_row(tab.headers, always_blank, cells, feed_slug=slug))
         elif name in _IIG_TAB_BUILDERS:
             builder = _IIG_TAB_BUILDERS[name]
@@ -788,6 +909,7 @@ def metadata_sheet_payload(
                 unmapped = unmapped_by_slug.get(slug, set())
                 for cells in builder(feed, config, spec,
                                      faq_by_slug.get(slug), unmapped):
+                    cells = {**cells, **audit_by_cells(tab.headers, faq_by_slug.get(slug))}
                     rows.append(_row(tab.headers, always_blank, cells,
                                      feed_slug=slug))
         entry: dict = {"headers": list(tab.headers), "rows": rows}
@@ -835,6 +957,7 @@ _BADGE_FILLS = {
     "from_frd": "DDEBF7",            # light blue
     "from_faq": "E4DFEC",            # light purple — engineer-answered input
     "from_standards": "CCECE6",      # light teal — EDO standards input
+    "location_uri": "DDEBF7",        # light blue — from the FRD, as a location URI (M10.2)
     "synthetic": "FFE699",           # amber
     "needs_template": "D9D9D9",      # grey
 }
@@ -894,6 +1017,10 @@ def stable_workbook_bytes(workbook: Workbook) -> bytes:
     import re
     import zipfile
 
+    from codegen.xlsx_safe import neutralize_formulas
+
+    # P0-5: document text is data - a cell starting '=' is never a formula
+    neutralize_formulas(workbook)
     buffer = io.BytesIO()
     workbook.save(buffer)
     source = zipfile.ZipFile(io.BytesIO(buffer.getvalue()))
@@ -902,10 +1029,12 @@ def stable_workbook_bytes(workbook: Workbook) -> bytes:
         for info in source.infolist():
             data = source.read(info.filename)
             if info.filename == "docProps/core.xml":
+                # Only the timestamp text is replaced: the element keeps its
+                # attributes, incl. the xmlns:xsi openpyxl declares on it
+                # (dropping it made the part unreadable under lxml).
                 data = re.sub(
-                    rb"<dcterms:modified[^>]*>[^<]*</dcterms:modified>",
-                    b'<dcterms:modified xsi:type="dcterms:W3CDTF">'
-                    b"2026-01-01T00:00:00Z</dcterms:modified>",
+                    rb"(<dcterms:modified[^>]*>)[^<]*(</dcterms:modified>)",
+                    rb"\g<1>2026-01-01T00:00:00Z\g<2>",
                     data,
                 )
             pinned = zipfile.ZipInfo(info.filename, date_time=(2026, 1, 1, 0, 0, 0))

@@ -1,0 +1,364 @@
+# ENVIRONMENT_ACFC.md — ACFC workspace environment facts
+
+> **Scrubbed copy (2026-09-20).** Recorded by Genie Code inside the ACFC workspace on
+> 2026-09-18 and copied from the (since deleted) `genie-code` branch. Workspace
+> identifiers are replaced with `<placeholders>`: the App service principal's client id
+> and name, the App URL / workspace id, the user e-mail, catalog and secret-scope names,
+> ticket numbers, and real file, feed and sheet names. Everything else is as recorded.
+> One recorded statement is wrong: `METADATA_DB_SEMANTICS.md` was not "removed" — Genie's clone was based on `main`, which predates M7; the doc is tracked on `staging`.
+
+Recorded 2026-09-18 by Genie Code from the ACFC Databricks workspace.
+Every fact comes from a command run in that workspace; output is trimmed
+to what matters. Where a command could not run, the section says so.
+
+---
+
+## 0. The D1 run pin set — the reference (2026-10-15, post52)
+
+The versions the ACFC D1 harness runs `codegen` under, as its run report's
+Environment section records them (post51 12-pair run, 2026-10-15). Home runs
+newer libraries; a behaviour that only an older one shows (pydantic 2.8.2's
+`protected_namespaces` warning on any `model_*` field — pair_07's reported error)
+is invisible at home unless the suite also runs under these pins.
+
+| Package | D1 version |
+| --- | --- |
+| Python | 3.12.3 (home: any 3.12) |
+| pydantic | 2.8.2 |
+| openpyxl | 3.1.2 |
+| jinja2 | 3.1.6 |
+| pyyaml | 6.0.1 |
+| ruff | 0.17.0 |
+| databricks-sdk | 0.30.0 |
+| nbformat | 5.11.1 |
+
+nbformat (post68, the notebook validator the suite runs) is the version tested at
+home, not one the D1 report lists: D1 to confirm on its next run.
+
+The same pins, machine-readable: `constraints/acfc_d1.txt` (a pip / uv
+constraints file; `tests/test_d1_environment.py` keeps it and this table equal).
+Libraries the report does not list (pytest, …) float.
+
+### The second test environment
+
+```bash
+uv venv --python 3.12 .venv-d1                 # gitignored
+uv pip install --python .venv-d1 -e ".[dev,databricks]" -c constraints/acfc_d1.txt
+PYTHONUTF8=1 .venv-d1/Scripts/python -m pytest -q -rf   # (bin/python on Linux / macOS)
+```
+
+**Before every push the suite runs in BOTH environments** — the dev `.venv`
+(current libraries) and `.venv-d1` (these pins).
+
+No `ui` extra: the D1 harness runs the CLI, never the App, and the report pins
+no web-stack version. With fastapi absent the demo-UI tests skip there (they
+skip without the `ui` extra by design). A floated fastapi / starlette (1.8.0)
+also made two of them fail on Windows: an uploaded file still held open at the
+test's cleanup unlink. That is a property of the floated web stack, not of a D1 pin.
+
+### Known differences under the pins
+
+- `tests/test_acfc_shapes_fixtures.py::test_every_registered_fixture_is_tracked_and_byte_stable`:
+  the synthetic `.xlsx` fixtures are byte-pinned as the home openpyxl (3.1.5) writes
+  them; 3.1.2 writes other zip bytes for the same cells. Under another openpyxl
+  version the test compares every sheet's cell values instead (`FIXTURES_OPENPYXL`
+  in the test); `.docx` fixtures stay byte-compared.
+
+### When D1 changes
+
+Update the table, `constraints/acfc_d1.txt`, rebuild `.venv-d1`, run the suite.
+
+---
+
+## a. Runtimes
+
+### (i) Genie Code serverless shell
+
+```
+$ python --version  # via sys.version
+Python 3.12.3 (main, Jun 19 2026, 12:46:00) [GCC 13.3.0]
+sys.executable: /local_disk0/.ephemeral_nfs/envs/pythonEnv-<uuid>/bin/python
+
+$ pip --version
+pip 25.0.1 (python 3.12)
+
+$ node --version
+v22.9.0
+
+$ npm --version
+npm: not on PATH (shutil.which returns None)
+```
+
+### (ii) Notebook cluster
+
+The Genie Code shell IS serverless notebook compute (DBR Serverless,
+Python 3.12.3). There is no separate interactive cluster attached.
+
+### (iii) Databricks App runtime
+
+App compute is currently STOPPED (`compute_status.state: STOPPED`).
+The App's Python version was not directly observable; the platform
+documents Apps as Python 3.10+ on Debian. No startup logs were
+available because the App has not been deployed with the current
+config changes.
+
+---
+
+## b. Package access
+
+### PyPI resolution
+
+```
+$ pip download sqlglot --no-deps -d /tmp/pypi_test
+Saved /tmp/pypi_test/sqlglot-30.18.0-py3-none-any.whl
+exit: 0
+```
+
+PyPI resolves. No internal index; `pip config list`:
+
+```
+:env:.no-input='1'
+global.constraint='<ephemeral>/pipConstraints.txt'
+```
+
+### Dry-run install of the project
+
+```
+$ pip install --dry-run -e ROOT[ui,databricks]
+Would install: codegen-data-engineer-agent-0.4.1 et_xmlfile-2.0.0
+               openpyxl-3.1.5 python-multipart-0.0.32 ruff-0.16.8
+exit: 0
+```
+
+All dependencies resolve from public PyPI. fastapi, uvicorn,
+databricks-sdk already satisfied in the base image.
+
+### App deployment pip step
+
+Not available — App is STOPPED and has not been redeployed with the
+current changes.
+
+---
+
+## c. Filesystem
+
+### Workspace writability from notebook
+
+```python
+Path(ROOT / "_write_test_deleteme.txt").write_text("test")  # OK
+Path(ROOT / "_write_test_deleteme.txt").unlink()             # OK
+```
+
+`/Workspace/Users/<user>/...` is writable from serverless notebook.
+
+### Volume existence + writability (current user)
+
+```
+codegen_inputs            exists=True  writable=True
+codegen_workbooks_in      exists=True  writable=True
+codegen_outputs           exists=True  writable=True
+codegen_out               exists=True  writable=True
+codegen_contracts_in      exists=True  writable=True
+mftlanding                exists=True  writable=True
+```
+
+All six volumes under `<catalog>.codegen` exist and are writable by the
+current user. **However**, `pathlib.Path.mkdir(parents=True)` on a
+`/Volumes/...` path from serverless compute raises
+`PermissionError: [Errno 13] Permission denied: '/Volumes'` — the
+underlying FUSE mount does not support creating the mount-point
+directory itself. Individual files can be written once the volume
+path exists.
+
+### App writability
+
+Not observable (App STOPPED). Expected: the App's SP has no UC grants
+(see §d), so volume writes will fail until grants are issued.
+
+### Git-folder binary integrity
+
+```
+ui/frontend/dist/index.html:                   sha256=9c6f0faa7a106e55... (768 bytes)
+fixtures/acfc_shapes/sttm/pair_1_family_a.xlsx: sha256=c8c45093e397b732... (10,481 bytes)
+fixtures/reference/EDO_Data_Engineering_Naming_Standards.xlsx: NOT FOUND
+```
+
+The tracked synthetic fixtures are intact. The reference spreadsheet
+was removed (matches `origin/staging` where it was git-rm'd).
+
+---
+
+## d. Unity Catalog
+
+### Catalogs (29 total)
+
+```sql
+SHOW CATALOGS;
+-- 29 catalogs (names withheld in this scrubbed copy); <catalog> is one of them
+```
+
+### Schemas in <catalog> (418 total; codegen at row 19)
+
+```sql
+SHOW SCHEMAS IN <catalog>;
+-- ... codegen ...  (418 schemas total)
+```
+
+### Volumes in <catalog>.codegen
+
+```sql
+SHOW VOLUMES IN <catalog>.codegen;
+```
+
+| volume_name          | volume_type |
+| -------------------- | ----------- |
+| codegen_contracts_in | MANAGED     |
+| codegen_inputs       | MANAGED     |
+| codegen_out          | MANAGED     |
+| codegen_outputs      | MANAGED     |
+| codegen_workbooks_in | MANAGED     |
+| mftlanding           | MANAGED     |
+
+### Grants for App SP `<app-sp-client-id>`
+
+```sql
+SHOW GRANTS ON CATALOG <catalog>;   -- filtered for SP: NONE
+SHOW GRANTS ON SCHEMA <catalog>.codegen;  -- filtered for SP: NONE
+```
+
+The App's service principal (`<app-sp-name>`, SP client ID
+`<app-sp-client-id>`) has **zero Unity Catalog grants** on `<catalog>` or
+`<catalog>.codegen`. It cannot read or write any volumes. The current
+user lacks `MANAGE` on `<catalog>` so cannot issue grants.
+
+Required grants (a catalog admin must run these):
+
+```sql
+GRANT USE CATALOG ON CATALOG <catalog> TO `<app-sp-client-id>`;
+GRANT USE SCHEMA ON SCHEMA <catalog>.codegen TO `<app-sp-client-id>`;
+GRANT READ VOLUME ON VOLUME <catalog>.codegen.codegen_inputs TO `<app-sp-client-id>`;
+GRANT READ VOLUME ON VOLUME <catalog>.codegen.codegen_workbooks_in TO `<app-sp-client-id>`;
+GRANT READ VOLUME, WRITE VOLUME ON VOLUME <catalog>.codegen.mftlanding TO `<app-sp-client-id>`;
+GRANT READ VOLUME, WRITE VOLUME ON VOLUME <catalog>.codegen.codegen_outputs TO `<app-sp-client-id>`;
+```
+
+---
+
+## e. Endpoints and secrets
+
+### Serving endpoints (22 total)
+
+```
+databricks-claude-opus-4-7    READY
+databricks-claude-opus-4-8    READY
+databricks-claude-opus-5      READY    ← configured endpoint
+databricks-claude-sonnet-5    READY
+databricks-claude-sonnet-4-6  READY
+databricks-claude-haiku-4-5   READY
+databricks-gpt-oss-120b       READY
+databricks-gpt-oss-20b        READY
+... +14 more
+```
+
+`databricks-claude-opus-5` is the configured FMAPI endpoint (Claude
+foundation model). All listed endpoints are READY.
+
+### Secret scopes (22 total)
+
+```
+22 secret scopes (names withheld in this scrubbed copy)
+```
+
+### JDBC reachability
+
+Not tested — no metadata DB connection is configured in the current
+`config.yaml`. The `METADATA_DB_SEMANTICS.md` doc was removed in the
+upstream diff.
+
+---
+
+## f. App runtime
+
+### app.yaml (as on disk)
+
+```yaml
+command: ["python", "-m", "ui.backend.main"]
+env:
+  - name: CODEGEN_FORCE_MOCK_PROVIDER
+    value: "1"
+  - name: CODEGEN_EXTRA_INPUT_DIRS
+    value: "/Workspace/Users/<user>/frd_sttm_pairs"
+```
+
+### App metadata (databricks apps get codegen-agent)
+
+```json
+{
+  "name": "codegen-agent",
+  "app_status.state": "UNAVAILABLE",
+  "compute_status.state": "STOPPED",
+  "compute_size": "MEDIUM",
+  "create_time": "2026-09-11T03:06:53Z",
+  "default_source_code_path": "/Workspace/Users/<user>/code-gen-agent",
+  "url": "<app-url>",
+  "service_principal_client_id": "<app-sp-client-id>",
+  "service_principal_name": "<app-sp-name>",
+  "effective_user_api_scopes": ["files", "iam.access-control:read",
+                                "iam.current-user:read", "sql"]
+}
+```
+
+### Startup log
+
+Not available — App is STOPPED and has not been redeployed.
+
+---
+
+## g. Network
+
+```
+$ curl -sI --connect-timeout 5 https://pypi.org/
+HTTP/2 200
+
+$ curl -sI --connect-timeout 5 https://files.pythonhosted.org/
+HTTP/2 404          # expected (no path)
+
+$ curl -sI --connect-timeout 5 https://github.com/
+HTTP/2 200
+```
+
+All three external hosts are reachable from serverless notebook
+compute. No egress firewall blocks observed for PyPI or GitHub.
+
+## h. The EDH E2E reader profile (`edh_e2e:`, 2026-10-20, post78)
+
+`codegen read-edh-e2e` reads the gold-layer EDH E2E mappings. No EDH E2E document states
+the values below, so the reader takes them from the `edh_e2e:` config section, or asks
+one QUESTION per feed. The section is **empty in the tracked config**. Inside ACFC the
+values go in the ACFC overlay (`codegen-state/overlays/<profile>.yaml`, on the state
+volume), never in git. Counts below are from the v2.2 run (`EDH_E2E_READER_RUN.md`, 12
+feeds).
+
+| Key | Type | Meaning | Closes (QUESTION key) | v2.2 count | Client question |
+| --- | --- | --- | --- | --- | --- |
+| `target_schema` | string | The UC schema the gold targets load into. The documents name only the catalog (`destination_catalog`) and the table | `feeds[<i>].target_schema` | 12 | `OPEN_QUESTIONS.md` §7.1 |
+| `source_catalog_map` | map: source database (as `source_database` spells it) → `"<catalog>.<schema>"` | Where each Facets source database lives in UC. The documents give the database and a bare table name only | `feeds[<i>].source_sets[<b>].sources[<k>].catalog_schema` | 69 | §7.2 |
+| `scd2_mode` | string | How the gold tables keep history (e.g. a type-2 convention and its name) | `feeds[<i>].scd2_mode` | 12 | §7.3 |
+| `sk_strategy` | string | How surrogate keys are made | `feeds[<i>].sk_strategy` | 12 | §7.3 |
+| `function_map` | map: function name → Spark SQL expression | The documents' zero-argument functions (2 names in the real set). An unmapped one makes the whole expression a QUESTION | `feeds[<i>].columns[<j>].expression`, the cells that call a function | 17 | §7.4 |
+
+Shape (placeholders only):
+
+```yaml
+edh_e2e:
+  target_schema: <schema>
+  source_catalog_map:
+    <source_database>: <catalog>.<schema>
+  scd2_mode: <convention>
+  sk_strategy: <strategy>
+  function_map:
+    <FunctionName>: <spark sql expression>
+```
+
+All five filled would close 122 of the 210 v2.2 questions. The rest need a person,
+through the questions workbook (`--questions-xlsx`, then `--answers`).

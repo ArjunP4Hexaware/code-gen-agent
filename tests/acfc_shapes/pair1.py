@@ -79,6 +79,28 @@ SEGMENTS: dict[str, list[tuple[str, int, int]]] = {
     ],
 }
 
+# M9.0 (docs/acfc/HANDOVER_GENIE.md): every record block is introduced by a
+# banner row — the detail block's reads "Details" (plural) — and one detail
+# field's target column reads "Do Not Map" with no data type. The field name
+# carries the line break the real header cell has; the vocabulary is synthetic.
+SEGMENT_BANNERS = {"HDDR": "Header", "DET": "Details", "TRLR": "Trailer"}
+UNMAPPED_AFTER_SEGMENT = "DET"
+UNMAPPED_FIELD = ("Reserved Group\n(01)", 223, 10)     # name, start, length
+UNMAPPED_MARKER = "Do Not Map"
+
+# M9.2 (acfc-runs: RUN_v052_pair1.md): six Detail amount fields whose Length
+# cell reads "10,2" — a precision, not a byte width — at starts 220, 246, …,
+# with no End. They are a VARIANT of the pair-1 documents (sttm.build_pair1
+# (amounts=True) / vdd.build_vdd_pair1(amounts=True)), never part of the tracked
+# acceptance pair: the golden DDL has no such columns. UNVERIFIED: the VDD's
+# span for these fields (13 bytes here) has not been captured from the real
+# dictionary yet.
+AMOUNT_FIELDS = [(f"Amount\n({n:02d})", f"AMOUNT_{n:02d}", 220 + 26 * (n - 1))
+                 for n in range(1, 7)]                     # source name, column, start
+AMOUNT_LENGTH_CELL = "10,2"
+AMOUNT_TYPE = "Decimal(10,2)"
+AMOUNT_VDD_WIDTH = 13                                       # UNVERIFIED (see above)
+
 # Golden DDL types, in golden column order (21 business columns).
 DDL_TYPES: dict[str, str] = {
     "SEGMENT_IDENTIFIER": "String", "FILE_TYPE": "String", "DATA_CATEGORY": "String",
@@ -165,6 +187,20 @@ FILE_PATTERNS = [alias(p) for p in (
     "F_ACCUM_*_TO_ACFC_*.csv", "F_ACCUM_*_FROM_ACFC_*.csv",
 )]
 FREQUENCY = "Daily"
+# M9.0 / M9.1b: the Descriptive "Name" row is a sentence about the
+# requirement, and the "Object Name" cell lists the inbound files instead of
+# naming the feed — as STANZAS (PAIR1_REAL_RUN.md §1, the verified shape): a
+# "<line of business>:" line, then the file name pattern on the NEXT line.
+FRD_REQUIREMENT_NAME = (f"Descriptive Metadata for the ingestion of {DOMAIN} {FEED_NAME} "
+                        f"Inbound files from {VENDOR_NAME} into Lake House")
+FRD_OBJECT_NAME_LABELS = ["LOB_A outbound", "LOB_A inbound", "LOB_B outbound", "LOB_B inbound"]
+FRD_OBJECT_NAME_CELL = "\n".join(
+    f"{label}:\n{pattern}" for label, pattern in zip(FRD_OBJECT_NAME_LABELS, FILE_PATTERNS,
+                                                     strict=True))
+# M9.0: the FRD's Structural Metadata "Target Table Name" cell, as the real
+# document writes it — an inline layer block, no schema, no catalog.
+FRD_TARGET_BLOCK = (f"Staging Layer:\nTable: {TABLE}\n"
+                    f"Standard Layer:\nTable: {TABLE}")
 LOB = "ALL"
 FILE_FORMAT = "Fixed Width Text"
 SOURCE_TYPE = "String"   # golden SRC_DATA_TYPE: every source column is String

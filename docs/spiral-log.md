@@ -1,0 +1,218 @@
+# Spiral log
+
+## 2026-07 to 2026-08: "Repository not found" on git clone (3 occurrences)
+- Actual cause: Git used a cached credential for the other GitHub account; `gh auth switch` doesn't change what Git sends.
+- Pattern: A (wrong layer)
+- Caught by skill: n/a (pre-skill)
+- Earliest signal: repo visible in browser / `gh repo view` while clone failed.
+- Approx. time lost: several hours across three incidents
+- Permanent fix: per-account SSH host aliases (github-work / github-personal).
+
+## 2026-09: ~20h rebuild in Genie Code patched by guesswork
+- Actual cause: no tests or acceptance criteria; every fix was unverifiable.
+- Pattern: B (no oracle)
+- Caught by skill: n/a (pre-skill)
+- Earliest signal: second fix that "looked right" but broke something else.
+- Approx. time lost: ~20h
+- Permanent fix: port kit with SPEC.md + ACCEPTANCE.md generated from the working codebase.
+
+## 2026-08: overnight agent run produced claims the source FRD didn't support
+- Actual cause: unsupervised extraction with no per-fact citation; plausible values filled gaps.
+- Pattern: C (drift from source of truth)
+- Caught by skill: n/a (pre-skill)
+- Earliest signal: output asserted a conflict and a key the document never states.
+- Permanent fix: citation-required extraction; uncitable facts marked UNVERIFIED.
+
+## 2026-08: model adapter broke after endpoint upgrade
+- Actual cause: endpoint began returning a list of reasoning + text blocks instead of a string.
+- Pattern: A (wrong layer)
+- Caught by skill: n/a (pre-skill)
+- Earliest signal: failure appeared downstream of the adapter right after the endpoint changed.
+- Permanent fix: shape assertion at the adapter boundary — commit "fix: fail loud on unrecognized FMAPI content shapes" (2026-10-05): `_chat_content_text` in `src/codegen/databricks.py` accepts only a str or a list of dict blocks with a str-valued text block and raises `DatabricksTransportError` (structure only, never content text) on anything else, incl. the former silent `''`; pinned by `tests/test_databricks.py::test_chat_content_text_accepts_the_observed_shapes`, `::test_chat_content_text_raises_on_unknown_shapes_without_leaking`, `::test_chat_content_shape_error_names_the_structure`, `::test_chat_raises_on_a_content_list_without_text`.
+
+## 2026-09: multiple workarounds to move code past mail gateways
+- Actual cause: an access policy question, not a technical one; Git folder cloning was approved once asked.
+- Pattern: D (permission problem)
+- Caught by skill: n/a (pre-skill)
+- Earliest signal: second blocked transfer attempt.
+- Permanent fix: ask the constraint owner for the sanctioned path after the first block.
+
+## 2026-10: includeIf rules matched no repos after the SSH remote rewrite
+- Actual cause: `**` after `:` isn't a path wildcard in Git's matcher, so `git@github-work:**` couldn't match owner/repo.
+- Pattern: A (wrong layer)
+- Caught by skill: n/a (pre-skill)
+- Earliest signal: per-repo email check came back empty for every aliased repo.
+- Approx. time lost: minutes (caught by verification step)
+- Permanent fix: patterns changed to `git@github-work:*/**` / `git@github-personal:*/**`, plus throwaway-repo regression check.
+
+## 2026-10-05: hook signal (b) during planned red-then-green test update
+- Actual cause: not a spiral. One planned red run (15 expected failures), four planned test edits, then a green run (56/56).
+- Pattern: none
+- Caught by skill: n/a (not a spiral; the skill correctly concluded none applied)
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: none
+- Proposed refinement (for a retro, not now): count edit-run cycles that end in an unchanged error signature, rather than raw edits while red.
+
+## 2026-10-07: hook signal (b) — doc edited 4x while a ruff command "still failing"
+- Actual cause: not a spiral. `ruff check scripts/iig_scorecard.py tests/test_iig_scorecard.py` failed once (B905 + E501 from a heredoc line-join), was fixed by one edit, and then passed under a LONGER command line (`… src tests scripts/iig_scorecard.py`). The hook keys on the exact command string, so it never saw that command go green; the four edits were to four different sections of an unrelated doc (docs/acfc/IIG_SCORECARD_2026-10-07.md).
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command — exit 0, "All checks passed!")
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~2 minutes
+- Proposed refinement (for a retro, not now): treat a later passing run whose command is a superset (same tool, more paths) as clearing an earlier failing one; and ignore edits to files the failing command does not cover.
+
+## 2026-10-07: hook signal (b) — iig_scorecard.py edited 4x while a wc -l command "still failing" (Chunk C worktree agent)
+- Actual cause: not a spiral. The agent's worktree was created at `main` (4c35c61), where `scripts/iig_scorecard.py` does not exist, so the quoted `wc -l` failed; the agent then reset the worktree branch to 8b94b9e and the same command passed. The hook keys on the exact command string and never saw it go green.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command — exit 0)
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~2 minutes
+- Proposed refinement (for a retro, not now): a worktree created at the default branch instead of the caller's HEAD makes every file of the caller's branch "missing" — the Agent worktree base, not the code, was wrong.
+
+## 2026-10-08: hook signal (b) — derivations.py edited 4x while a `-k missing_schema` pytest "still failing"
+- Actual cause: not a spiral. `pytest tests/test_m9_acfc_findings.py -k missing_schema` failed twice by design while a pinned test was re-stated for the new NEEDS_ANSWERS behaviour (first ACFC run defects, item 2b); it then passed under the broader `pytest tests/test_m9_acfc_findings.py` (24 passed). The four edits were to `src/codegen/gate/derivations.py` — new item-3 code (`normalise_path`) the failing test does not cover.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command — 1 passed)
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~1 minute
+- Proposed refinement (for a retro, not now): same as 2026-10-07 — a superset run going green, and edits to files the failing command does not import, should clear the signal.
+
+## 2026-10-09: hook signal (a) — a new end-to-end test failed 2x on the same test name (Chunk A, band detection)
+- Actual cause: not a spiral. `pytest tests/test_band_detection.py` failed on `test_cli_chain_asks_per_band_then_completes_after_answers` each run, but at a LATER step each time, each failure a different, understood cause: (1) the synthetic STTM had no audit rows (extract-sttm refuses), (2) the test read `needs_answers` that `contract_to_json` omits when empty (`exclude_defaults=True` - diagnosed by reading the serializer before any change), (3) the synthetic FRD's stage schema disagreed with the sheet's, (4) `LOAD_TS` is an audit column no template knows, (5) no catalog stated with the ACFC overlay off. (1), (4), (5) are real cold-document findings carried to Chunk B; (2), (3) were test / fixture errors. The hook's error signature is the failing test name, so a test advancing through new failures reads as "the same error".
+- Pattern: none (every attempt produced new information - the definition's opposite)
+- Caught by skill: false trigger (diagnostic: read `SttmContract` serialization before changing the assertion; the exact command then passed, 35 passed)
+- Hook signal: a, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~3 minutes
+- Proposed refinement (for a retro, not now): signal (a) could hash the first `E ` line / the failing assertion's line number rather than the test name, so a test that advances through different failures is not one signature.
+
+## 2026-10-09: hook signal (b) — test_cold_drill_fixes.py edited 4x while a chooser + cold-drill pytest "still failing" (Chunk B)
+- Actual cause: not a spiral. `pytest tests/test_m93_chooser.py tests/test_cold_drill_fixes.py tests/test_band_detection.py` failed once on a pinned chooser reason text after the classifier began treating pass-3 candidate mapping sheets as "unclassified - confirm"; ONE fix (the candidate verdict moved after the VDD check, keeping the pinned phrase) made it pass under a superset command (+ test_pairing_content.py, 122 passed). The four counted edits to test_cold_drill_fixes.py ADDED new focused tests (delimiter-in-format, F2 domain table, schema markers) and re-stated my own new classifier expectations - no edit was a retry on the failing test.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command — 117 passed, exit 0)
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~2 minutes
+- Proposed refinement (for a retro, not now): as 2026-10-07 / 10-08 — a superset run going green should clear the signal; edits that only add new test functions are not fix attempts.
+
+## 2026-10-11: hook signal (b) — tools/iig_diff.py edited 4x while `ruff format --check tools/ tests/test_iig_diff.py` "still failing"
+- Actual cause: not a spiral. The four counted edits were one planned feature (OBJECT_ID -> table resolution for the DATA_QUALITY_RULES key: config, resolver class, pairing, wiring). Re-running the exact command at signal time: it DID fail, on one 101-char line of the resolver written in that step. No fix had been attempted, let alone retried; `ruff format` reflowed the line once and the exact command exited 0. A separate test failure in the same run (`unresolved_object_ids` missing from score.json) had one visible cause - score_payload copies an explicit field list - fixed once, 27 passed.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command - one reflow on new code; after `ruff format`, exit 0)
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~3 minutes
+- Proposed refinement (for a retro, not now): signal (b) could ignore a format-only failure (`ruff format --check`) while the edits are fresh feature code, or count edits only after the command first failed.
+
+## 2026-10-12: hook signal (a) — ruff on tests/test_pre_push_hook.py failed twice with the same findings
+- Actual cause: the second "fix" never reached the file. It was a python patch script in a bash heredoc; heredoc escaping turned the `\r\n` inside one `old` string into something that no longer matched, the script's `assert s.count(old)==1` aborted it before any write, and ruff re-checked unchanged bytes. Observed directly: the line the patch replaced (`input=line`) was still in the file.
+- Pattern: A (wrong layer - the edit layer, not the code)
+- Caught by skill: yes (signal a; diagnostic = look at the file, not at ruff)
+- Hook signal: a, true positive; the later signal (b) on the Edit-tool fix was keyed on the pre-fix command string, which then passed (7 passed, ruff clean)
+- Earliest signal that would have revealed it: the patch script's own AssertionError traceback, printed above ruff's output in the same tool result
+- Approx. time lost: ~2 minutes
+- Permanent fix: none new - CLAUDE.md already says write patch scripts with the Write tool / use Edit; this one was written inline in a heredoc anyway.
+## 2026-10-13: hook signals (b) then (a) — demo_sources.py edited 4x while a brand-new test file "still failing"
+- Actual cause: not a spiral. The planned red phase of a new feature (pairing token key + name-role classifier): tests/test_pairing_name_key.py was written FIRST, against an API that did not exist, and failed at collection with an ImportError. The four counted edits to src/codegen/demo_sources.py ADDED that API; none was a retry. The diagnostic re-run (signal a) failed again at collection, but with a DIFFERENT missing name — `document_roles` (demo_sources, now present) gave way to `_token_prefix` (pairing.py, not yet edited) — i.e. new information, the expected progression.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command — the missing import moved from the edited module to the next, unedited one)
+- Hook signal: b, then a — both false positives
+- Earliest signal: n/a
+- Approx. time lost: ~5 minutes (one user round trip)
+- Retro note (the user asked; hook NOT changed): could the hook tell a collection ImportError on a brand-new test file from a repeated fix attempt? Yes, from data it already sees: (1) the failing test file is untracked (`git status` `??`) or was created by a Write in this session; (2) the failure is a collection error (`ImportError while importing test module` / `Interrupted: 1 error during collection`), not an assertion; (3) the missing name CHANGED between the two runs (`cannot import name 'X' from 'M'`) — signal (a)'s signature hashed the error class + test path, so `document_roles` -> `_token_prefix` read as "the same error". Hashing the missing NAME and module into the signature, and not counting (b) edits while the failing file is untracked/new, would have kept both quiet. Logged to ~/.claude/spiral-breaker/proposals.md for the next hook retro.
+
+## 2026-10-14: hook signal (b) — config.py edited 4x while the full ruff command "still failing"
+- Actual cause: not a spiral. The four counted config.py edits ADDED config for a new feature (the FRD LOB-table lookup: lob_table_* headers, conventions.lob_reference, is_placeholder); none was a fix attempt. Re-running the exact command at signal time: 2 fresh E501 in src/codegen/resolve/files.py, both on code written minutes before - one because a bash heredoc turned a backslash line continuation into a run of spaces (the known heredoc gotcha), one a long __all__ line. Both fixed once with the Edit tool; the exact command then exited 0.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command - fresh findings on new code)
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~3 minutes
+- Proposed refinement (for a retro, not now): as 2026-10-11 - count (b) edits only after the command has failed on lines those edits did not just write.
+
+## 2026-10-14: hook signal (a) — a new rule-4 test failed twice on the Header table
+- Actual cause: my TEST ORACLE guessed the emitted row's layout. Attempt 1 sliced the STGDELTA header row after len(segment.fields) (the row drops fields without a standard column); attempt 2 filtered by audit names and caught the pair-4 header's DATA column named LOB. The generator was right all along: observed (scratch dbg_audit.py) the row is the data columns, then exactly the segment's own audit rows (one already a data column is not repeated).
+- Pattern: B (no oracle — the expected shape was assumed, not observed)
+- Caught by skill: yes (hook signal (a); the diagnostic printed the segment's fields and the emitted row before any further change)
+- Hook signal: a, a true signal (two guesses at one test), though the two failures differed
+- Earliest signal that would have revealed it: printing the emitted row once before writing the assertion
+- Approx. time lost: ~4 minutes
+- Permanent fix: the test now asserts on the observed shape (tail = the segment's own audit rows minus data columns; nothing else added)
+
+## 2026-10-15: hook signal (b) — CLAUDE.md edited 4x while a .venv-d1 pytest command "still failing"
+- Actual cause: not a spiral. The failing run was a one-off PROBE: the post55 test files under
+  `.venv-d1` with `-W error::DeprecationWarning`, to see whether the suite's 9010 warnings came
+  from new code; openpyxl 3.1.2 (the D1 pin) calls `datetime.utcnow()` on Python 3.12, which
+  the flag turned into errors. The four counted CLAUDE.md edits were the post55 restart notes,
+  not fix attempts. Re-running the command without the probe flag: 44 passed, exit 0.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the command the signal quotes, minus the
+  probe flag; exit 0)
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~3 minutes
+- Proposed refinement (for a retro, not now): a command run with `-W error::...` is a probe;
+  and documentation-only files (CLAUDE.md, CHANGELOG) should not count as (b) edits.
+
+## 2026-10-15: hook signal (a) — test_path_whitespace_kept.py failed twice, same signature
+- Actual cause: the "fix" between the two runs never landed. The patch (two regexes in
+  `whitespace_kinds`, `src/codegen/gate/derivations.py`) went through a bash heredoc that
+  mangled `\\` / `\t`; the script's own match guard raised AssertionError and wrote nothing,
+  and the test ran again on the unchanged code.
+- Pattern: A (wrong layer - the edit, not the code)
+- Caught by skill: yes (hook signal (a); the diagnostic grepped the two regexes, saw them
+  unchanged, re-applied the same edit from a Write-tool script: 6 passed)
+- Hook signal: a, true signal (of a tooling miss, not a wrong hypothesis)
+- Earliest signal that would have revealed it: the patch command's own traceback, printed
+  above the test output in the same call
+- Approx. time lost: ~2 minutes
+- Permanent fix: none new - known cause "A patch script that aborted before writing"; the
+  rule (Write-tool scripts, never a heredoc, for anything with a backslash) stands.
+
+## 2026-10-18: hook (b) on the post68 notebook-path tests
+- Actual cause: not a spiral. `test_iig_corpus_cells.py -k test_the_app_lists_inputs_needed_as_a_banner_item`
+  failed once because it pinned the rule post68 item 2 removes (a notebook run owes no
+  inputs); the assertion was updated once and passed inside a multi-file pytest run. The
+  hook keys on the exact command string and never saw that command go green; the four
+  counted edits to tests/test_notebook_path_honest.py added the tests of items 1-4.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command — 1 passed)
+- Earliest signal that would have revealed it: the multi-file run that included the test, green
+- Approx. time lost: ~2 minutes
+- Permanent fix: none new - known cause "Hook (b) false positive"; date added to its Seen line.
+
+## 2026-10-19: hook (a) on tests/test_state_volume_mirror.py (post74 session)
+- Actual cause: not a spiral - no fix attempt was made. The two runs were a check that the
+  failure is pre-existing: 7 tests fail identically with and without the session's
+  uncommitted changes (git stash). Diagnostic: `Path.symlink_to` on this Windows host raises
+  OSError WinError 1314 ("a required privilege is not held") - `state_mirror._write_copy`
+  swaps a `current` symlink, which needs Developer Mode / admin on Windows. The App and the
+  D1 container are Linux; the tests have no Windows skip.
+- Pattern: A (wrong layer - the host OS, not the code under test)
+- Caught by skill: false trigger (diagnostic: one symlink_to call outside the suite)
+- Earliest signal that would have revealed it: the error text 'OSError, error code none' + a Windows host
+- Approx. time lost: ~5 minutes
+- Permanent fix: none here (out of scope of post74) - reported to Soham: skip on Windows
+  without symlink privilege, or fall back to a pointer file.
+
+## 2026-10-23: test_choosing_an_sttm_auto_pairs_its_vdd flips (parallel-suite session)
+- Actual cause: the test raced the background document index. A VDD that matches the
+  STTM by name only is "likely, not decided" until the index has read it
+  (`DemoRunner._repair_vdd_once` decides then); the test wrote the file straight to
+  `inputs/uploads` and asserted right after selecting. It passed whenever the index
+  happened to get there first, so the serial suite was green and the first parallel runs
+  (slower workers) and every run alone after them were red.
+- Pattern: A (wrong layer) - both fixes guessed at a layer (cross-worker collision, then the
+  empty workbook's content class) without looking at what the pairing saw; the pairing's
+  own outcome (`job["pairing"]["vdd"]["reason"]`) named the cause in one print.
+- Caught by skill: yes (after attempt 2: xdist groups, then a real VDD fixture)
+- Earliest signal that would have revealed it: printing the selection job's pairing reason
+  ("matches by name only and is not indexed yet - likely, not decided").
+- Approx. time lost: ~25 minutes
+- Permanent fix: the test lists, waits for the index (`_index_idle()`), then selects -
+  what the App's chooser does. RESTART.md's "stale document_index.json" note was the same
+  race, misattributed.

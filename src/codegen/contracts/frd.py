@@ -7,10 +7,11 @@ validation loudly instead of being silently reinterpreted.
 
 from __future__ import annotations
 
+import unicodedata
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 GateStatus = Literal["PASS", "PASS_WITH_FLAGS", "FAIL"]
 # "Upsert" added 2026-08-26: the SFMC Email Campaign FRD declares a standard-
@@ -20,6 +21,48 @@ LoadStrategy = Literal["Truncate and Load", "Append", "Upsert"]
 RecordSegment = Literal["Header", "Detail", "Trailer"]
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
+
+# post125 (audit #5): what the .docx reader stores in the required
+# ``FrdFeed.source_system`` when no Data Source / Vendor label is found. A
+# placeholder, never a name: read it through ``stated_source``.
+UNSTATED_SOURCE = "unstated"
+
+
+def stated_source(value: str | None) -> str | None:
+    """The source system an input states, or None (blank, or the placeholder)."""
+    text = (value or "").strip()
+    return None if not text or text.casefold() == UNSTATED_SOURCE else text
+
+
+# post159 (P1-4, CS-2): a value that reaches a generated file's provenance banner
+# or a comment line (``# Feed: …``, ``-- FRD contract: …``) must be ONE printable
+# line: a line break there ends the comment and the rest of the value becomes
+# generated code. Refused (never stripped): Cc (controls, incl. TAB / CR / LF /
+# NEL), Zl / Zp (U+2028 / U+2029). Format characters (Cf, bidi) are P2-3's.
+_BANNER_REFUSED_CATEGORIES = frozenset({"Cc", "Zl", "Zp"})
+BANNER_TEXT_REASON = "frd.value"
+
+
+def banner_text_problem(value: object) -> int | None:
+    """1-based position of the first line break / control character in a
+    banner-bound value, or None when it is one printable line. A position,
+    never the text (the coordinates tier may carry it)."""
+    text = value if isinstance(value, str) else ("" if value is None else str(value))
+    return next((i for i, ch in enumerate(text, start=1)
+                 if unicodedata.category(ch) in _BANNER_REFUSED_CATEGORIES), None)
+
+
+def _single_line(value: str) -> str:
+    position = banner_text_problem(value)
+    if position is not None:
+        raise ValueError(f"a line break or control character at character {position}: this "
+                         "value reaches generated-file banners / comments and must be one "
+                         "printable line (fix the document cell)")
+    return value
+
+
+# A str that must be one printable line (validated, never rewritten).
+BannerText = Annotated[str, AfterValidator(_single_line)]
 
 
 class ProjectInfo(BaseModel):
@@ -107,6 +150,47 @@ class Provenance(BaseModel):
     grounding: GroundingSummary
 
 
+class StructuredRow(BaseModel):
+    """One row of a nested table (``key`` = first column) or one per-file
+    block (``key`` = the heading line); ``values`` = header/label -> text."""
+
+    model_config = _MODEL_CONFIG
+
+    key: str
+    values: dict[str, str] = Field(default_factory=dict)
+
+
+class StructuredValue(BaseModel):
+    """M7: a docx cell the reader refused to take as a scalar value — a
+    nested table, per-file blocks, a pointer to another document, a
+    label-prefixed description, or text that still spans lines. The feed
+    field stays UNSTATED; this records what the cell held (text truncated,
+    logged, never written to an output) so the layout stage can resolve a
+    nested table / block per derived feed and the gate can flag the rest."""
+
+    model_config = _MODEL_CONFIG
+
+    # M9.3 "labelled_files": every line of the cell is "<label>: <file name
+    # pattern>" — an Object Name cell that lists the feed's FILES instead of
+    # naming the feed (rows: key = the pattern, values = {"label": …}).
+    kind: Literal["nested_table", "per_file_blocks", "pointer", "label_prefixed", "multiline",
+                  "labelled_files"]
+    table: int
+    row: int
+    col: int
+    label: str
+    text: str = ""
+    # pointer: the document / place the sentence names.
+    target: str | None = None
+    # label_prefixed: the label seen in front of '='.
+    prefix_label: str | None = None
+    headers: list[str] = Field(default_factory=list)
+    rows: list[StructuredRow] = Field(default_factory=list)
+    # labelled_files (M9.1b): the value a block states under a feed-name label
+    # ("Object Name: …" line / "Name | …" row); None when it names no feed.
+    feed_name: str | None = None
+
+
 class FieldEvidence(BaseModel):
     """M2: where a docx-extracted field was read — Word table index, row and
     label cell, the label text as seen, the metadata section, the inline
@@ -138,8 +222,8 @@ class FrdFeed(BaseModel):
 
     model_config = _MODEL_CONFIG
 
-    feed_name: str
-    source_system: str
+    feed_name: BannerText
+    source_system: BannerText
     # May be EMPTY only on docx-extracted contracts (M2): the F1/F2 label
     # families carry no file-pattern label, so the pattern comes from the
     # STTM at resolve time (M4). Upstream contracts always list >= 1.
@@ -163,6 +247,20 @@ class FrdFeed(BaseModel):
     phi_pii_notes: str | None
     sttm_reference: str | None
     requirement_ids: list[str]
+    # First real-row scorecard (2026-10-08): the document's OTHER cadence
+    # sentences ("'… report monthly …' (FRD paragraph 64)"), so FREQUENCY can
+    # flag a narrative that names a different token than the delivery
+    # statement. Absent from the JSON when empty.
+    frequency_mentions: list[str] = Field(default_factory=list)
+    # 2026-10-14 (D1 pair_12): the LOB cell's Region / LOB table, one mapping
+    # per row (header -> cell text). ``lobs`` then holds its LOB column's
+    # distinct codes; the resolver keys each file to ONE row (never the whole
+    # table in a cell). Absent from the JSON when empty.
+    lob_table: list[dict[str, str]] = Field(default_factory=list)
+    # post70: the Technical Metadata key row as written (Primary Key / Business
+    # Key / Natural Key) — a key SIGNAL (codegen.primary_key), never a value
+    # written as is. Absent from the JSON when the document has none.
+    key_statement: str | None = None
 
     @property
     def is_segmented(self) -> bool:
@@ -174,7 +272,7 @@ class FrdContract(BaseModel):
 
     model_config = _MODEL_CONFIG
 
-    contract_name: str
+    contract_name: BannerText
     generated_from_frd: str
     generated_date: datetime
     generator: str
@@ -191,3 +289,11 @@ class FrdContract(BaseModel):
     # Both default so upstream contract JSON still loads unchanged.
     field_provenance: dict[str, FieldEvidence] = Field(default_factory=dict)
     layout: FrdLayoutSummary | None = None
+    # M7: cells refused as scalar values (see StructuredValue), keyed by the
+    # contract path they were read for. Default so older JSON loads unchanged.
+    structured: dict[str, StructuredValue] = Field(default_factory=dict)
+    # M9.3: what the docx reader decided that a reviewer must see, each citing
+    # its table cell — frd_feed_name_unstated, frd_layer_block,
+    # file_pattern_from_object_name. The contract resolver carries them to the
+    # gate (the CLI path has no layout stage to do it). Absent when empty.
+    extraction_flags: list[str] = Field(default_factory=list)

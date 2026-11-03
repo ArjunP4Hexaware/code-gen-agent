@@ -1,10 +1,39 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ErrorBoundary } from "../components/ErrorBoundary";
+import { ErrorCard } from "../components/ErrorCard";
+import { Icon } from "../components/Icons";
+import { StepStrip } from "../components/StepStrip";
+import { ProgressBar } from "../components/ProgressBar";
+import { runProgress } from "../runProgress";
+import {
+  answersPayload,
+  applyAdvicePicks,
+  countPicks,
+  emptyPicks,
+  mergePicks,
+  QuestionItem,
+  suggestedPicks,
+  type AnswerPicks,
+} from "../components/LayoutQuestions";
+import { ModelUsageList } from "../components/ModelUsage";
+import { NeedsAnswersPanel, type AnswersPayload } from "../components/NeedsAnswersPanel";
+import { InputsNeededBanner } from "../components/InputsNeededBanner";
+import { EnvironmentSelector } from "../components/EnvironmentSelector";
+import { OUTPUT_COPY, OutputSelector } from "../components/OutputSelector";
+import { PairingLines, SelectionTrace } from "../components/SelectionTrace";
+import { StorageRoots } from "../components/StorageRoots";
+import { fmtKb } from "../format";
+import { liveEstimate } from "../liveEstimate";
+import { runWillUse } from "../runLabels";
 import {
   api,
   ApiError,
+  pairRuleLabel,
   type DatabricksDocumentsResponse,
   type DemoStatus,
+  type EnvironmentChoice,
+  type EnvironmentOptions,
   type FrdChoicesResponse,
   type GenerationOptions,
   type GovernanceChecksResponse,
@@ -13,30 +42,12 @@ import {
   type OutputPart,
   type InputRequirementsResponse,
   type RequirementStatus,
-  type SourceFilesResponse,
   type SttmWorkbook,
 } from "../api";
 
 /* Run-mode picker: replay a recorded live run (instant, zero API calls) or
    fire a real live run (key-gated, cost-confirmed, stage-by-stage progress).
    Both land on the same results UI; the guided demo then walks it. */
-
-// One-line notes naming where the real value comes from — shown as the
-// SYNTHETIC badge tooltip. Honesty is the pitch.
-const LANDING_TOOLTIP =
-  "The real FRD states this under Structural Metadata → ADLS Location; " +
-  "this build carries an anonymized stand-in.";
-const STRATEGY_TOOLTIP =
-  "The real FRD states these under Structural Metadata → Load Strategy STG / STD; " +
-  "this build carries a config stand-in.";
-
-function SyntheticBadge({ title }: { title: string }) {
-  return (
-    <span className="pill synthetic" title={title}>
-      SYNTHETIC
-    </span>
-  );
-}
 
 // Middle-ellipsis: the trailing ticket/suffix (e.g. "_1005034 (1).xlsx") is
 // how these files are told apart, so the END must stay visible — plain
@@ -69,10 +80,55 @@ function GovernanceChip({ status }: { status: GovernanceStatus }) {
   return <span className={`pill gc-${status}`}>{GC_LABELS[status]}</span>;
 }
 
-export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Promise<void> }) {
+export function ModesPage({
+  onFeedsChanged,
+  onViewResults,
+}: {
+  onFeedsChanged: () => void | Promise<void>;
+  /* post101: "View results" hides the sidebar (the results get the width) */
+  onViewResults?: () => void;
+}) {
   const navigate = useNavigate();
   const [liveAvailable, setLiveAvailable] = useState<boolean | null>(null);
   const [liveProvider, setLiveProvider] = useState<string | null>(null);
+  // The outputs a run can produce, from the backend (exactly two).
+  const [outputOptions, setOutputOptions] = useState<OutputPart[]>([]);
+  // "Clear past runs": the folders it would delete (null = dialog closed),
+  // in flight, and what the last clear did.
+  const [clearList, setClearList] = useState<string[] | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [clearNote, setClearNote] = useState<string | null>(null);
+  const openClearRuns = async () => {
+    setClearNote(null);
+    try {
+      setClearList((await api.pastRuns()).runs);
+    } catch (e) {
+      setError(e);
+    }
+  };
+  // Cancel run: beside a run's questions (the layout dialog, or the blocking
+  // questions a stopped run left) — the page goes back to idle.
+  const cancelRun = async () => {
+    try {
+      setStatus(await api.cancelRun());
+    } catch (e) {
+      setError(e);
+    }
+  };
+  const confirmClearRuns = async () => {
+    setClearing(true);
+    try {
+      const result = await api.clearRuns();
+      setClearNote(`Deleted ${result.deleted.length} past run(s).`);
+      setClearList(null);
+      setStatus(await api.demoStatus());
+      if (result.unloaded_current) await onFeedsChanged();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setClearing(false);
+    }
+  };
   // Why live is unavailable, from the backend — provider-specific, never a
   // hardwired "no ANTHROPIC_API_KEY" (wrong on the FMAPI-backed App).
   const [liveReason, setLiveReason] = useState<string | null>(null);
@@ -84,7 +140,6 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const [confirming, setConfirming] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [workbooks, setWorkbooks] = useState<SttmWorkbook[] | null>(null);
-  const [sourceFiles, setSourceFiles] = useState<SourceFilesResponse | null>(null);
   // null = unconfigured/unreachable → the Databricks section renders nothing.
   const [dbDocs, setDbDocs] = useState<DatabricksDocumentsResponse | null>(null);
   // The workspace REFUSED the volumes listing (502) — shown in the chooser
@@ -98,7 +153,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const [requirements, setRequirements] = useState<InputRequirementsResponse | null>(null);
   const [governance, setGovernance] = useState<GovernanceChecksResponse | null>(null);
   const [loadingSet, setLoadingSet] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // The last failed call, as thrown (an ApiError carries the backend's
+  // readable error) — rendered by the error card, never a bare string.
+  const [error, setError] = useState<unknown>(null);
   const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -111,10 +168,17 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       setLiveAvailable(false);
       setLiveReason(e instanceof Error ? e.message : String(e));
     });
-    api.demoStatus().then(setStatus).catch(() => setStatus(null));
-    // The source-files panel and the request-time checks render on load —
-    // live reads on the backend, nothing is cached to disk.
-    api.sourceFiles().then(setSourceFiles).catch(() => setSourceFiles(null));
+    api.demoStatus().then((s) => {
+      setStatus(s);
+      // A page reload while a run is in progress (or paused on its dialog)
+      // picks the run up again.
+      if (s.state === "running" || s.state === "needs_layout") startPollRef.current?.();
+    }).catch((e) => { setStatus(null); setError(e); });
+    api.outputOptions().then(setOutputOptions).catch((e) => {
+      setError(e);
+    });
+    // The request-time checks render on load — live reads on the backend,
+    // nothing is cached to disk.
     api.inputRequirements().then(setRequirements).catch(() => setRequirements(null));
     api.governanceChecks().then(setGovernance).catch(() => setGovernance(null));
     return () => {
@@ -128,7 +192,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       try {
         const s = await api.demoStatus();
         setStatus(s);
-        if (s.state === "done" || s.state === "failed") {
+        if (s.state === "done" || s.state === "failed" || s.state === "needs_answers") {
           if (pollRef.current !== null) window.clearInterval(pollRef.current);
           pollRef.current = null;
           if (s.state === "done") {
@@ -142,17 +206,24 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       }
     }, 1000);
   }, [onFeedsChanged]);
+  const startPollRef = useRef<(() => void) | null>(null);
+  startPollRef.current = poll;
 
+  // "Re-run with N answers…" from the Answers-needed list: the payload waits
+  // here while the person confirms the run (the same confirm as Generate).
+  const [pendingRerun, setPendingRerun] = useState<{ answers: AnswersPayload; answered: number } | null>(null);
   const fireLive = useCallback(async () => {
     setConfirming(false);
     setError(null);
+    const rerun = pendingRerun;
+    setPendingRerun(null);
     try {
-      setStatus(await api.runLive());
+      setStatus(rerun ? await api.rerunWithAnswers(rerun.answers) : await api.runLive());
       poll();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
-  }, [poll]);
+  }, [poll, pendingRerun]);
 
   // Restore a completed live run's results as LIVE state (the View-results
   // button after a run whose results are not the store's current ones).
@@ -163,9 +234,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       try {
         await api.loadLiveRun(name);
         await onFeedsChanged();
-        navigate("/");
+        navigate("/results");
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(e);
       } finally {
         setLoadingSet(null);
       }
@@ -182,7 +253,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     api
       .databricksDocuments()
       .then((docs) => {
-        setDbDocs(docs);
+        // M15b.5: the seam OFF is 200 + configured:false — panel absent, no error.
+        setDbDocs(docs.configured === false ? null : docs);
         setDbDocsError(null);
       })
       .catch((e) => {
@@ -197,29 +269,28 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
 
   const openChooser = useCallback(() => {
     setChoosing(true);
+    // post141: the backend remembers the selection now - Cancel goes back to it
+    api.beginChoosing().catch(() => {});
     setWorkbooks(null);
     api.demoWorkbooks().then((r) => setWorkbooks(r.workbooks)).catch(() => setWorkbooks([]));
     loadDbDocs();
     api.frdChoices().then(setFrdChoices).catch(() => setFrdChoices(null));
   }, [loadDbDocs]);
 
-  // Output as independent toggles (backend: output_parts). "all" is its own
-  // state; the three others are free, including none — Generate then waits.
-  const outputParts = new Set<OutputPart>(status?.output_parts ?? ["notebook"]);
+  // Output as independent toggles (backend: output_parts): Notebook and
+  // Framework artefacts, any subset including none — Generate then waits.
+  // post68: the backend's choice only (the selection, else its per-profile
+  // default: acfc_prx -> framework); nothing is assumed before it answers.
+  const outputParts = new Set<OutputPart>(status?.output_parts ?? []);
   const setOutputParts = async (parts: OutputPart[]) => {
     try {
       setStatus(await api.setOutputParts(parts));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   };
   const toggleOutputPart = (part: OutputPart) => {
-    if (part === "all") {
-      setOutputParts(outputParts.has("all") ? [] : ["all"]);
-      return;
-    }
-    // Leaving "All" for a single part starts from just that part.
-    const next = new Set<OutputPart>(outputParts.has("all") ? [] : outputParts);
+    const next = new Set<OutputPart>(outputParts);
     if (next.has(part)) next.delete(part);
     else next.add(part);
     setOutputParts([...next]);
@@ -231,6 +302,19 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   useEffect(() => {
     api.generationOptions().then(setGenOptions).catch(() => setGenOptions(null));
   }, []);
+  // 2026-10-14: the run's environment (containers, storage account ...) — the
+  // default preselected; "Other" = a free-text block for this run.
+  const [envOptions, setEnvOptions] = useState<EnvironmentOptions | null>(null);
+  useEffect(() => {
+    api.environment().then(setEnvOptions).catch(() => setEnvOptions(null));
+  }, []);
+  const chooseEnvironment = async (choice: EnvironmentChoice) => {
+    try {
+      setEnvOptions(await api.setEnvironment(choice));
+    } catch (e) {
+      setError(e);
+    }
+  };
   const chooseGenerationOption = async (
     knob: keyof GenerationOptions,
     value: string,
@@ -246,7 +330,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       setGenOptions(await api.setGenerationOptions(body));
       setStatus(await api.demoStatus());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   };
   // M3/M6: the optional Vendor Data Dictionary — any listed workbook can be
@@ -257,7 +341,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       else await api.selectVdd(name);
       setStatus(await api.demoStatus());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   };
 
@@ -275,7 +359,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
         setStatus(s);
         api.frdChoices().then(setFrdChoices).catch(() => {});
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(e);
       } finally {
         setUploading(null);
       }
@@ -286,11 +370,13 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const chooseFrd = useCallback(async (kind: "upstream" | "local", id: string) => {
     setError(null);
     try {
+      // local: selected on return; upstream: a job (the status is polled).
       await api.selectFrd(kind, id);
       setStatus(await api.demoStatus());
       api.frdChoices().then(setFrdChoices).catch(() => {});
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
+      api.demoStatus().then(setStatus).catch(() => {});
     }
   }, []);
 
@@ -301,7 +387,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       setStatus(await api.demoStatus());
       api.frdChoices().then(setFrdChoices).catch(() => {});
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   }, []);
 
@@ -324,7 +410,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
         setWorkbooks(wb.workbooks);
         loadDbDocs();
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(e);
       } finally {
         setFetching(null);
       }
@@ -332,19 +418,78 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     [dbDocs, loadDbDocs],
   );
 
+  // M9.3: the list returns metadata at once; content verdicts arrive from the
+  // background index — poll while the chooser is open and any is pending.
+  useEffect(() => {
+    if (!choosing || !(workbooks ?? []).some((w) => w.kind === "classifying")) return;
+    const timer = setTimeout(() => {
+      api.demoWorkbooks().then((r) => setWorkbooks(r.workbooks)).catch(() => {});
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [choosing, workbooks]);
+
+  // M9.3 addendum: choosing a document is a background JOB (the POST answers at
+  // once). While it runs — or the upstream FRD list is still loading — poll
+  // the status; when it ends, refresh the lists. What is selected is read from
+  // ONE place: status.selection (never the list rows' own flags).
+  const selectionJob = status?.selection_job ?? null;
+  // A job the PERSON started. The startup `restore` job must never disable the
+  // chooser: choosing supersedes it, and a slow restore would otherwise lock
+  // the page for as long as its steps take.
+  const selecting = selectionJob?.state === "running" && selectionJob.kind !== "restore";
+  // M15.2: the job is done (STTM applied, Generate enabled) as soon as the
+  // workbook is classified; the FRD / VDD pairs land behind it. "Pairing…" is
+  // shown on those chips, never on the button.
+  const pairingPending = new Set<string>(
+    selectionJob?.state === "done" ? selectionJob.pairing_pending ?? [] : [],
+  );
+  const upstreamLoading = choosing && frdChoices?.upstream_state === "loading";
+  const lastJobRef = useRef<string | null>(null);
+  const [pollFailures, setPollFailures] = useState(0);
+  // Poll the status while anything can still change what is selected — and the
+  // whole time the chooser is open, so the page can never sit on a stale status
+  // (a selection that ended while nothing was polling left Generate disabled
+  // with no visible reason). A poll that FAILS re-arms itself (M15.7): one lost
+  // GET used to strand the page on "Selecting…" for good.
+  useEffect(() => {
+    if (!choosing && !selecting && !upstreamLoading && pairingPending.size === 0) return;
+    const timer = setTimeout(() => {
+      api.demoStatus()
+        .then((s) => { setPollFailures(0); setStatus(s); })
+        .catch(() => setPollFailures((n) => n + 1));
+      if (upstreamLoading) api.frdChoices().then(setFrdChoices).catch(() => {});
+    }, selecting || pairingPending.size > 0 ? 700 : 1500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, choosing, selecting, upstreamLoading, frdChoices, pollFailures, pairingPending.size]);
+  useEffect(() => {
+    const key = selectionJob
+      ? `${selectionJob.id}:${selectionJob.state}:${(selectionJob.pairing_pending ?? []).join(",")}`
+      : null;
+    if (key === lastJobRef.current) return;
+    lastJobRef.current = key;
+    if (!selectionJob || selectionJob.state === "running") return;
+    // Pairing (companion FRD / VDD) depends on the chosen STTM: refresh the
+    // lists the modal shows. The modal stays OPEN — the FRD picker lives right
+    // below, so the operator can confirm or change the pair before Done.
+    api.demoWorkbooks().then((r) => setWorkbooks(r.workbooks)).catch(() => {});
+    api.frdChoices().then(setFrdChoices).catch(() => {});
+  }, [selectionJob]);
+  const chosen = status?.selection ?? { sttm: null, frd: null, vdd: null };
+  // 2026-10-16: an STTM with no chosen / paired FRD (and no pairing to ask)
+  const noFrd = Boolean(chosen.sttm) && !status?.frd_name && !pairingPending.has("frd")
+    && !status?.pair_candidates?.frd;
+
   const chooseWorkbook = useCallback(async (name: string) => {
     setError(null);
     try {
-      const r = await api.selectWorkbook(name);
-      setWorkbooks(r.workbooks);
-      setStatus(await api.demoStatus());
-      // Pairing (companion FRD) depends on the chosen STTM. Keep the modal
-      // OPEN: the FRD picker lives right below, so the operator can confirm
-      // or change the companion FRD before closing with Done.
-      api.frdChoices().then(setFrdChoices).catch(() => {});
+      await api.selectWorkbook(name);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // 409: a run or another selection is in progress.
+      setError(e);
     }
+    // No one-shot status read here (M15b.4): the chooser's poll delivers the
+    // next status; a second in-flight response raced the poll's.
   }, []);
 
   // Presenter's reset: back to "none chosen" without a backend restart.
@@ -354,534 +499,764 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       await api.clearWorkbook();
       setStatus(await api.demoStatus());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   }, []);
 
   const running = status?.state === "running" || status?.state === "needs_layout";
-  // M2.5 layout dialog: one choice per unresolved role, keyed "<sheet>/<layer>/<role>"
-  // (STTM / VDD: a column number); FRD questions (M6) pick a candidate table
-  // cell — the claim {table,row,col,label,section} the merge step re-validates.
-  const [layoutPicks, setLayoutPicks] = useState<Record<string, number>>({});
-  const [frdPicks, setFrdPicks] = useState<Record<string, Record<string, unknown>>>({});
+  // post80: a finished run with a blocking question open (a QUESTION line, a required
+  // environment value) is not something to "view": the page sends the person to the
+  // questions instead of the results
+  const blocking = !!status && status.state === "done" && (
+    status.outcome === "NEEDS_ANSWERS"
+    || (status.blocking ?? []).length > 0
+    || (status.needs_answers ?? []).length > 0
+    || (status.inputs_needed ?? []).some((item) => item.required));
+  const blockingRef = useRef<HTMLDivElement | null>(null);
+  // post152: bring the run card into view when the run changes state (started,
+  // paused for answers, ended) - never on a poll tick that changes nothing
+  const runCardRef = useRef<HTMLElement | null>(null);
+  const shownStateRef = useRef<string | null>(null);
+  const runPhase = !status || status.state === "idle" ? null
+    : `${status.state}:${status.pause_kind ?? ""}:${(status.layout_questions ?? []).length}`;
+  useEffect(() => {
+    const previous = shownStateRef.current;
+    shownStateRef.current = runPhase;
+    if (!runPhase || runPhase === previous) return;
+    // a page opened on a finished run stays where it is; a live or paused one is shown
+    if (previous === null && status?.state === "done") return;
+    runCardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runPhase]);
+  // blocking lines no panel lists (the landing path): named in the alert itself
+  const listed = new Set([...(status?.needs_answers ?? []), ...(status?.inputs_needed ?? [])]
+    .map((item) => item.key));
+  const unlisted = (status?.blocking ?? []).filter((b) => !listed.has(b.key));
+  // M2.5 layout dialog: one answer per open question (components/
+  // LayoutQuestions): a column for an STTM / VDD role, a layer for a band
+  // (Chunk A: source | stage | standard), a table cell for an FRD field, a
+  // value for a choice / layer / text question. Posted as {sttm, frd, vdd, gaps}.
+  const [picks, setPicks] = useState<AnswerPicks>(emptyPicks());
+  const preselectedRef = useRef<string | null>(null);
+  useEffect(() => {
+    // Pre-select each question's suggested candidate (still confirmed by the
+    // person with Continue; the merge step re-validates every claim).
+    const qs = status?.layout_questions ?? [];
+    if (status?.state !== "needs_layout" || !qs.length) return;
+    // The status poll hands back a NEW array each tick; pre-select once per
+    // question SET, or a cleared pick would snap back a few seconds later.
+    const signature = qs.map((q) => q.key).join("\u0000");
+    if (preselectedRef.current === signature) return;
+    preselectedRef.current = signature;
+    setPicks((prev) => mergePicks(suggestedPicks(qs), prev));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.state, status?.layout_questions]);
   const submitLayout = async (proceed: boolean) => {
-    const sttm: Record<string, number> = {};
-    for (const [key, col] of Object.entries(layoutPicks)) sttm[key] = col;
     try {
-      const vdd: Record<string, number> = {};
-      const sttmOnly: Record<string, number> = {};
-      for (const [key, col] of Object.entries(sttm)) {
-        ((status?.layout_questions ?? []).find((q) => q.key === key)?.document === "vdd" ? vdd : sttmOnly)[key] = col;
-      }
-      const frd: Record<string, unknown> = {};
-      for (const [field, claim] of Object.entries(frdPicks)) frd[field] = { ...claim, source: "user" };
-      const s = await api.layoutAnswers({ answers: { sttm: sttmOnly, frd, vdd }, proceed });
+      const s = await api.layoutAnswers({
+        answers: answersPayload(status?.layout_questions ?? [], picks), proceed });
       setStatus(s);
-      setLayoutPicks({});
-      setFrdPicks({});
+      // Only clear picks when the dialog is closing (state moved past
+      // needs_layout).  When the backend thread hasn't processed yet the
+      // response still says needs_layout with the OLD questions — clearing
+      // picks here made the selected radio snap to "None of these" for ~1 s
+      // (the signature guard in the pre-select useEffect skipped re-applying
+      // suggestions because the question set hadn't changed).  When the state
+      // IS still needs_layout the picks stay; the pre-select useEffect resets
+      // them when a genuinely new question set arrives.
+      if (s.state !== "needs_layout") {
+        setPicks(emptyPicks());
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   };
-  const frdPickKey = (c: { table?: number; row?: number; col?: number }) =>
-    `${c.table}/${c.row}/${c.col}`;
-  const est = status?.estimates;
+  // Model advice on the pending questions: an explicit, confirmed model call
+  // over the question texts + candidate labels; then the person can adopt
+  // the model's picks as the pre-selection in one click.
+  const [advising, setAdvising] = useState<"confirm" | "busy" | null>(null);
+  const askAdvice = async () => {
+    setAdvising("busy");
+    setError(null);
+    try {
+      const s = await api.layoutAdvice();
+      setStatus(s);
+      applyAdvice(s);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setAdvising(null);
+    }
+  };
+  // Apply the model's advice as the pre-selection: an advised candidate is
+  // selected, an advised "none" CLEARS the pick — so what is pre-selected
+  // and what the model said never disagree. Runs when advice arrives and
+  // again on the "Re-apply" button.
+  const applyAdvice = (s: DemoStatus | null) => {
+    const advice = s?.layout_advice?.advice;
+    if (!advice) return;
+    setPicks(applyAdvicePicks(s?.layout_questions ?? [], advice, picks));
+  };
+  const estimate = liveEstimate(status?.live_history);
+
+  // post143: where the person is in a run, for the step strip
+  const step = !chosen.sttm || noFrd || selecting ? 0
+    : running || blocking || status?.state === "needs_answers" ? 2
+      : status?.state === "done" ? 3 : 1;
+  const generateBlocked = selecting || !chosen.sttm || noFrd || outputParts.size === 0;
+  // A drop or a browse: an .xlsx is the STTM, a .docx / .json the FRD (the
+  // same uploads the chooser's buttons make); the STTM goes first.
+  const [dragOver, setDragOver] = useState(false);
+  const uploadFiles = async (files: FileList | File[] | null) => {
+    const list = Array.from(files ?? []);
+    const kindOf = (f: File) => {
+      const n = f.name.toLowerCase();
+      return n.endsWith(".xlsx") ? "sttm" : n.endsWith(".docx") || n.endsWith(".json") ? "frd" : null;
+    };
+    const wrong = list.filter((f) => kindOf(f) === null);
+    if (wrong.length) {
+      setError(new Error(
+        `${wrong.map((f) => f.name).join(", ")}: not an STTM (.xlsx) or an FRD (.docx / .json).`));
+      return;
+    }
+    for (const kind of ["sttm", "frd"] as const) {
+      for (const f of list.filter((x) => kindOf(x) === kind)) await uploadDocument(kind, f);
+    }
+  };
+  const dropDisabled = uploading !== null || running;
+  const docsChosen = (chosen.sttm ? 1 : 0) + (status?.frd_name ? 1 : 0);
+  // post147: the environment, named on the Advanced summary
+  const envName = envOptions
+    ? envOptions.source === "custom" ? "custom" : envOptions.selected ?? envOptions.default : null;
+  const envMissing = envOptions?.missing_required?.length ?? 0;
+
+  // post157: until the first status arrives the page knows nothing - say so,
+  // never "0 of 2 required chosen" / step 1 for documents that ARE chosen
+  if (status === null && !error) {
+    return (
+      <div className="landing">
+        <div className="landing-head">
+          <h1 className="landing-title">Generate a pipeline from your STTM and FRD</h1>
+        </div>
+        <section className="card loading-card" aria-busy="true" aria-label="loading">
+          <span className="spinner" />
+          <span>Loading the documents and settings…</span>
+        </section>
+      </div>
+    );
+  }
 
   return (
-    <div>
-      <div className="page-head">
-        <div>
-          <h1>Generate a pipeline</h1>
-          <p className="subtitle">
-            Choose the documents, pick the output, generate. Every run ends on the dashboard
-            with its human review queue.
-          </p>
-        </div>
+    <div className="landing">
+      <div className="landing-head">
+        <h1 className="landing-title">Generate a pipeline from your STTM and FRD</h1>
+        <p className="landing-lead">
+          Choose the documents. The agent reads them, asks what they don't say, and writes the
+          DDL and the IIG workbook for you to review.
+        </p>
       </div>
+      <StepStrip
+        steps={["Choose documents", "Check the settings", "Answer questions", "Get the results"]}
+        active={step}
+      />
 
-      {error ? <div className="error-banner">{error}</div> : null}
-
-      <div className="mode-cards">
-        <div className="panel">
-          <div className="panel-head">
-            <h2>Generate a Pipeline</h2>
-            {liveProvider === "mock (locked)" ? (
-              <span className="mode-badge">MOCK — provider locked</span>
-            ) : transport?.kind === "databricks_fmapi" ? (
-              <span className="mode-badge mode-live" title={transport.label}>
-                LIVE · Databricks FM endpoint
-              </span>
-            ) : transport?.kind === "anthropic" ? (
-              <span className="mode-badge mode-live" title={transport.label}>
-                LIVE · Anthropic API
-              </span>
-            ) : (
-              <span className="mode-badge mode-live">LIVE</span>
-            )}
+      {error ? (
+        <ErrorCard error={error} title="The last action failed.">
+          <div style={{ marginTop: 6 }}>
+            <button className="btn" onClick={() => setError(null)}>Dismiss</button>
           </div>
-          <div className="panel-body">
-            {transport ? (
-              <p className="hint" style={{ marginTop: 0 }}>
-                <strong>Model transport:</strong>{" "}
-                {transport.kind === "mock_locked"
-                  ? "mock provider (locked) — a run makes zero model calls."
-                  : transport.kind === "databricks_fmapi"
-                    ? <>
-                        Databricks Foundation Model serving endpoint{" "}
-                        <code>{transport.endpoint ?? "unconfigured"}</code> ({transport.model}).
-                      </>
-                    : transport.kind === "anthropic"
-                      ? <>Anthropic API ({transport.model}).</>
-                      : <>none resolvable — runs use the mock provider.</>}{" "}
-                <span className="hint">
-                  Detected by {transport.detected_by}
-                  {transport.runtime === "databricks_app"
-                    ? " (Databricks App runtime)"
-                    : transport.runtime === "databricks"
-                      ? " (Databricks workspace)"
-                      : ""}
-                  {transport.overridden
-                    ? ` — config says ${transport.configured}; the endpoint is used inside Databricks.`
-                    : "."}
-                </span>
-              </p>
-            ) : null}
-            <p className="hint" style={{ marginTop: 0 }}>
-              Choose the STTM workbook, its FRD (a contract or the .docx itself) and,
-              optionally, the vendor data dictionary; pick the output; generate.
-            </p>
-            <p style={{ margin: "6px 0 10px", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-              <button className="btn primary" disabled={running} onClick={openChooser}>
-                Choose documents…
+        </ErrorCard>
+      ) : null}
+
+
+      <section className="card" aria-label="documents">
+        <div className="card-head">
+          <h2>1. Documents</h2>
+          <span className={`card-count${docsChosen < 2 ? " warn" : ""}`}>
+            {docsChosen} of 2 required chosen
+          </span>
+        </div>
+        <p className="card-sub">
+          The STTM workbook and its FRD are required. The vendor data dictionary (VDD) is
+          optional; the agent only cross-checks the STTM against it.
+        </p>
+        {!chosen.sttm || noFrd ? (
+          <label
+            className={`dropzone${dragOver ? " over" : ""}`}
+            aria-disabled={dropDisabled}
+            onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={(e) => { e.preventDefault(); setDragOver(false); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              if (!dropDisabled) void uploadFiles(e.dataTransfer.files);
+            }}
+          >
+            <span className="dropzone-icon"><Icon name="upload" size={32} /></span>
+            <span className="dropzone-main">
+              {uploading ? "Uploading…" : <>Drag and drop the STTM and FRD here, or <u>browse</u></>}
+            </span>
+            <span className="dropzone-sub">
+              STTM .xlsx · FRD .docx (or its contract .json). Uploads are kept until the App restarts.
+            </span>
+            <input
+              type="file"
+              className="visually-hidden"
+              multiple
+              accept=".xlsx,.docx,.json"
+              disabled={dropDisabled}
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                e.target.value = "";
+                void uploadFiles(files);
+              }}
+            />
+          </label>
+        ) : null}
+        <ul className="doc-rows">
+          <li className={`doc-row${chosen.sttm ? " chosen" : " empty-doc"}`}>
+            <span className="doc-row-icon"><Icon name="sheet" size={26} /></span>
+            <span className="doc-row-main">
+              <span className="doc-row-kind">STTM workbook · required</span>
+              {chosen.sttm ? (
+                <span className="doc-row-name" title={chosen.sttm}><code>{chosen.sttm}</code></span>
+              ) : selecting ? (
+                <span className="doc-row-name none">selecting <code>{selectionJob?.name}</code>…</span>
+              ) : (
+                <span className="doc-row-name none">none chosen</span>
+              )}
+            </span>
+            <span className="doc-row-actions">
+              <button className="link-btn" disabled={running || (!chosen.sttm && !selecting)}
+                      onClick={clearWorkbook} title="Back to none chosen">
+                Clear
               </button>
-              <span>
-                STTM:{" "}
-                {status?.sttm_chosen ? (
-                  <code>{status.sttm_workbook}</code>
-                ) : (
-                  <em className="hint">none chosen</em>
-                )}{" "}
-                <button className="btn" disabled={running || !status?.sttm_chosen}
-                        onClick={clearWorkbook} title="Back to none chosen">
-                  Clear
-                </button>
-              </span>
-              <span>
-                FRD: <code>{status?.frd_name ?? "…"}</code>
-                {status?.frd_chosen ? null : <span className="hint"> (config default)</span>}
-                {status?.frd_auto_paired ? (
-                  <span
-                    className="hint"
-                    title="Chosen automatically for this STTM; pick another in the chooser to override"
-                  >
-                    {" "}(auto-paired by{" "}
-                    {status.frd_auto_paired.rule === "pairing_map"
-                      ? "the config pairing map"
-                      : status.frd_auto_paired.rule === "ticket"
-                        ? "a shared ticket number"
-                        : "a matching document name"}
-                    )
-                  </span>
-                ) : null}{" "}
-                <button className="btn" disabled={running || !status?.frd_chosen}
-                        onClick={resetFrd} title="Back to the config default">
-                  Clear
-                </button>
-              </span>
-              <span>
-                VDD:{" "}
-                {status?.vdd_name ? <code>{status.vdd_name}</code> : <em className="hint">none</em>}
-                {status?.vdd_auto_paired ? (
-                  <span
-                    className="hint"
-                    title="Chosen automatically for this STTM; pick another in the chooser to override"
-                  >
-                    {" "}(auto-paired by{" "}
-                    {status.vdd_auto_paired.rule === "pairing_map"
-                      ? "the config pairing map"
-                      : status.vdd_auto_paired.rule === "ticket"
-                        ? "a shared ticket number"
-                        : "a matching document name"}
-                    )
-                  </span>
-                ) : null}{" "}
-                <button className="btn" disabled={running || !status?.vdd_name}
-                        onClick={() => chooseVdd(null)} title="No vendor data dictionary">
-                  Clear
-                </button>
-              </span>
-              {status?.frd_warning ? (
-                <span className="pill req-missing"
-                      title="Pick the companion FRD in the chooser">
-                  This STTM does not appear to belong to the selected FRD — expect a
-                  feed-match failure.
+            </span>
+          </li>
+          <li className={`doc-row${status?.frd_name ? " chosen" : " empty-doc"}`}>
+            <span className="doc-row-icon"><Icon name="doc" size={26} /></span>
+            <span className="doc-row-main">
+              <span className="doc-row-kind">FRD · required</span>
+              {pairingPending.has("frd") ? (
+                <span className="doc-row-name none" title="Choosing the FRD that belongs to this STTM">Pairing…</span>
+              ) : status?.frd_name ? (
+                <span className="doc-row-name"><code>{status.frd_name}</code></span>
+              ) : (
+                <span className="doc-row-name none">none chosen</span>
+              )}
+              {status?.frd_auto_paired ? (
+                <span className="doc-row-note">
+                  Paired with this STTM by {pairRuleLabel(status.frd_auto_paired.rule)}; pick
+                  another under Choose documents to change it.
                 </span>
               ) : null}
-            </p>
-            {sourceFiles && sourceFiles.feeds.length > 0 ? (
-              <>
-                <div className="panel-subhead">Source files this run will read</div>
-                <p className="hint" style={{ marginTop: 0 }}>
-                  From the FRD contract <code>{sourceFiles.frd_contract}</code>, read at
-                  request time.
-                </p>
-                <div className="source-files-scroll">
-                  <table className="source-files-table">
-                    <thead>
-                      <tr>
-                        <th>feed</th>
-                        <th>landing root</th>
-                        <th>file patterns</th>
-                        <th>format</th>
-                        <th>frequency</th>
-                        <th>stage target</th>
-                        <th>standard target</th>
-                        <th>load strategy</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sourceFiles.feeds.map((f) => (
-                        <tr key={f.feed_name}>
-                          <td>
-                            <code>{f.feed_name}</code>
-                          </td>
-                          <td>
-                            <code>{f.landing_root.value}</code>
-                            {f.landing_root.synthetic ? (
-                              <SyntheticBadge title={LANDING_TOOLTIP} />
-                            ) : null}
-                          </td>
-                          <td>
-                            {f.file_name_patterns.length === 0 ? (
-                              <em className="hint">none in FRD</em>
-                            ) : (
-                              f.file_name_patterns.map((p) => (
-                                <div key={p}>
-                                  <code>{p}</code>
-                                </div>
-                              ))
-                            )}
-                          </td>
-                          <td>
-                            {f.file_format}
-                            {f.delimiter ? (
-                              <span className="hint"> · {f.delimiter}</span>
-                            ) : null}
-                          </td>
-                          <td className="sf-wrap">
-                            {f.frequency ?? <em className="hint">not stated in FRD</em>}
-                          </td>
-                          <td>{f.stage_target ? <code>{f.stage_target}</code> : "—"}</td>
-                          <td>{f.standard_target ? <code>{f.standard_target}</code> : "—"}</td>
-                          <td>
-                            <div>
-                              {f.load_strategy.stage} <span className="hint">(stage)</span>
-                            </div>
-                            <div>
-                              {f.load_strategy.standard}{" "}
-                              <span className="hint">(standard)</span>
-                            </div>
-                            {f.load_strategy.synthetic ? (
-                              <SyntheticBadge title={STRATEGY_TOOLTIP} />
-                            ) : null}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {sourceFiles.convention_check ? (
-                  <>
-                    <div className="panel-subhead">
-                      Convention check — reference FRD document
-                    </div>
-                    <p className="hint" style={{ marginTop: 0 }}>
-                      Read live from <code>{sourceFiles.convention_check.source}</code>{" "}
-                      (Structural Metadata), at request time — the client's real
-                      convention beside the synthesized paths above.
-                    </p>
-                    <div className="source-files-scroll">
-                      <table className="source-files-table">
-                        <tbody>
-                          {(
-                            [
-                              ["ADLS Location", sourceFiles.convention_check.adls_location],
-                              ["Target Schema", sourceFiles.convention_check.target_schema],
-                              [
-                                "Load Strategy STG",
-                                sourceFiles.convention_check.load_strategy_stg,
-                              ],
-                              [
-                                "Load Strategy STD",
-                                sourceFiles.convention_check.load_strategy_std,
-                              ],
-                              [
-                                "Object / data Format",
-                                sourceFiles.convention_check.object_format,
-                              ],
-                            ] as [string, string | undefined][]
-                          )
-                            .filter(([, v]) => v)
-                            .map(([label, value]) => (
-                              <tr key={label}>
-                                <td>{label}</td>
-                                <td>
-                                  <code>{value}</code>
-                                </td>
-                                <td>
-                                  <span className="hint">from document</span>
-                                </td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                ) : null}
-                <details className="shell-block">
-                  <summary>In the Databricks workspace</summary>
-                  {sourceFiles.shell_mode === "live" ? (
-                    <div className="shell-note shell-note-live">
-                      LIVE — listed from <code>{sourceFiles.shell_source}</code> at{" "}
-                      {sourceFiles.shell_listed_at}
-                    </div>
-                  ) : (
-                    <div className="shell-note">
-                      SYNTHETIC
-                      {sourceFiles.shell_reason
-                        ? ` (live listing unavailable: ${sourceFiles.shell_reason})`
-                        : ""}{" "}
-                      — rendered from the FRD's landing location and file patterns,
-                      not a live listing.
-                    </div>
-                  )}
-                  <div className="shell-pre">
-                    {sourceFiles.shell_listing.map((line, i) => (
-                      <div
-                        key={i}
-                        className={`shell-line${line.startsWith("$ ") ? " shell-cmd" : ""}`}
-                      >
-                        {line}
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              </>
-            ) : null}
-
-            <div className="panel-subhead" style={{ marginTop: 12 }}>Output</div>
-            <p style={{ margin: "6px 0 4px", display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {(
-                [
-                  ["notebook", "Notebook"],
-                  ["framework", "Framework artefacts"],
-                  ["rfc", "RFC package"],
-                ] as const
-              ).map(([part, label]) => (
-                <button
-                  key={part}
-                  className={`btn sheet-tab${outputParts.has(part) ? " active" : ""}`}
-                  disabled={running}
-                  title={
-                    part === "rfc"
-                      ? "The RFC deployment package (includes the framework artefacts it is built from)"
-                      : part === "framework"
-                        ? "DDL scripts + config rows + inserts for the existing ingestion framework"
-                        : "A fresh standalone PySpark pipeline"
-                  }
-                  onClick={() => toggleOutputPart(part)}
+            </span>
+            <span className="doc-row-actions">
+              {status?.frd_auto_paired ? (
+                <span
+                  className="pill ok"
+                  title={`Paired with this STTM by ${pairRuleLabel(status.frd_auto_paired.rule)}; pick another in the chooser to override`}
                 >
-                  {label}
-                </button>
-              ))}
-              <button
-                className={`btn sheet-tab${outputParts.has("all") ? " active" : ""}`}
-                disabled={running}
-                title="Everything: notebook + framework artefacts + RFC package"
-                onClick={() => toggleOutputPart("all")}
-              >
-                All
+                  paired
+                </span>
+              ) : null}
+              <button className="link-btn" disabled={running || !status?.frd_chosen}
+                      onClick={resetFrd} title="Back to none chosen">
+                Clear
               </button>
+            </span>
+          </li>
+          <li className={`doc-row${chosen.vdd ? " chosen" : " empty-doc"}`}>
+            <span className="doc-row-icon"><Icon name="book" size={26} /></span>
+            <span className="doc-row-main">
+              <span className="doc-row-kind">Vendor data dictionary · optional</span>
+              {chosen.vdd ? <span className="doc-row-name"><code>{chosen.vdd}</code></span>
+                : pairingPending.has("vdd")
+                  ? <span className="doc-row-name none" title="Looking for the dictionary that belongs to this STTM">Pairing…</span>
+                  : (status?.pairing?.vdd?.not_indexed ?? []).length > 0
+                    ? <span className="doc-row-name none" title="A name-only match is never applied; content, the folder or the pairing map decide">
+                        Indexing dictionaries…{status?.pairing?.vdd?.likely ? ` likely: ${status.pairing.vdd.likely}` : ""}
+                      </span>
+                    : <span className="doc-row-name none">none</span>}
+              {status?.vdd_auto_paired ? (
+                <span
+                  className="doc-row-note"
+                  title="Chosen automatically for this STTM; pick another in the chooser to override"
+                >
+                  (auto-paired by {pairRuleLabel(status.vdd_auto_paired.rule)})
+                </span>
+              ) : null}
+            </span>
+            <span className="doc-row-actions">
+              <button className="link-btn" disabled={running || selecting || !chosen.vdd}
+                      onClick={() => chooseVdd(null)} title="No vendor data dictionary">
+                Clear
+              </button>
+            </span>
+          </li>
+        </ul>
+        {Object.entries(status?.pair_candidates ?? {}).map(([kind, pending]) => (
+          <p key={`pair-${kind}`} className="note-line" title={pending.reason}>
+            {kind.toUpperCase()} not paired automatically — {pending.candidates.length}{" "}
+            candidate(s) by content ({pending.candidates
+              .map((c) => `${c.name}: ${c.score}`)
+              .join(", ")}); pick one in the chooser, or answer when the run starts.
+          </p>
+        ))}
+        {Object.entries(status?.input_errors ?? {}).map(([root, message]) => (
+          <p key={`root-${root}`} className="note-line">
+            Input folder <code>{root}</code> could not be listed: {message}
+          </p>
+        ))}
+        {!choosing && !chosen.sttm && (status?.selection_error
+          || (selectionJob?.state === "failed"
+              && selectionJob.error?.code !== "superseded")) ? (
+          // A selection that failed is readable with the chooser CLOSED too
+          // (it used to be rendered inside the modal only).
+          <div className="note-line">
+            <strong>The STTM is not selected.</strong>{" "}
+            {status?.selection_error?.message ?? selectionJob?.error?.message}
+          </div>
+        ) : null}
+        <div className="card-actions">
+          <button className={`btn${chosen.sttm ? "" : " primary"}`} disabled={running} onClick={openChooser}>
+            Choose documents…
+          </button>
+          <span className="hint">
+            From this App's input folders: SharePoint, the Databricks volume and your uploads.
+          </span>
+        </div>
+      </section>
+
+      <section className="card" aria-label="settings">
+        <div className="card-head">
+          <h2>2. Settings</h2>
+          {/* The output a run produces; post69: which notebook (v2 renders
+              from the IIG rows) for the run's profile. */}
+          <span
+            className="mode-badge mode-replay"
+            data-testid="output-badge"
+            title="The outputs Generate will produce (the toggles below change it)"
+          >
+            Output: {!status?.output_parts ? "…" : outputParts.size === 0 ? "none"
+              : [...outputParts].map((p) => OUTPUT_COPY[p].label).join(" + ")}
+            {outputParts.has("notebook") && status?.notebook_version === "v2"
+              ? ` — notebook: v2 (${status?.conventions_profile ?? ""})` : ""}
+          </span>
+        </div>
+        <p className="card-sub">The defaults suit most runs. Change them only when you know you need to.</p>
+        {transport ? (
+          <div className="uses-line">
+            <strong>A run will use:</strong> {runWillUse(transport)}{" "}
+            {transport.kind === "databricks_fmapi" || transport.kind === "anthropic" ? (
+              <span className={`mode-badge mode-live`} title={`Detected by ${transport.detected_by}`}>
+                {transport.label}
+              </span>
+            ) : null}
+            {/* post136: the detection detail, one click away */}
+            <details className="hint">
+              <summary>How this was chosen</summary>
+              {transport.label}. Detected by {transport.detected_by}
+              {transport.runtime === "databricks_app"
+                ? " (Databricks App runtime)"
+                : transport.runtime === "databricks"
+                  ? " (Databricks workspace)"
+                  : ""}
+              {transport.overridden
+                ? ` — config says ${transport.configured}; the endpoint is used inside Databricks.`
+                : "."}
+            </details>
+          </div>
+        ) : null}
+        {/* post91: one output offered (output.app_options) = nothing to choose */}
+        {outputOptions.length > 1 ? (
+          <div style={{ margin: "6px 0 10px" }}>
+            <div className="field" style={{ marginBottom: 6 }}>Output</div>
+            <p style={{ margin: 0, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <OutputSelector
+                options={outputOptions}
+                selected={outputParts}
+                disabled={running}
+                onToggle={toggleOutputPart}
+              />
               {outputParts.size === 0 ? (
                 <span className="hint" style={{ alignSelf: "center" }}>
                   choose at least one output
                 </span>
               ) : null}
             </p>
-            {genOptions ? (
-              <p style={{ margin: "6px 0 4px", display: "flex", gap: 14, flexWrap: "wrap" }}>
-                {(
-                  [
-                    ["conventions_profile", "Conventions profile"],
-                    ["iig_template", "IIG template"],
-                    ["playbook_template", "Playbook template"],
-                  ] as const
-                ).map(([knob, label]) => {
-                  const group = genOptions[knob];
-                  return (
-                    <label key={knob} className="hint" style={{ fontSize: 12 }}>
-                      {label}{" "}
-                      <select
-                        disabled={running}
-                        value={group.selected ?? ""}
-                        onChange={(e) => chooseGenerationOption(knob, e.target.value)}
-                      >
-                        <option value="">{`default (${group.default})`}</option>
-                        {group.options.map((o) => (
-                          <option key={o} value={o}>
-                            {o}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  );
-                })}
-              </p>
-            ) : null}
+          </div>
+        ) : null}
+        {(status?.output_notices ?? []).map((notice) => (
+          <p key={notice} className="hint" style={{ margin: "2px 0" }}>
+            {notice}
+          </p>
+        ))}
+        {envOptions || genOptions || (status && !running) ? (
+          // post147: the environment lives in Advanced too; a required value
+          // missing opens it and says so, so the fold never hides a problem
+          <details className="fold" open={envMissing > 0 || undefined}>
+            <summary>
+              Advanced
+              <span className="fold-hint">
+                {envName ? `environment ${envName}` : null}
+                {envMissing > 0
+                  ? ` — ${envMissing} required value${envMissing === 1 ? "" : "s"} missing`
+                  : null}
+                {envName ? " · " : null}conventions, templates, layout cache
+              </span>
+            </summary>
+            <div className="fold-body">
+              {envOptions ? (
+                <div style={{ marginBottom: 12 }}>
+                  <EnvironmentSelector
+                    options={envOptions}
+                    disabled={running}
+                    onChoose={chooseEnvironment}
+                  />
+                </div>
+              ) : null}
+              {genOptions ? (
+                <div className="settings-grid">
+                  {(
+                    [
+                      ["conventions_profile", "Conventions profile"],
+                      ["iig_template", "IIG template"],
+                      ["playbook_template", "Playbook template"],
+                    ] as const
+                  ).map(([knob, label]) => {
+                    const group = genOptions[knob];
+                    return (
+                      <label key={knob} className="field">
+                        {label}
+                        <select
+                          disabled={running}
+                          value={group.selected ?? ""}
+                          onChange={(e) => chooseGenerationOption(knob, e.target.value)}
+                        >
+                          <option value="">{`default (${group.default})`}</option>
+                          {group.options.map((o) => (
+                            <option key={o} value={o}>
+                              {o}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {status && !running ? (
+                <label className="hint" style={{ display: "block", marginTop: 12 }}
+                       title="The next run ignores every cached layout profile of these documents, resolves the layout again (synonyms, then the model, then you) and overwrites the cached entries.">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(status.layout_refresh)}
+                    onChange={(e) => api.layoutRefresh(e.target.checked).then(setStatus).catch(setError)}
+                  />{" "}
+                  Re-resolve layout (ignore the cached layout profile)
+                </label>
+              ) : null}
+            </div>
+          </details>
+        ) : null}
+      </section>
 
-            {liveAvailable === false ? (
-              <div className="empty">
-                Live is unavailable: {liveReason || "the backend cannot reach a Layer-2 provider"}
-                {liveProvider ? (
-                  <span className="hint"> (provider: {liveProvider})</span>
+      <div className="action-bar">
+        <button
+          className="btn"
+          disabled={running || clearing}
+          title="Delete every past run folder (demo_<timestamp>) in the outputs location"
+          onClick={openClearRuns}
+        >
+          Clear past runs…
+        </button>
+        <span className="action-why" role="status">
+          {clearNote ? `${clearNote} ` : ""}
+          {!running && liveAvailable !== false && generateBlocked
+            // Say why the button is dead — a title attribute is invisible
+            // until someone hovers it.
+            ? selecting
+              ? `Selecting ${selectionJob?.name ?? "the documents"}…`
+              : !chosen.sttm
+                ? "Choose the STTM workbook first."
+                : noFrd
+                  ? "No FRD is paired with this STTM — choose its FRD (Choose documents…)."
+                  : "Choose at least one output."
+            : null}
+        </span>
+        {liveAvailable === false ? (
+          <div className="empty" style={{ flexBasis: "100%" }}>
+            Live is unavailable: {liveReason || "the backend cannot reach a Layer-2 provider"}
+            {liveProvider ? (
+              <span className="hint"> (provider: {liveProvider})</span>
+            ) : null}
+          </div>
+        ) : (
+          <button
+            className="btn primary lg"
+            disabled={liveAvailable !== true || running || generateBlocked}
+            title={
+              selecting
+                ? "The documents are still being selected"
+                : !chosen.sttm
+                ? "Choose an STTM workbook first"
+                : noFrd
+                ? "Choose the STTM's FRD first"
+                : outputParts.size === 0
+                  ? "Choose at least one output"
+                  : undefined
+            }
+            onClick={() => setConfirming(true)}
+          >
+            {/* post151: the label a stakeholder asked for (post143 had shortened it) */}
+            {running ? "Generating…" : "Generate Documents"}
+          </button>
+        )}
+      </div>
+      <p className="action-hint">
+        Nothing runs until you confirm. A live run sends the documents' content to the model.
+      </p>
+
+      {/* post152: the run card sits under the Generate button - where the person
+          is looking when they press it - and comes into view when the run starts,
+          pauses for answers or ends (it sat at the top of the page, out of sight) */}
+      {status && status.state !== "idle" ? (
+        <section
+          ref={runCardRef}
+          className={`card${status.state === "failed" ? " alert"
+            : status.state === "done" && !blocking ? " ok"
+              : !running ? " alert warn" : ""}`}
+          aria-label="this run"
+        >
+          <div className="card-head">
+            <h2>
+              {running
+                ? status.state === "needs_layout" ? "The agent needs your answers" : "Generating…"
+                : status.state === "failed" ? "The run didn't finish"
+                  : status.state === "needs_answers" || blocking ? "Answer the blocking questions"
+                    : "Your results are ready"}
+            </h2>
+            {status.label ? <code className="card-count muted">{status.label}</code> : null}
+          </div>
+          <div className="card-sub">
+            {status.state === "running" && "Running — the steps appear below as they start."}
+            {status.state === "needs_layout" && status.pause_kind === "before_generate" &&
+              "Paused before generating — answer the blocking questions and the run generates once:"}
+            {status.state === "needs_layout" && status.pause_kind !== "before_generate" &&
+              "Paused — the layout needs a human decision before any value is read:"}
+            {status.state === "done" && blocking &&
+              "Last run stopped at blocking questions — complete them first, then run again."}
+            {status.state === "done" && !blocking &&
+              (status.set_aside?.length
+                ? `Last run completed with ${status.set_aside.length} feed(s) set aside.`
+                : "Last run completed. Download the files and review the flags on the results page.")}
+            {status.state === "done" && status.set_aside?.length ? (
+              <ul style={{ margin: "4px 0 0 0", paddingLeft: 18 }}>
+                {status.set_aside.map((f) => (
+                  <li key={f.label}>
+                    <code>{f.label}</code>: {f.error}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {status.state === "needs_answers" &&
+              "Last run is waiting for answers — every feed is held back; nothing was published."}
+          </div>
+          {running ? (
+            // post146: a blue bar that fills as the run moves through its steps
+            <ProgressBar {...runProgress(status.stages, Date.now() / 1000,
+                                         status.live_history?.wall_seconds?.high ?? null,
+                                         status.state)} />
+          ) : null}
+          {status.state === "failed" ? (
+            <ErrorCard
+              error={status.error_detail ?? status.error ?? "the run failed without a message"}
+              title="Last run FAILED — nothing was published."
+            >
+              {status.error_hint ? (
+                <div style={{ marginTop: 8 }}>
+                  <div className="hint">{status.error_hint.message}</div>
+                  <button
+                    className="btn"
+                    style={{ marginTop: 6 }}
+                    onClick={async () => {
+                      await chooseFrd("upstream", status.error_hint!.candidate_doc_id);
+                      openChooser();
+                    }}
+                  >
+                    Choose companion FRD "
+                    {middleTruncate(status.error_hint.candidate_doc_id, 36)}"
+                  </button>
+                </div>
+              ) : null}
+            </ErrorCard>
+          ) : null}
+          <div ref={blockingRef} id="blocking-questions">
+          {!running && (status.inputs_needed ?? []).length ? (
+            <InputsNeededBanner
+              items={status.inputs_needed ?? []}
+              confirmed={status.input_choices ?? {}}
+              onConfirm={async (choices) => {
+                try {
+                  setStatus(await api.confirmInputChoices(choices));
+                } catch (e) {
+                  setError(e);
+                }
+              }}
+            />
+          ) : null}
+          {!running && (status.needs_answers ?? []).length ? (
+            <NeedsAnswersPanel
+              items={status.needs_answers ?? []}
+              state={status.state}
+              inputs={status.needs_answers_inputs}
+              stale={status.needs_answers_stale}
+              disabled={liveAvailable !== true || selecting}
+              onRerun={(answers, answered) => {
+                setPendingRerun({ answers, answered });
+                setConfirming(true);
+              }}
+            />
+          ) : null}
+          {!running && (status.state === "needs_answers" || blocking
+                        || (status.needs_answers ?? []).length > 0) ? (
+            <div className="decision-row" style={{ marginTop: 10 }}>
+              <button className="btn" onClick={cancelRun}
+                      title="Drop this run's questions; the documents stay chosen and the run's files stay under past runs">
+                Cancel run
+              </button>
+            </div>
+          ) : null}
+          </div>
+          {status.state === "needs_layout" && (status.layout_questions ?? []).length ? (
+            <div className="flag-hitl" style={{ padding: "12px 14px", marginTop: 8 }}>
+              {(status.layout_fills ?? []).length ? (
+                <details className="shell-block" style={{ marginBottom: 10 }}>
+                  <summary>
+                    Taken from other documents{" "}
+                    <span className="hint">
+                      ({(status.layout_fills ?? []).length} FRD field
+                      {(status.layout_fills ?? []).length === 1 ? "" : "s"} filled without asking — each is a gate flag)
+                    </span>
+                  </summary>
+                  <ul className="flag-list">
+                    {(status.layout_fills ?? []).map((f) => (
+                      <li key={f.field}>
+                        <span className="verdict-dot PASS_WITH_FLAGS fdot" />
+                        <span>
+                          <strong>{f.title}</strong> ← {f.source} <code>{f.cell}</code>:{" "}
+                          <code>{f.value}</code>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+              {(["run", "sttm", "frd", "vdd"] as const).map((doc) => {
+                const qs = (status.layout_questions ?? []).filter((q) => q.document === doc);
+                if (!qs.length) return null;
+                return (
+                  <div key={doc} style={{ marginBottom: 10 }}>
+                    <strong>
+                      {doc === "run" ? "This run (environment)"
+                        : doc === "sttm" ? "STTM workbook"
+                        : doc === "frd" ? "FRD document" : "Vendor data dictionary"}
+                    </strong>
+                    {qs.map((q) => (
+                      <QuestionItem
+                        key={q.key}
+                        q={q}
+                        picks={picks}
+                        onChange={setPicks}
+                        scope="dialog"
+                        advice={status.layout_advice?.advice[q.key]}
+                        adviceLabel={status.layout_advice?.usage?.label ?? status.layout_advice?.provider}
+                      />
+                    ))}
+                  </div>
+                );
+              })}
+              <div className="decision-row" style={{ marginTop: 10, flexWrap: "wrap" }}>
+                <button className="btn primary"
+                        onClick={() => submitLayout(countPicks(picks) === 0)}
+                        title={countPicks(picks) === 0
+                          ? "Nothing picked: continue with the open roles read as empty (gate-flagged) — the same as Proceed with unresolved"
+                          : "Continue with the picks made"}>
+                  Continue
+                </button>
+                <button className="btn" onClick={() => submitLayout(true)}
+                        title="Continue with the remaining roles read as empty (gate-flagged)">
+                  Proceed with unresolved
+                </button>
+                <button className="btn" onClick={cancelRun}
+                        title="Stop this run; the documents stay chosen">
+                  Cancel run
+                </button>
+                {status.pause_kind !== "before_generate" ? (
+                  <>
+                <button className="btn"
+                        title="Resolve the layout again past every cached profile (synonyms, then the model); the cached entries are overwritten and the questions asked afresh"
+                        onClick={() => api.layoutAnswers({ answers: {}, refresh: true }).then(setStatus).catch(setError)}>
+                  Re-resolve layout
+                </button>
+                <span style={{ flex: 1 }} />
+                <button
+                  className="btn"
+                  disabled={advising !== null}
+                  title="One model call over the question texts and candidate labels — no document rows"
+                  onClick={() => setAdvising("confirm")}
+                >
+                  {advising === "busy" ? "Asking the model…" : "Ask the model for advice…"}
+                </button>
+                <button
+                  className="btn"
+                  disabled={!status.layout_advice}
+                  title="Re-apply the model's advice as the pre-selection (an advised 'none' clears the pick; you still confirm with Continue)"
+                  onClick={() => applyAdvice(status)}
+                >
+                  Re-apply the model's picks
+                </button>
+                  </>
                 ) : null}
               </div>
-            ) : (
-              <button
-                className="btn primary"
-                disabled={
-                  liveAvailable !== true || running || !status?.sttm_chosen || outputParts.size === 0
-                }
-                title={
-                  !status?.sttm_chosen
-                    ? "Choose an STTM workbook first"
-                    : outputParts.size === 0
-                      ? "Choose at least one output"
-                      : undefined
-                }
-                onClick={() => setConfirming(true)}
-              >
-                {running ? "Live run in progress…" : "Generate from this STTM…"}
-              </button>
-            )}
-
-            {status && status.state !== "idle" ? (
-              <div style={{ marginTop: 14 }}>
-                <div className="hint">
-                  {status.state === "running" && "Running — stages appear as they start:"}
-                  {status.state === "needs_layout" &&
-                    "Paused — the layout needs a human decision before any value is read:"}
-                  {status.state === "done" && "Last live run completed."}
-                  {status.state === "failed" && "Last live run FAILED — nothing was published."}
+              {advising === "confirm" ? (
+                <div className="note-line info">
+                  This makes one model call
+                  {transport?.kind === "databricks_fmapi" ? (
+                    <>
+                      {" "}through the Databricks Foundation Model endpoint{" "}
+                      <code>{transport.endpoint}</code> ({transport.model}), billed
+                    </>
+                  ) : transport?.kind === "anthropic" ? (
+                    " to the Anthropic API, billed"
+                  ) : (
+                    <> — {transport?.label ?? "no transport resolved"}; offline heuristics, no cost</>
+                  )}
+                  . It sees only the question texts, header strips and candidate labels — no
+                  document rows. Its advice is a pre-selection; you still confirm with Continue.
+                  <div className="decision-row" style={{ marginTop: 8 }}>
+                    <button className="btn primary" onClick={askAdvice}>
+                      Confirm — ask
+                    </button>
+                    <button className="btn" onClick={() => setAdvising(null)}>
+                      Cancel
+                    </button>
+                  </div>
                 </div>
-                {status.state === "failed" && status.error ? (
-                  <div className="error-banner" style={{ marginTop: 8 }}>
-                    {status.error}
-                    {status.error_hint ? (
-                      <div style={{ marginTop: 8 }}>
-                        <div className="hint">{status.error_hint.message}</div>
-                        <button
-                          className="btn"
-                          style={{ marginTop: 6 }}
-                          onClick={async () => {
-                            await chooseFrd("upstream", status.error_hint!.candidate_doc_id);
-                            openChooser();
-                          }}
-                        >
-                          Choose companion FRD "
-                          {middleTruncate(status.error_hint.candidate_doc_id, 36)}"
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-                {status.state === "needs_layout" && (status.layout_questions ?? []).length ? (
-                  <div className="flag-hitl" style={{ padding: "10px 12px", marginTop: 8 }}>
-                    {(["sttm", "frd", "vdd"] as const).map((doc) => {
-                      const qs = (status.layout_questions ?? []).filter((q) => q.document === doc);
-                      if (!qs.length) return null;
-                      return (
-                        <div key={doc} style={{ marginBottom: 10 }}>
-                          <strong>
-                            {doc === "sttm" ? "STTM workbook" : doc === "frd" ? "FRD document" : "Vendor data dictionary"}
-                          </strong>
-                          {qs.map((q) => (
-                            <div key={q.key} style={{ marginTop: 8 }}>
-                              <div>
-                                <code>{q.key}</code>{" "}
-                                <span className="hint">— {q.reason}</span>
-                              </div>
-                              {q.header.length ? (
-                                <div className="hint" style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                                  {q.header.map((h) => (
-                                    <code key={h} style={{ padding: "1px 4px", border: "1px solid var(--line, #ccc)" }}>
-                                      {h}
-                                    </code>
-                                  ))}
-                                </div>
-                              ) : null}
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
-                                {q.candidates.map((c) =>
-                                  doc === "frd" ? (
-                                    <label key={`${q.key}-${frdPickKey(c)}`} style={{ fontSize: 12 }}>
-                                      <input
-                                        type="radio"
-                                        name={q.key}
-                                        disabled={c.table === undefined || c.row === undefined}
-                                        checked={
-                                          frdPicks[q.key] !== undefined &&
-                                          frdPickKey(frdPicks[q.key] as { table?: number; row?: number; col?: number }) === frdPickKey(c)
-                                        }
-                                        onChange={() =>
-                                          c.table !== undefined &&
-                                          c.row !== undefined &&
-                                          setFrdPicks({
-                                            ...frdPicks,
-                                            [q.key]: { table: c.table, row: c.row, col: c.col ?? 0, label: c.label ?? "" },
-                                          })
-                                        }
-                                      />{" "}
-                                      {c.table !== undefined ? `table ${c.table} row ${c.row}: ` : ""}
-                                      {c.label ?? c.header}
-                                    </label>
-                                  ) : (
-                                    <label key={`${q.key}-${c.col ?? c.label}`} style={{ fontSize: 12 }}>
-                                      <input
-                                        type="radio"
-                                        name={q.key}
-                                        disabled={c.col === undefined}
-                                        checked={c.col !== undefined && layoutPicks[q.key] === c.col}
-                                        onChange={() =>
-                                          c.col !== undefined &&
-                                          setLayoutPicks({ ...layoutPicks, [q.key]: c.col })
-                                        }
-                                      />{" "}
-                                      {c.col !== undefined ? `col ${c.col}: ` : ""}
-                                      {c.header ?? c.label}
-                                    </label>
-                                  ),
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      );
-                    })}
-                    <div className="decision-row" style={{ marginTop: 10 }}>
-                      <button className="btn" onClick={() => submitLayout(false)}
-                              disabled={!Object.keys(layoutPicks).length && !Object.keys(frdPicks).length}>
-                        Continue
-                      </button>
-                      <button className="btn" onClick={() => submitLayout(true)}
-                              title="Continue with the remaining roles read as empty (gate-flagged)">
-                        Proceed with unresolved
-                      </button>
-                      <button className="btn" onClick={() => api.layoutAnswers({ answers: {}, cancel: true }).then(setStatus).catch(() => {})}>
-                        Cancel run
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
+              ) : null}
+            </div>
+          ) : null}
+          {status.stages.length ? (
+            <details className="fold" open={running}>
+              <summary>
+                What the agent did
+                <span className="fold-hint">
+                  {status.stages.length} step{status.stages.length === 1 ? "" : "s"}
+                </span>
+              </summary>
+              <div className="fold-body">
                 <ul className="stage-list">
                   {status.stages.map((s, i) => (
                     <li key={`${s.stage}-${s.at}`}>
@@ -895,40 +1270,82 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     </li>
                   ))}
                 </ul>
-                {status.state === "done" ? (
-                  <button
-                    className="btn primary"
-                    disabled={loadingSet !== null}
-                    onClick={async () => {
-                      // A just-finished run's results are ALREADY adopted in
-                      // the store — navigate straight there instead of
-                      // reloading from disk.
-                      if (
-                        status.last_run_label &&
-                        status.label === status.last_run_label &&
-                        status.mode === "live"
-                      ) {
-                        await onFeedsChanged();
-                        navigate("/");
-                        return;
-                      }
-                      if (status.last_run_label) {
-                        loadLiveRun(status.last_run_label);
-                      } else {
-                        navigate("/");
-                      }
-                    }}
-                  >
-                    View results →
-                  </button>
-                ) : null}
+                <ModelUsageList usage={status.model_usage} />
               </div>
-            ) : null}
+            </details>
+          ) : (
+            <ModelUsageList usage={status.model_usage} />
+          )}
+          {status.state === "done" && blocking ? (
+            <div className="note-line" role="alert">
+              <strong>Complete the blocking questions first.</strong>{" "}
+              {unlisted.length < (status.blocking ?? []).length
+                || !(status.blocking ?? []).length ? (
+                <button
+                  className="btn primary"
+                  onClick={() => blockingRef.current?.scrollIntoView?.({ behavior: "smooth" })}
+                >
+                  Go to the blocking questions
+                </button>
+              ) : null}
+              {unlisted.length ? (
+                <div className="hint" aria-label="blocking not answerable here"
+                     style={{ marginTop: 4 }}>
+                  Not answerable on this page yet — give{" "}
+                  {unlisted.length === 1 ? "it" : "them"} under <code>inputs:</code> in
+                  the answers file and run again:
+                  <ul style={{ margin: "2px 0 0 0", paddingLeft: 18 }}>
+                    {unlisted.map((b) => (
+                      <li key={b.key}><code>{b.key}</code></li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {status.state === "done" && !blocking ? (
+            <div className="card-actions">
+              <button
+                className="btn primary lg"
+                disabled={loadingSet !== null}
+                onClick={async () => {
+                  onViewResults?.();
+                  // A just-finished run's results are ALREADY adopted in
+                  // the store — navigate straight there instead of
+                  // reloading from disk.
+                  if (
+                    status.last_run_label &&
+                    status.label === status.last_run_label &&
+                    status.mode === "live"
+                  ) {
+                    await onFeedsChanged();
+                    navigate("/results");
+                    return;
+                  }
+                  if (status.last_run_label) {
+                    loadLiveRun(status.last_run_label);
+                  } else {
+                    navigate("/results");
+                  }
+                }}
+              >
+                View results →
+              </button>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
-
+      {(requirements?.configured !== false && requirements?.check)
+        || (governance && governance.configured !== false && governance.checks.length > 0) ? (
+        <details className="details-fold">
+          <summary>Details for the team</summary>
+          <div className="details-body card">
             {requirements?.configured !== false && requirements?.check ? (
               <>
-                <div className="panel-subhead">Input requirements check</div>
+                <div className="panel-subhead" style={{ marginTop: 0, borderTop: "none", paddingTop: 0 }}>
+                  Input requirements check
+                </div>
                 <p className="hint" style={{ marginTop: 0 }}>
                   The FRD contract, evaluated against the eleven Structural
                   Metadata rows of <code>{requirements.check.source}</code> — read live
@@ -1014,20 +1431,29 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 </div>
               </>
             ) : null}
-
           </div>
-        </div>
-      </div>
+        </details>
+      ) : null}
 
       {choosing ? (
         <div className="modal-overlay" role="dialog" aria-modal="true">
-          <div className="modal">
+          <div className="modal wide">
+           <ErrorBoundary label="The document chooser">
             <h2>Choose documents</h2>
+            {error ? (
+              // The chooser covers the page's card: a call that failed in here
+              // (Retry, a choice the backend refused) is shown here too.
+              <ErrorCard error={error} title="The last action failed.">
+                <div style={{ marginTop: 6 }}>
+                  <button className="btn" onClick={() => setError(null)}>Dismiss</button>
+                </div>
+              </ErrorCard>
+            ) : null}
             <p className="hint">
-              Scanned live from the local fixtures directory and the{" "}
-              <code>inputs/sharepoint</code>, <code>inputs/databricks</code> and{" "}
-              <code>inputs/uploads</code> landing folders — where the SharePoint picker,
-              the volume fetch below and a from-device upload deliver documents.
+              Pick the STTM workbook first; the agent then pairs its FRD and VDD, shown
+              below, and you can change either. The list is read now from this App's input
+              folders (<code>inputs/sharepoint</code>, <code>inputs/databricks</code>,{" "}
+              <code>inputs/uploads</code>) and the local fixtures.
             </p>
             <p style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <input
@@ -1076,42 +1502,75 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             {workbooks === null ? (
               <div className="empty">Scanning…</div>
             ) : workbooks.length === 0 ? (
-              <div className="empty">No .xlsx workbooks found in the input directories.</div>
+              <div className="empty">
+                No .xlsx workbooks found in the input directories.
+                <StorageRoots />
+              </div>
             ) : (
-              workbooks.map((w) => (
+              // By CONTENT (M9.3): dictionaries are listed under the VDD heading;
+              // everything else here — an unclassified / unreadable workbook is
+              // badged, never hidden.
+              workbooks.filter((w) => w.kind !== "vdd").map((w) => (
                 <button
                   key={w.name}
                   className="btn chooser-row"
+                  disabled={selecting || running}
                   onClick={() => chooseWorkbook(w.name)}
                 >
                   <code className="chooser-name" title={w.name}>
                     {middleTruncate(w.name)}
                   </code>
-                  <span className="chooser-chip">
+                  <span className="chooser-chip" title={w.kind_reason ?? ""}>
                     {w.source}
-                    {w.selected ? " · selected" : ""}
+                    {w.kind && w.kind !== "sttm"
+                      ? ` · ${w.kind === "classifying" ? "classifying…" : w.kind}`
+                      : ""}
+                    {w.name === chosen.sttm ? " · selected" : ""}
+                    {selecting && selectionJob?.name === w.name ? " · selecting…" : ""}
                   </span>
+                  {w.kind === "unreadable" ? (
+                    <span
+                      className="chooser-chip"
+                      role="button"
+                      title={`${w.kind_reason ?? ""} — read it again`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        api.reclassifyWorkbook(w.name).then((r) => setWorkbooks(r.workbooks)).catch(setError);
+                      }}
+                    >
+                      Retry
+                    </span>
+                  ) : null}
                 </button>
               ))
             )}
+            <SelectionTrace job={selectionJob} selecting={selecting} pairingPending={pairingPending} />
+            {status?.selection_error ? (
+              <div className="flag-hitl" style={{ padding: "8px 10px", marginTop: 8 }}>
+                <strong>Not selected.</strong>{" "}
+                <span className="hint">{status.selection_error.message}</span>
+              </div>
+            ) : null}
+            <PairingLines pairing={status?.pairing} chosenSttm={chosen.sttm} pairingPending={pairingPending} />
             <p className="hint" style={{ margin: "14px 0 4px" }}>
               <strong>Vendor data dictionary (optional third input)</strong> — currently{" "}
-              {status?.vdd_name ? <code>{status.vdd_name}</code> : "none"}. Cross-checked
+              {chosen.vdd ? <code>{chosen.vdd}</code> : "none"}. Cross-checked
               against the STTM (positions, types, segments); never a source of values.
             </p>
             <p style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {(workbooks ?? []).map((w) => (
+              {(workbooks ?? []).filter((w) => w.kind !== "sttm").map((w) => (
                 <button
                   key={`vdd-${w.name}`}
-                  className={`btn${status?.vdd_name === w.name ? " active" : ""}`}
-                  disabled={running}
+                  className={`btn${chosen.vdd === w.name ? " active" : ""}`}
+                  disabled={running || selecting}
                   title={`Use ${w.name} as the Vendor Data Dictionary`}
                   onClick={() => chooseVdd(w.name)}
                 >
                   VDD: {middleTruncate(w.name, 32)}
+                  {w.kind && w.kind !== "vdd" ? ` (${w.kind === "classifying" ? "classifying…" : w.kind})` : ""}
                 </button>
               ))}
-              <button className="btn" disabled={running || !status?.vdd_name} onClick={() => chooseVdd(null)}>
+              <button className="btn" disabled={running || selecting || !chosen.vdd} onClick={() => chooseVdd(null)}>
                 No VDD
               </button>
             </p>
@@ -1147,7 +1606,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                           {middleTruncate(d.name)}
                         </code>
                         <span className="hint chooser-meta">
-                          {d.volume} · {(d.size / 1024).toFixed(0)} KB
+                          {d.volume} · {fmtKb(d.size)}
                           {d.companion_frd
                             ? " · includes companion FRD — fetched together"
                             : ""}
@@ -1162,7 +1621,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                           {middleTruncate(d.name)}
                         </code>
                         <span className="hint chooser-meta">
-                          {d.volume} · {(d.size / 1024).toFixed(0)} KB
+                          {d.volume} · {fmtKb(d.size)}
                           {d.state === "differs" ? " · differs from local copy" : ""}
                           {d.companion_frd
                             ? " · includes companion FRD — fetched together"
@@ -1203,7 +1662,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                         {middleTruncate(d.name)}
                       </code>
                       <span className="hint chooser-meta">
-                        {d.volume} · {(d.size / 1024).toFixed(0)} KB
+                        {d.volume} · {fmtKb(d.size)}
                         {d.paired ? " · companion of an STTM above" : ""}
                         {d.state === "differs" ? " · differs from local copy" : ""}
                       </span>
@@ -1232,11 +1691,22 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               <>
                 <p className="hint" style={{ margin: "14px 0 4px" }}>
                   <strong>FRD for this run</strong> — currently{" "}
-                  <code>{frdChoices.current.label}</code>
-                  {frdChoices.current.chosen ? "" : " (demo golden — default)"}.
+                  {frdChoices.current.label ? (
+                    <>
+                      <code>{frdChoices.current.label}</code>
+                      {frdChoices.current.paired ? " (paired)" : ""}
+                    </>
+                  ) : (
+                    <em>none chosen</em>
+                  )}.
                   Contracts come from the FRD→STTM agent; a document without a
                   contract is not selectable.
                 </p>
+                {frdChoices.upstream_state === "loading" ? (
+                  <div className="hint" style={{ fontSize: 11 }}>
+                    FRD→STTM agent table: loading in the background…
+                  </div>
+                ) : null}
                 {frdChoices.upstream_error ? (
                   <div className="hint" style={{ fontSize: 11 }}>
                     FRD→STTM agent table unavailable: {frdChoices.upstream_error}
@@ -1247,6 +1717,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     key={c.doc_id}
                     className="btn chooser-row"
                     title={c.doc_id}
+                    disabled={selecting}
                     onClick={() => chooseFrd("upstream", c.doc_id)}
                   >
                     <span className="chooser-main">
@@ -1295,9 +1766,68 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 ))}
               </>
             ) : null}
+            <div className="decision-row modal-actions" style={{ marginTop: 14 }}>
+              {/* post141 (Aruna): Done keeps the pick; Cancel puts back the
+                  documents chosen when the dialog opened */}
+              <button
+                className="btn primary"
+                disabled={!chosen.sttm || selecting}
+                title={!chosen.sttm ? "Choose an STTM first" : undefined}
+                onClick={() => {
+                  setChoosing(false);
+                  api.endChoosing().catch(() => {});
+                }}
+              >
+                Done
+              </button>
+              <button
+                className="btn"
+                onClick={async () => {
+                  setChoosing(false);
+                  try {
+                    await api.cancelChoosing();
+                    setStatus(await api.demoStatus());
+                  } catch (e) {
+                    setError(e);
+                  }
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+           </ErrorBoundary>
+          </div>
+        </div>
+      ) : null}
+
+      {clearList !== null ? (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal">
+            <h2>Clear past runs?</h2>
+            {clearList.length === 0 ? (
+              <p>There are no past runs to clear.</p>
+            ) : (
+              <>
+                <p>
+                  This permanently deletes <strong>{clearList.length}</strong> run folder(s)
+                  from the outputs location — the stored copy too. It cannot be undone.
+                  Nothing else there is touched.
+                </p>
+                <ul className="hint" style={{ maxHeight: 160, overflow: "auto" }}>
+                  {clearList.map((name) => (
+                    <li key={name}><code>{name}</code></li>
+                  ))}
+                </ul>
+              </>
+            )}
             <div className="decision-row" style={{ marginTop: 14 }}>
-              <button className="btn" onClick={() => setChoosing(false)}>
-                {status?.sttm_chosen ? "Done" : "Cancel"}
+              {clearList.length > 0 ? (
+                <button className="btn primary" disabled={clearing} onClick={confirmClearRuns}>
+                  {clearing ? "Deleting…" : `Delete ${clearList.length} run(s)`}
+                </button>
+              ) : null}
+              <button className="btn" disabled={clearing} onClick={() => setClearList(null)}>
+                {clearList.length > 0 ? "Cancel" : "Close"}
               </button>
             </div>
           </div>
@@ -1307,16 +1837,28 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       {confirming ? (
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <div className="modal">
-            <h2>Generate a pipeline from this STTM?</h2>
+            <h2>
+              {pendingRerun
+                ? `Re-run with ${pendingRerun.answered} answer${pendingRerun.answered === 1 ? "" : "s"}?`
+                : "Generate a pipeline from this STTM?"}
+            </h2>
             <p>
               Input: <code>{status?.sttm_workbook ?? "the configured STTM workbook"}</code>
+              {pendingRerun ? (
+                <span className="hint">
+                  {" "}— the same documents, with your answers and the ones the last run's
+                  layout dialog received applied.
+                </span>
+              ) : null}
             </p>
-            {liveProvider === "mock (locked)" ? (
+            {transport && transport.kind !== "databricks_fmapi" && transport.kind !== "anthropic" ? (
               <p>
-                This deployment is <strong>locked to the mock provider</strong> — the run
-                makes <strong>zero model calls</strong> (deterministic mock candidates).
+                This run will use <strong>{transport.label}</strong>: no model is called and
+                the Layer-2 candidates are deterministic stand-ins. The run's own record says
+                what actually happened when it finishes.
               </p>
             ) : (
+              <>
               <p>
                 {transport?.kind === "databricks_fmapi" ? (
                   <>
@@ -1327,13 +1869,27 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   "This makes real, billed Anthropic API calls:"
                 )}
                 <br />
-                <strong>~{est?.calls ?? 3} calls · ≈ ${(est?.cost_usd ?? 0.1).toFixed(2)} · ~
-                {est?.seconds ?? 20}s</strong>
+                {/* post145: these ranges are runs on pairs already mapped */}
+                <span className="hint">Pairs the agent has mapped before: </span>
+                <strong data-testid="live-estimate">{estimate.headline}</strong>
+                <br />
+                <span className="hint">{estimate.detail}</span>
+                {estimate.stopped ? (
+                  <>
+                    <br />
+                    <span className="hint" data-testid="live-estimate-stopped">
+                      {estimate.stopped}
+                    </span>
+                  </>
+                ) : null}
               </p>
+              <p className="note-line info" data-testid="live-estimate-new-pair">
+                {estimate.newPair}
+              </p>
+              </>
             )}
             <p className="hint">
-              Output is isolated to its own run directory; the tracked replay fixtures and
-              default output are never touched.
+              The files go to a new run folder of their own; earlier runs are not changed.
             </p>
             <p className="hint">
               A live run sends the chosen documents' content to the model endpoint — run
@@ -1341,9 +1897,12 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             </p>
             <div className="decision-row" style={{ marginTop: 14 }}>
               <button className="btn primary" onClick={fireLive}>
-                Confirm — run live
+                {/* post143: "live" only when a model can actually be called */}
+                {transport && transport.kind !== "databricks_fmapi" && transport.kind !== "anthropic"
+                  ? pendingRerun ? "Confirm — re-run with the mock" : "Confirm — generate with the mock"
+                  : pendingRerun ? "Confirm — re-run live" : "Confirm — run live"}
               </button>
-              <button className="btn" onClick={() => setConfirming(false)}>
+              <button className="btn" onClick={() => { setConfirming(false); setPendingRerun(null); }}>
                 Cancel
               </button>
             </div>

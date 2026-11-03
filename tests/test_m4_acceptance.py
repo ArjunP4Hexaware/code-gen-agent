@@ -9,8 +9,11 @@ tracked copy at fixtures/acfc_shapes/pair_1/golden/):
 * the IIG workbook matches the golden's sheet names, order, headers, column
   order and row counts, the cells the fixture universe determines match the
   golden's values, and every other cell is blank AND flagged (pinned list);
-* a docx FRD that names no file pattern / segments takes both from the STTM
-  with provenance flags;
+* M9.4: the pair is the REAL-shape fixture pair (M9.0) and needs no answers
+  file and no model call — the FRD's Object Name cell lists the files, its
+  target cell is an inline layer block without schema / catalog, the STTM
+  supplies segments, schema and catalog, one field is "Do Not Map"; every
+  such decision is a pinned provenance flag;
 * the default profile/template (``edo_sfmc`` / ``iig_v1``) is untouched —
   the CV / SFMC baselines are guarded by the notebook-mode snapshot and the
   Option B suite; here the default framework emit still writes the two
@@ -29,6 +32,7 @@ from acfc_shapes.pair1 import alias_golden_iig
 from codegen import cli
 from codegen.gate.drag_fill import drag_fill_flags
 from codegen.metadata_template import blank_columns
+from conftest import with_dml
 
 REPO = Path(__file__).resolve().parents[1]
 SHAPES = REPO / "fixtures" / "acfc_shapes"
@@ -54,7 +58,7 @@ def _scoped(config, tmp: Path):
 @pytest.fixture(scope="module")
 def pair1_run(pair1_config, pair1_spec, tmp_path_factory):
     tmp = tmp_path_factory.mktemp("pair1_run")
-    scoped = _scoped(pair1_config, tmp)
+    scoped = _scoped(with_dml(pair1_config), tmp)      # the pinned flags include DML
     gate = cli._generate_feed(pair1_spec, scoped, dry_run=True, skip_tests=True,
                               output_mode="framework", conventions_profile="acfc_prx",
                               iig_template="iig_v2")
@@ -82,19 +86,64 @@ def _sheet_rows(sheet) -> tuple[list[str], list[list[str]]]:
 # -- resolver provenance -------------------------------------------------------- #
 
 
-def test_pair1_resolver_takes_pattern_and_segments_from_the_sttm_flagged(pair1_spec):
+# The provenance flags of the M9.0 pair, pinned (M9.4) — in the order the
+# resolver raises them: the FRD reader's, the STTM extractor's, the gap chain's,
+# then the resolver's own.
+PAIR1_PROVENANCE_KINDS = [
+    "frd_layer_block",                       # "Staging Layer:" / "Table: …" block, per layer
+    "file_pattern_from_object_name",         # Object Name lists "<label>: <file>" lines
+    "frd_feed_name_unstated",                # … so it names no feed
+    "frd_unstated:feeds[0].feed_name",       # the layout stage named it: the STTM stage band
+    "skipped_rows",                          # the "Do Not Map" row (post74: one count flag)
+    "frd_unstated:stage_target.schema",      # FRD states no schema -> STTM band
+    "frd_unstated:standard_target.schema",
+    "frd_unstated:stage_target.catalog",     # … and no catalog -> STTM band
+    "frd_unstated:standard_target.catalog",
+    "segments_from_sttm",
+]
+
+
+def _kind(flag: str) -> str:
+    head = flag.split(" ")[0].rstrip(":")
+    return head if head.startswith("frd_unstated:") else head.split(":")[0]
+
+
+def test_pair1_resolver_provenance_flags_are_pinned_and_cite_their_cells(pair1_spec):
     assert pair1_spec.file_name_patterns == [
         "I_ACCUM_*_TO_CLIENT_*.csv", "I_ACCUM_*_FROM_CLIENT_*.csv",
         "F_ACCUM_*_TO_CLIENT_*.csv", "F_ACCUM_*_FROM_CLIENT_*.csv"]
     assert [s.segment for s in pair1_spec.segments] == ["Header", "Detail", "Trailer"]
     assert pair1_spec.delimiter == ""  # fixed width: no implied delimiter
-    kinds = sorted(f.split(":")[0] for f in pair1_spec.provenance_flags)
-    assert kinds == ["file_pattern_from_sttm", "segments_from_sttm"]
-    # Facts, not guesses: the flags quote where the values came from.
-    assert "meta row 'File Names'" in pair1_spec.provenance_flags[1]
-    assert "sheet 'FEED_1_MAPPING'" in pair1_spec.provenance_flags[0]
-    # Not-null / natural key are the DETAIL segment's, deduped.
-    assert pair1_spec.natural_key_columns == ["SEGMENT_IDENTIFIER", "CARDHOLDER_ID", "PLAN_ID"]
+    flags = pair1_spec.provenance_flags
+    assert [_kind(f) for f in flags] == PAIR1_PROVENANCE_KINDS
+    by_kind = {_kind(f): f for f in flags}
+    # Facts, not guesses: every flag quotes the cell it rests on.
+    assert "table 5 row 6 ('Target Table Name')" in by_kind["frd_layer_block"]
+    assert "stage table='vnd_p_accum_client'" in by_kind["frd_layer_block"]
+    assert "('Object Name')" in by_kind["file_pattern_from_object_name"]
+    assert "('Object Name') cell is a labelled_files value" in by_kind["frd_feed_name_unstated"]
+    assert "source_used:STTM stage band 'FEED_1_MAPPING': 'vnd_p_accum_client'" in by_kind[
+        "frd_unstated:feeds[0].feed_name"]
+    assert by_kind["skipped_rows"] == (
+        "skipped_rows:feeds[0] — 1 row(s) left out of both layers before the required-element "
+        "checks: 1 read a skip marker (conventions profile skip_row_markers): "
+        "FEED_1_MAPPING!V38 'Do Not Map'")
+    assert by_kind["frd_unstated:stage_target.schema"].endswith(
+        "STTM FEED_1_MAPPING stage band (schema column): 'stg_vnd_p_accum'")
+    assert by_kind["frd_unstated:standard_target.catalog"].endswith(
+        "STTM FEED_1_MAPPING standard band (catalog column): 'pr_std_vnd_p'")
+    assert "sheet 'FEED_1_MAPPING'" in by_kind["segments_from_sttm"]
+    # The feed the FRD left unnamed is named after the STTM stage band.
+    assert pair1_spec.feed_id == pair1_spec.feed_name == "vnd_p_accum_client"
+    # The unmapped field is in no segment; 23 mapped rows over 21 columns.
+    assert sum(len(s.fields) for s in pair1_spec.segments) == 23
+    assert not any("Reserved" in f.source_column for s in pair1_spec.segments for f in s.fields)
+    # Not-null columns are the DETAIL segment's, deduped. post70: the natural key
+    # only from Primary Key cells — pair 1 marks none (its FRD's Business Key row
+    # is a key signal codegen.primary_key reads, never written unconfirmed).
+    assert pair1_spec.not_null_columns == ["SEGMENT_IDENTIFIER", "CARDHOLDER_ID", "PLAN_ID"]
+    assert pair1_spec.natural_key_columns == []
+    assert pair1_spec.frd_key_statement == "CARDHOLDER_ID, PLAN_ID, PLAN_YEAR_START_DATE"
 
 
 # -- DDL ------------------------------------------------------------------------- #
@@ -126,11 +175,46 @@ def test_pair1_gate_flags_drag_fill_and_provenance(pair1_run):
         "drag_fill_suspect:stage — vnd_p_accum_client columns INDIVIDUAL_DEDUCTIBLE, "
         "FAMILY_DEDUCTIBLE, COPAY, COINSURANCE, INDIVIDUAL_LIMIT, FAMILY_LIMIT: "
         "Decimal(17,2) → Decimal(22,2)")
-    assert "(STTM rows 27–32)" in drag[0]
-    assert any(f.startswith("file_pattern_from_sttm:") for f in gate.flags)
+    assert "(STTM rows 29–34)" in drag[0]        # the banner rows shift the block by two
     assert any(f.startswith("segments_from_sttm:") for f in gate.flags)
     assert not any(f.startswith("ddl_file_name_from_slug") for f in gate.flags)
     assert not any(f.startswith("vdd_") for f in gate.flags)
+
+
+# The WHOLE gate flag list of the M9.4 acceptance run, by kind (count): the
+# provenance flags above + what the gate / framework emit add. Pinned so a new
+# flag class (or a lost one) on the real-shape pair is a deliberate change.
+PAIR1_GATE_FLAG_KINDS = {
+    **{kind: 1 for kind in PAIR1_PROVENANCE_KINDS},
+    "drag_fill_suspect": 1,
+    "iig_blank": 8,
+    # 2026-10-08: metadata_inserts.sql replaces config_inserts_<env>.sql — the
+    # engineer ids are one <<COLUMN#n>> placeholder per row, so only the two
+    # script variables the FAQ leaves open are flagged (@RFC_NUMBER,
+    # @SRC_HOST_NAME); the old script flagged ten @-variables.
+    "dml_unassigned": 2,
+    "dml_not_described": 5,
+    "dml_unconfirmed": 1,
+    "faq_unanswered": 6,
+    "load_mode_not_enforced": 1,
+    "Layer-2": 6,                  # "Layer-2 candidate pending engineer approval: …"
+    "rule": 1,                     # "rule classified flagged: …"
+    "generated": 1,                # "generated tests were skipped — PASS cannot be claimed"
+    # 2026-10-08 (first real-row scorecard): `ruff format` runs over every
+    # emitted .py before the ruff gate and the rewrite is recorded.
+    "ruff_formatted": 1,
+}
+
+
+@needs_golden
+def test_pair1_gate_flag_list_is_pinned(pair1_run):
+    gate, _ = pair1_run
+    assert gate.verdict == "PASS_WITH_FLAGS"
+    counts: dict[str, int] = {}
+    for flag in gate.flags:
+        counts[_kind(flag)] = counts.get(_kind(flag), 0) + 1
+    assert counts == PAIR1_GATE_FLAG_KINDS
+    assert not any(f.startswith(("layout_", "vdd_", "catalog_", "schema_")) for f in gate.flags)
 
 
 def test_drag_fill_needs_three_adjacent_steps(pair1_spec):
@@ -186,11 +270,14 @@ PINNED_COLUMNS = {
 # input document states. Pinned exactly.
 EXPECTED_BLANK = {
     "ADLS_DELTA_INGESTION_DETAILS": [
+        # OBJECT_ID left this list in multi-table step 3: the cited 1..n convention.
         "CLAIM_TYPE_ID", "CREATED_BY", "CREATED_DATE", "FILE_FOOTER_FLAG", "FILE_HEADER_FLAG",
-        "GROUP_ID", "MAPPING_EXPRESSION", "METADATA_CONNECTION_ID", "OBJECT_ID", "PIPELINE_ID",
+        "GROUP_ID", "MAPPING_EXPRESSION", "METADATA_CONNECTION_ID", "PIPELINE_ID",
         "RECYCL_RETN_DAYS", "SRC_ADLS_CONNECTION_ID", "SRC_COL_LNGTH", "SRC_COL_STRT_END_INDX",
         "SRC_CONTAINER_NAME", "SRC_FILE_DELIMITER", "SRC_REC_LNGTH", "TGT_CONNECTION_ID",
-        "TGT_CONTAINER_NAME", "UPDATED_BY", "UPDATED_DATE"],
+        # TGT_PRIMARY_KEY: blank and open when no Primary Key cell states it (instruction
+        # 2026-10-08 — no natural-key fallback; the golden is blank here too).
+        "TGT_CONTAINER_NAME", "TGT_PRIMARY_KEY", "UPDATED_BY", "UPDATED_DATE"],
     "ADLS_FIXED_WIDTH_HANDLER": [
         "CREATED_BY", "CREATED_DATE", "EXTENSION", "FILE_REJECTION", "FILE_TYPE", "PIPELINE_ID",
         "RJCT_RSN_COLUMN_NM", "SEGMNT_TYP", "UPDATED_BY", "UPDATED_DATE", "VERSION"],
@@ -202,8 +289,8 @@ EXPECTED_BLANK = {
     "DATA_FACTORY_PIPELINE_SCHEDULE": [
         "ACTIVE_START_DATE", "CREATED_BY", "CREATED_DATE", "ESTIMATED_START_TIME",
         "PARENT_PIPELINE_ID", "PIPELINE_ID", "UPDATED_BY", "UPDATED_DATE"],
-    "DATA_QUALITY_RULES": [
-        "CREATED_BY", "CREATED_DATE", "GROUP_ID", "OBJECT_ID", "UPDATED_BY", "UPDATED_DATE"],
+    "DATA_QUALITY_RULES": [   # OBJECT_ID filled since multi-table step 4 (per file, 1..n)
+        "CREATED_BY", "CREATED_DATE", "GROUP_ID", "UPDATED_BY", "UPDATED_DATE"],
     "EMAIL_TEMPLATE_CONFIG": [
         "BODY", "BODY_QUERY", "CREATED_BY", "CREATED_DATE", "EMAIL_CC", "SENDER_EMAIL",
         "SENDER_NAME", "SUBJECT", "TEMPLATE_ID", "UPDATED_BY", "UPDATED_DATE"],
@@ -300,11 +387,151 @@ def test_pair1_iig_everything_else_is_blank_and_flagged(pair1_run):
                                                         or value.startswith("RFC#")))
 
 
+
+# -- EVERY cell of EVERY sheet (Chunk A, 2026-10-08) ------------------------------ #
+#
+# Each of the golden's cells is exactly one of:
+#   equal     — ours == the golden (padding stripped, as everywhere in this file);
+#   open      — the golden carries a value no input document states (an engineer-
+#               assigned id, an environment value, an audit stamp, client wording);
+#               ours is BLANK and the column is FLAGGED iig_blank for the sheet;
+#   sequence  — the golden's masked OBJECT_ID SYN-OBJ-<n> == ours <n> (the 1..n
+#               convention within the group);
+#   deviation — ours differs by an open framework question (no input states the
+#               golden's value); ours is PINNED to the value below, with the reason.
+# The pair-1 FAMILY's conventions (LOB blank, STGDELTA unknown primary key 'NA', its
+# own STGDELTA OBJECT_NAME) come from the pair-1 overlay's family_conventions, so
+# those cells are EQUAL — the golden is the authority (correction 2026-10-08).
+# A difference outside these tables fails; so does an entry no cell needs (stale).
+
+_ID = "engineer-assigned framework id"
+_ENV = "environment value (platform / framework team)"
+_RFC = "RFC number — the load-pattern FAQ's rfc_number is unanswered"
+_LOAD = "audit date — set when the config tables are loaded"
+_START = "engineer's schedule / extract choice"
+_PATH = "engineer's notebook / folder path"
+_WORDING = "client wording / sender"
+_AUDIT = {"CREATED_BY": _RFC, "UPDATED_BY": _RFC, "CREATED_DATE": _LOAD,
+          "UPDATED_DATE": _LOAD}
+
+FULL_OPEN = {
+    "DATA_FACTORY_PIPELINE_SCHEDULE": {
+        "PIPELINE_ID": _ID, "PARENT_PIPELINE_ID": _ID, "ACTIVE_START_DATE": _START, **_AUDIT},
+    "FILE_ADLS_INGESTION_DETAILS": {
+        "GROUP_ID": _ID, "OBJECT_ID": _ID, "PIPELINE_ID": _ID, "SRC_CONNECTION_ID": _ENV,
+        "SRC_ROOT_DIR": _PATH, "TGT_CONTAINER_NAME": _ENV, "SRC_EXTRACT_START_TIME": _START,
+        "TGT_STORAGE_ACCOUNT_NAME": _ENV, **_AUDIT},
+    "ADLS_DELTA_INGESTION_DETAILS": {
+        "GROUP_ID": _ID, "PIPELINE_ID": _ID, "SRC_ADLS_CONNECTION_ID": _ENV,
+        "METADATA_CONNECTION_ID": _ENV, "SRC_CONTAINER_NAME": _ENV, "TGT_CONNECTION_ID": _ENV,
+        "TGT_CONTAINER_NAME": _ENV,
+        "SRC_FILE_DELIMITER": "open question: the golden states '|' for a fixed-width file",
+        "FILE_HEADER_FLAG": "open question: header / trailer flag semantics (design Q6)",
+        "FILE_FOOTER_FLAG": "open question: header / trailer flag semantics (design Q6)",
+        **_AUDIT},
+    "STGDELTA_STDDELTA_INGESTION_DET": {
+        "GROUP_ID": _ID, "OBJECT_ID": _ID, "PIPELINE_ID": _ID, "SRC_ADLS_CONNECTION_ID": _ENV,
+        "METADATA_CONNECTION_ID": _ENV, "SRC_CONTAINER_NAME": _ENV, "TGT_CONNECTION_ID": _ENV,
+        "TGT_CONTAINER_NAME": _ENV, **_AUDIT},
+    "ADLS_FIXED_WIDTH_HANDLER": {
+        "VERSION": _START, "SEGMNT_TYP": _START, "FILE_TYPE": _START, "EXTENSION": _START,
+        "PIPELINE_ID": _ID, **_AUDIT},
+    "DATABRICKS_NOTEBOOK_DETAILS": {
+        "PIPELINE_ID": _ID, "GROUP_ID": _ID, "DATABRICKS_WORKSPACE_URL": _ENV,
+        "DATABRICKS_WORKSPACE_SECRET": _ENV, "DATABRICKS_CLUSTERID": _ENV,
+        "CLUSTER_DETAILS_ID": _ENV, "DATABRICKS_NOTEBOOK_PATH": _PATH,
+        "DQ_NOTEBOOK_PATH": _PATH, **_AUDIT},
+    "DATA_QUALITY_RULES": {"GROUP_ID": _ID, **_AUDIT},
+    "EMAIL_TEMPLATE_CONFIG": {
+        "TEMPLATE_ID": _ID, "SUBJECT": _WORDING, "BODY": _WORDING, "BODY_QUERY": _WORDING,
+        "SENDER_NAME": _WORDING, "SENDER_EMAIL": _ENV, **_AUDIT},
+}
+
+FULL_SEQUENCE = {("ADLS_DELTA_INGESTION_DETAILS", "OBJECT_ID"),
+                 ("DATA_QUALITY_RULES", "OBJECT_ID")}
+
+# (sheet, column) -> (reason, ours): ours is a value for every row, or a function of
+# the resolved spec (a value the STTM derives).
+FULL_DEVIATIONS = {
+    ("DATA_FACTORY_PIPELINE_SCHEDULE", "PIPELINE_FREQUENCY"): (
+        "open: the golden's per-pipeline frequency (Monthly / Daily) is not stated — the real "
+        "FRD Frequency is a compound sentence (M9_FINDINGS open item 3)", "Daily"),
+    ("ADLS_DELTA_INGESTION_DETAILS", "FREQUENCY"): (
+        "open: per-file frequency (the golden's F_ files Monthly) is not modelled", "Daily"),
+    ("ADLS_DELTA_INGESTION_DETAILS", "SOURCE"): (
+        "open: the golden's per-file SOURCE (FROM_CLIENT files = the client system) is not "
+        "stated; the FRD names one vendor", "VENDOR_A"),
+    ("ADLS_DELTA_INGESTION_DETAILS", "HEADER_FLAG"): (
+        "open: HEADER_FLAG semantics for a fixed-width file (CLAUDE.md open questions); ours = "
+        "the FAQ has_header answer as given", "no"),
+    ("ADLS_DELTA_INGESTION_DETAILS", "MANDATORY_FIELD_LIST"): (
+        "open: ours = the STTM's not-null detail columns (METADATA_DB_SEMANTICS §7); the "
+        "golden leaves it blank", lambda spec: ",".join(spec.not_null_columns)),
+    ("ADLS_DELTA_INGESTION_DETAILS", "TGT_LOAD_OPTION"): (
+        "open: the golden's first object Overwrite vs the FRD Load Strategy STG Append "
+        "(CLAUDE.md open questions)", "Append"),
+    ("STGDELTA_STDDELTA_INGESTION_DET", "SOURCE"): (
+        "open: the golden's STGDELTA SOURCE is the feed / subdomain word, not the vendor",
+        "VENDOR_A"),
+    ("DATABRICKS_NOTEBOOK_DETAILS", "TGT_REFRESH_TYPE"): (
+        "open: the golden's stage legs Overwrite vs the FRD Load Strategy STG Append",
+        "Append"),
+    ("EMAIL_TEMPLATE_CONFIG", "EMAIL_TO"): (
+        "environment: the EDO standard's prod-support DL (shipped synthetic stand-in) vs the "
+        "golden's recipients", "syn.dl.prodsupport@synthetic.example"),
+}
+
+
+def _sequence_mask(ours: str) -> str:
+    return f"SYN-OBJ-{int(ours):03d}" if ours.isdigit() else "?"
+
+
+@needs_golden
+def test_pair1_every_iig_cell_and_the_ddl_are_pinned(pair1_run, pair1_spec):
+    gate, framework_dir = pair1_run
+    assert (framework_dir / "ACCUM_DDL.txt").read_bytes() == GOLDEN_DDL.read_bytes()
+    ours_wb = load_workbook(framework_dir / "config_rows.xlsx")
+    golden_wb = _golden_iig()
+    flagged = blank_columns([f for f in gate.flags if f.startswith("iig_blank:")])
+    unexplained, used = [], set()
+    for sheet in golden_wb.sheetnames:
+        g_headers, g_rows = _sheet_rows(golden_wb[sheet])
+        o_headers, o_rows = _sheet_rows(ours_wb[sheet])
+        assert o_headers == g_headers and len(o_rows) == len(g_rows), sheet
+        for number, (g_row, o_row) in enumerate(zip(g_rows, o_rows, strict=True), start=1):
+            for column, golden, ours in zip(g_headers, g_row, o_row, strict=True):
+                if ours == golden:
+                    continue
+                key = (sheet, column)
+                if column in FULL_OPEN.get(sheet, {}):
+                    used.add(key)
+                    if ours != "" or column not in flagged.get(sheet, []):
+                        unexplained.append((sheet, number, column, "open, not blank+flagged"))
+                elif key in FULL_SEQUENCE:
+                    used.add(key)
+                    if _sequence_mask(ours) != golden:
+                        unexplained.append((sheet, number, column, golden, ours))
+                elif key in FULL_DEVIATIONS:
+                    used.add(key)
+                    pinned = FULL_DEVIATIONS[key][1]
+                    pinned = pinned(pair1_spec) if callable(pinned) else pinned
+                    if ours != pinned:
+                        unexplained.append((sheet, number, column, "deviation moved", ours))
+                else:
+                    unexplained.append((sheet, number, column, golden, ours))
+    assert unexplained == []
+    stale = ({(s, c) for s, cols in FULL_OPEN.items() for c in cols} | FULL_SEQUENCE
+             | set(FULL_DEVIATIONS)) - used
+    assert stale == set(), "classified cells that no longer differ — remove the entries"
+
+
 @needs_golden
 def test_shipped_config_carries_no_client_pipeline_names(config, pair1_spec, tmp_path):
-    """Without the pair-1 overlay the pipeline/notebook inventory is one row
-    each with the names blank-and-flagged — the shipped config ships no
-    client-shaped vocabulary (M5)."""
+    """Without the pair-1 overlay the shipped config ships no client-shaped
+    vocabulary (M5): the notebook inventory is one row, names blank-and-
+    flagged, and the pipeline schedule is the four structural rows named by the
+    naming convention from the feed itself (multi-table step 5) — none of the
+    overlay's client pipeline / notebook names."""
     rows = config.metadata.templates["iig_v2"].template_rows
     assert set(rows) == {"EMAIL_TEMPLATE_CONFIG"}
     scoped = _scoped(config, tmp_path)
@@ -312,15 +539,26 @@ def test_shipped_config_carries_no_client_pipeline_names(config, pair1_spec, tmp
                               output_mode="framework", conventions_profile="acfc_prx",
                               iig_template="iig_v2")
     ours = load_workbook(tmp_path / "out" / pair1_spec.feed_slug / "framework" / "config_rows.xlsx")
-    assert len(_sheet_rows(ours["DATA_FACTORY_PIPELINE_SCHEDULE"])[1]) == 1
+    headers, schedule = _sheet_rows(ours["DATA_FACTORY_PIPELINE_SCHEDULE"])
+    names = [dict(zip(headers, r, strict=True))["PIPELINE_NAME"] for r in schedule]
+    token = "ACCUM"          # the pair-1 FAQ's feed_abbreviation (as the DDL file name)
+    assert names == [f"PL_GMSTR_{token}", f"PL_MSTR_{token}",
+                     f"PL_File_{token}_ADLS_To_Delta_Incr", f"PL_File_{token}_Delta_To_STD_Incr"]
     assert len(_sheet_rows(ours["DATABRICKS_NOTEBOOK_DETAILS"])[1]) == 1
     blank = blank_columns(gate.flags)
-    assert "PIPELINE_NAME" in blank["DATA_FACTORY_PIPELINE_SCHEDULE"]
+    assert "PIPELINE_NAME" not in blank["DATA_FACTORY_PIPELINE_SCHEDULE"]
     assert "DATABRICKS_NOTEBOOK_NAME" in blank["DATABRICKS_NOTEBOOK_DETAILS"]
+    import yaml
+
+    from conftest import PAIR1_OVERLAY
+
+    inventory = yaml.safe_load(PAIR1_OVERLAY.read_text(encoding="utf-8"))
+    client_names = {v for rows in inventory["metadata"]["templates"]["iig_v2"]
+                    ["template_rows"].values() for row in rows for k, v in row.items()
+                    if "NAME" in k}
     for sheet in ours.worksheets:
         for row in sheet.iter_rows(values_only=True):
-            assert not any(isinstance(v, str) and "VND_P" in v.upper() and "PL_" in v
-                           for v in row)
+            assert not client_names & set(row)
 
 
 @needs_golden
@@ -354,9 +592,10 @@ def test_pair1_default_profile_writes_two_files_and_no_combined_ddl(pair1_config
                               output_mode="framework")
     framework_dir = tmp_path / "out" / pair1_spec.feed_slug / "framework"
     names = sorted(p.name for p in framework_dir.iterdir())
-    assert names == ["ADDITION.md", "accumulators_stage_table_creation.txt",
-                     "accumulators_standard_table_creation.txt", "config_inserts.xlsx",
-                     "config_rows.xlsx"]
+    assert names == ["ADDITION.md", "config_inserts.xlsx", "config_rows.xlsx",
+                     "metadata_inserts.sql",       # always, framework mode (2026-10-08)
+                     "vnd_p_accum_client_stage_table_creation.txt",
+                     "vnd_p_accum_client_standard_table_creation.txt"]   # no notebook (M7)
     # iig_v1: the 7-tab reference layout, no blank-and-flag flags.
     assert not any(f.startswith("iig_blank:") for f in gate.flags)
     ours = load_workbook(framework_dir / "config_rows.xlsx")
@@ -372,7 +611,7 @@ def test_combined_ddl_without_feed_abbreviation_falls_back_to_the_slug_and_flags
     artefacts = emit_framework(pair1_spec, LoadPatternFaq(), [], pair1_config, tmp_path,
                                conventions_profile="acfc_prx", iig_template="iig_v2")
     names = [p.name for p in artefacts.files]
-    assert "ACCUMULATORS_DDL.txt" in names
+    assert "VND_P_ACCUM_CLIENT_DDL.txt" in names
     assert any(f.startswith("ddl_file_name_from_slug:") for f in artefacts.flags)
     # No FAQ -> no process name / discriminators: those cells join the blank list.
     blank = blank_columns(artefacts.flags)["ADLS_FIXED_WIDTH_HANDLER"]

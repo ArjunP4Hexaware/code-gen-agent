@@ -4,7 +4,30 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-02 — post162 DEPLOYED)
+## State (2026-11-03 — post163 DEPLOYED; start here)
+
+- **Live:** post163 (ae5aec7) - post160 STTM-authoritative tables, post161 HEDIS H4
+  reader, post162 dark mode, post163 the Results feeds fold. Health + live smoke green.
+  Session log: CLAUDE_HISTORY §[H17]. Tags post160..post163, `rollback/post159-deployed`.
+- **Next (agreed with Soham, not started):**
+  1. A one-page question sheet for the **Rama session (2026-11-03)**: child pipelines
+     (parallel / sequential, children per feed: pair_11 12 vs prod 10), how GROUP_ID /
+     PIPELINE_ID / OBJECT_ID are assigned, and what decides one pipeline with N objects
+     (pair_09: 36) vs one pipeline per table (pair_02) - his answer settles pairs 08/09.
+  2. **Live App runs** (allowed now): pair_05 (confirm the set-aside live), 07 (does the
+     live layout place `sheets[2]/standard/column`, candidate column 15?), 08 and 10 (the
+     real blocker past the layout step). Report outcome + keys only.
+  3. **The end user's fixes** (no analyst is connected): pair_07 one answer; pair_03
+     and pair_11 stray spaces in STTM column names (rows in "Open, needs others" below).
+- **Open:** Soham reported once that a pair in Choose documents would not click; not
+  reproduced live (rows enabled, a click selected pair_11). Likely the post-restart
+  "restore" selection job, which disables every row and only dims it in dark mode -
+  if it recurs: a clear disabled style + a "Restoring the last selection..." line.
+- **Waiting:** Anju - one deployed HEDIS Stage -> Consumption load (DDL + the load) as
+  the golden before any gold emitter.
+- Pre-existing: 390 px sideways scroll on long names (Generate table, feed cards, h1).
+
+## State (2026-11-02 — post162 deployed)
 
 - **Pushed + deployed 2026-11-02:** efc1e79..61f2c74 (post160 + post161 + post162). The
   push did NOT redeploy; `databricks apps deploy codegen-agent --json '{"mode":"SNAPSHOT",

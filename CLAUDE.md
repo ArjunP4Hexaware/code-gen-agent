@@ -50,9 +50,10 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   confirm-gated artefact publish. The only SQL the Databricks seam may send is `EXPLAIN`
   (`codegen.databricks.explain` enforces the prefix; it wakes the warehouse = DBU spend).
   Job parameters carry IDs the wrapper resolves, never inline SQL.
-- **Client documents.** A live run sends document content to the model API: live runs on
-  client pairs only with Soham's approval per pair (the client-document process); mock
-  runs need none. Real client documents (and `IIG test cells.xlsx`) are read in place,
+- **Client documents.** A live run sends document content to the model API. Runs on
+  the deployed App are allowed without a per-run ask (Soham, 2026-11-02) - report the
+  pair, outcome and counts only; a live CLI / harness run on client pairs outside the App
+  still follows the client-document process; mock runs need none. Real client documents (and `IIG test cells.xlsx`) are read in place,
   outputs go to a scratch dir, and only SCORES are reported — never copy client names or
   values into the repo, commits or replies. `scripts/scrub_check.py` must report zero NEW
   hits over tracked files (`docs/acfc/LEAK_LEDGER.md` holds the known ones;
@@ -100,7 +101,9 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   Playwright smoke (Dashboard + Generate: 200, no console errors). For ~30 s after a
   deploy `/api/health` may answer non-JSON and the Dashboard time out — retry before
   believing it. A RUN on the deployed App is live (client documents go to the model) —
-  never start one without asking. A STOPPED App refuses a deploy ("not in RUNNING
+  allowed (2026-11-02); a new pair's first layout run costs about 6-8 DBU. The App's API
+  wants an OAuth token (profile `codegen-oaut`, RESTART.md); the DEFAULT PAT can deploy
+  but not call the API. A STOPPED App refuses a deploy ("not in RUNNING
   state"): starting it bills compute — ask Soham first.
 - **CI** (`.github/workflows/tests.yml`): both venvs' suites, vitest + tsc and the
   version guard on every push; offline, no secrets. It never replaces the local
@@ -500,6 +503,10 @@ offline — **do not call Graph or Databricks from inside the extractors or the 
   never show it as the provider (it read MOCK after every deploy of a live App).
 - Choose documents: a pick applies at once (download, classify, pair); Cancel restores
   the selection the dialog opened on (`/api/demo/choosing*`), Done keeps it.
+- **Model cost** (`reasoning.dbu_rates`, source: databricks.com/product/pricing/
+  proprietary-foundation-model-serving): Claude Opus 5.5 = 57.143 input / 285.714 output
+  DBU per 1M tokens (+10% with regional processing); $ = the contract's $/DBU x rate
+  (the page's example: $0.07). A cached pair makes no model call; output dominates.
 - Layer-2 approve / reject decisions are recorded (`ui/backend/state/decisions.json`)
   but never merged into generated code and never gate.
 

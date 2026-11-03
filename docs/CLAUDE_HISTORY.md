@@ -3260,3 +3260,40 @@ search — ask for one known name rather than keep searching.
 login was refused by Conditional Access (unmanaged device), so updates are Office
 Scripts Soham runs (`/tmp/t/graph/update_*.ts`: 29 Oct the full sheet + the DDL rows,
 30 Oct the App row). Bold in column C = updated today; the C1 header names the date.
+
+## §[H17] Session 2026-11-02 → 03: STTM-authoritative tables, HEDIS H4 reader, dark mode, the feeds fold, post160–post163
+
+What one session did, in order (per-version detail: `CHANGELOG_ACFC.md`):
+- **Container rebuilt:** venvs on 3.12 via `scripts/dev_bootstrap.sh`; Playwright Chromium
+  in `/tmp/pw` + libs `/tmp/pwlibs` (no root, no npx; `apt-get download` + `dpkg -x`);
+  the MLflow Stop hook removed again (tracing off, mlflow absent). Local `main` was 608
+  commits behind - switched to `feature/multi-table`.
+- **The multi-table question (pairs 05/06/08/09):** prod ground truth
+  (`docs/acfc/iig_goldens/01_pair_group_index.csv`): pair_09 = one pipeline, 36 objects;
+  pair_08's std leg = one pipeline, 3 tables; pair_05 deployed only the STTM's table;
+  pair_02 = one pipeline per table. Adversarial review of "one feed carries N tables":
+  it touches every `spec.segments` reader, needs per-table load strategy / keys /
+  file->table mapping, and prod uses OBJECT_ID two ways. Soham chose the NARROW version.
+- **post160** (deployed): FRD-only stage tables set aside, loudly (STTM authoritative).
+  pair_05 FAIL -> PASS_WITH_OPEN_INPUTS; 11 pairs unchanged. The per-table split for an
+  FRD naming no table turned pair_09 FAIL -> CRASHED (answers keyed for the unsplit
+  feed, `feeds[1..].audit_columns`) and was rolled back before the commit; a guard keeps
+  gap-filled STTM tables from ever being set aside ("never build 1 of 36").
+- **HEDIS folder** (53 docs, structure only): 26 of 27 FRDs are an ETL / extract /
+  consumption template (refused by the ingestion reader - correct); they label DQ,
+  criteria and LOB scope, almost never joins / keys / load strategy - for gold the
+  "how" comes from the STTMs and addenda. The 2 Raw->Stage STTMs lay out with one open
+  role. **post161** (deployed): `codegen read-hedis`, family H4 -> gold contract
+  (dialect `hedis_h4`); on the real XREF workbook 13 tables / 251 columns.
+- **post162** (deployed): dark mode the default (Raj via Soham), ACFC navy / light-blue;
+  header toggle; `public/theme-init.js` (CSP-safe); contrast test both themes.
+- **post163** (deployed): Results' feed cards in a fold, closed on arrival.
+- **Deploy lesson:** the App builds from `feature/multi-table`, but a push does NOT
+  redeploy it - `databricks apps deploy` does (DEFAULT PAT ok); the App's API needs the
+  OAuth profile `codegen-oaut`.
+- **Rules from Soham this session:** live runs on the deployed App need no per-run ask;
+  "the analyst" in pair notes = the end user (no analyst is connected).
+- **Cost** (Databricks pricing page): Claude Opus 5.5 57.143 / 285.714 DBU per 1M in /
+  out tokens; measured pair_11 Layer-2 run 3.15 DBU; a cached pair 0.
+- Also: the progress-sheet Office Scripts (dump + update, 2 Nov), the prompt-injection
+  explainer, the request to Anju for one deployed consumption load.

@@ -23,8 +23,10 @@ Nothing in here is imported by resolve / rules / reasoning / emit / gate.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
+import re
 import shutil
 import tempfile
 from collections.abc import Callable, Mapping
@@ -46,7 +48,7 @@ __all__ = [
     "DEFAULT_URIS", "ENV_OVERRIDES", "LocalBackend", "RoleStore", "StorageBackend",
     "StorageConfigError", "StorageEntry", "StorageError", "StorageNotFound", "StorageSet",
     "VolumeBackend", "WorkspaceBackend", "clean_rel", "open_backend", "open_storage",
-    "parse_uri", "runtime_layout_cache",
+    "parse_uri", "per_app_folder", "runtime_layout_cache",
 ]
 
 SCHEMES = ("local", "workspace", "volume")
@@ -278,6 +280,36 @@ def runtime_layout_cache(config, base_dir: Path, *, stores: StorageSet | None = 
     return state.local_path("layout_profiles"), push
 
 
+PER_APP_ENV = "CODEGEN_STORAGE_PER_APP"
+PRIMARY_APP_ENV = "CODEGEN_STORAGE_PRIMARY_APP"
+APP_NAME_ENV = "DATABRICKS_APP_NAME"            # set by the Apps runtime
+_PER_APP_ROLES = ("state", "outputs")
+_APP_FOLDER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
+
+
+def per_app_folder(section, env: Mapping[str, str]) -> tuple[frozenset[str], str | None]:
+    """(roles, folder) for this process (post167). ``folder`` is the App's
+    name when it runs as a Databricks App other than the primary one, else None
+    (the CLI, the harness, the primary App: the configured folders)."""
+    raw = env.get(PER_APP_ENV)
+    roles = ([r.strip() for r in raw.split(",") if r.strip()] if raw is not None
+             else list(getattr(section, "per_app_roles", None) or []))
+    unknown = [r for r in roles if r not in _PER_APP_ROLES]
+    if unknown:
+        raise StorageConfigError(
+            f"{PER_APP_ENV} / storage.per_app_roles names {unknown}: only "
+            f"{list(_PER_APP_ROLES)} may be kept per App (inputs are shared)")
+    app = (env.get(APP_NAME_ENV) or "").strip()
+    primary = (env.get(PRIMARY_APP_ENV) or getattr(section, "primary_app", None) or "").strip()
+    if not roles or not app or app == primary:
+        return frozenset(roles), None
+    if not _APP_FOLDER.fullmatch(app):
+        raise StorageConfigError(
+            f"{APP_NAME_ENV} {app!r} is not a usable folder name for the per-App "
+            "state / outputs folders")
+    return frozenset(roles), app
+
+
 def open_storage(config, base_dir: Path, *, env: Mapping[str, str] | None = None,
                  client=None, client_factory: Callable | None = None) -> StorageSet:
     """The three role stores + the extra input roots for this config / env."""
@@ -287,8 +319,15 @@ def open_storage(config, base_dir: Path, *, env: Mapping[str, str] | None = None
     scratch = _scratch_root(config, env)
     # A config without an `output:` section (a test stub) still gets ./out.
     output_dir = Path(getattr(getattr(config, "output", None), "dir", "out")).as_posix()
+    per_app_roles, app_folder = per_app_folder(section, env)
 
     def role_uri(role: str) -> str:
+        uri = configured_uri(role)
+        if app_folder and role in per_app_roles and parse_uri(uri)[0] != "local":
+            return uri.rstrip("/") + "/" + app_folder
+        return uri
+
+    def configured_uri(role: str) -> str:
         override = env.get(ENV_OVERRIDES[role], "").strip()
         if override:
             return override
@@ -302,6 +341,14 @@ def open_storage(config, base_dir: Path, *, env: Mapping[str, str] | None = None
         return DEFAULT_URIS[role]
 
     def store(role: str, uri: str) -> RoleStore:
+        if role in per_app_roles and uri != configured_uri(role):
+            # A root is never created by a backend, but this App's own folder is a
+            # child of the configured (shared, already granted) folder: made once
+            # here. A refusal leaves it; the role's first write names the cause.
+            parent = open_backend(configured_uri(role), base_dir=base_dir, client=client,
+                                  client_factory=factory)
+            with contextlib.suppress(StorageError):
+                parent.mkdir(app_folder)
         derived = role == "outputs" and uri == "local:" + output_dir
         backend = open_backend(uri, base_dir=base_dir, client=client, client_factory=factory,
                                create_root=True if derived else None)

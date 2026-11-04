@@ -26,7 +26,7 @@ import threading
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from codegen.storage import open_backend
+from codegen.storage import open_backend, per_app_folder
 from codegen.storage.base import StorageConfigError, StorageNotFound
 
 ROLE_ENVS = (("CODEGEN_STORAGE_INPUTS", "inputs", "Can Manage"),
@@ -144,8 +144,15 @@ def probe_roots(base_dir: Path, *, env: Mapping[str, str] | None = None,
         state, detail = _probe(uri, base_dir, client_factory, principal, EXTRA_GRANT, timeout)
         rows.append({"env": EXTRA_ENV, "role": "pairs (documents)", "value": uri,
                      "state": state, "detail": detail})
+    try:
+        per_app_roles, app_folder = per_app_folder(None, env)
+    except StorageConfigError:
+        per_app_roles, app_folder = frozenset(), None   # the store refuses it loudly
     for name, role, grant in ROLE_ENVS:
         value = env.get(name, "").strip()
+        if value and app_folder and role in per_app_roles and \
+                value.partition(":")[0] in ("workspace", "volume"):
+            value = value.rstrip("/") + "/" + app_folder     # post167: this App's own
         if not value:
             rows.append({"env": name, "role": role, "value": None, "state": "unset",
                          "detail": "not set — the App uses its local default (wiped on "

@@ -527,9 +527,11 @@ offline — **do not call Graph or Databricks from inside the extractors or the 
   over. A principal needs **Can Manage** on the `codegen` folder (inputs / state /
   outputs / the state dir inherit it; Can Edit fails on file creation) and **Can Read**
   on `frd_sttm_pairs`. A folder the principal cannot see reads `empty` in `/api/health`,
-  not an error. Both Apps read the same `app.yaml`, so today they SHARE storage roles
-  (runs, selection, layout cache; Clear past runs on one deletes the other's runs) -
-  open item in RESTART.md.
+  not an error. Both Apps read the same `app.yaml`; since post167 every App but
+  `CODEGEN_STORAGE_PRIMARY_APP` (`codegen-agent`) keeps state + outputs in its own
+  subfolder (`codegen/state/<app>/`, `codegen/outputs/<app>/`, made by the App) -
+  inputs, the pairs and `CODEGEN_STATE_DIR` stay shared. Before post167 (still on an App
+  whose tree lacks it) they shared runs, selection and "Clear past runs".
 - The App opens on the guided run page, "Generate a pipeline" (`/`; the old `/modes`
   redirects there; Results is `/results`): a step strip (Choose
   documents → Check the settings → Answer questions → Get the results), a Documents

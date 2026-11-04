@@ -1178,6 +1178,14 @@ class StorageConfig(BaseModel):
     # Local scratch for the working copies of a remote role (None = the
     # system temp dir). Never the record: recreated freely.
     scratch_dir: str | None = None
+    # post167: roles a Databricks App keeps in a subfolder named after it
+    # (DATABRICKS_APP_NAME), so two Apps deployed from one app.yaml never share a
+    # selection, a run record or a "Clear past runs". Only remote roles; inputs are
+    # never per App. Env CODEGEN_STORAGE_PER_APP ("state,outputs") wins.
+    per_app_roles: list[Literal["state", "outputs"]] = Field(default_factory=list)
+    # The one App that keeps the configured folders themselves (its runs and
+    # layout cache predate the split). Env CODEGEN_STORAGE_PRIMARY_APP wins.
+    primary_app: str | None = None
 
     @model_validator(mode="after")
     def _uris_parse(self) -> StorageConfig:

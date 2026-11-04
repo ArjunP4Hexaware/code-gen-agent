@@ -4,6 +4,21 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post167 — 2026-11-04 (each App its own state and outputs)
+
+Both Apps (`codegen-agent`, `codegen-agent-staging`) deploy one `app.yaml`, so they shared
+the state and outputs roles: a document pick on the staging App replaced the dev App's
+`selection.json`, a run card showed the other App's run, "Clear past runs" cleared both.
+Now `storage.per_app_roles` (env `CODEGEN_STORAGE_PER_APP`, `app.yaml`: `state,outputs`)
+puts those roles of every App but `storage.primary_app` (env `CODEGEN_STORAGE_PRIMARY_APP`,
+`app.yaml`: `codegen-agent`) in a subfolder named after it (`DATABRICKS_APP_NAME`), e.g.
+`codegen/state/codegen-agent-staging/`. The App makes that folder once inside the shared,
+already-granted one (no new grant); inputs, the pairs folder and `CODEGEN_STATE_DIR` stay
+shared; local roles, the CLI and the harness are unchanged; the dev App keeps its folders
+(runs, layout cache). `/api/health` probes the folders the App uses. Takes effect on staging
+only once `main` carries it. Tests: `tests/test_storage.py`, `tests/test_health_probe.py`
+(fail with only the fix reverted).
+
 ## 0.5.8.post166 — 2026-11-04 (placeholder pipeline IDs that show the flow)
 
 Soham: the IIG workbook shows placeholder PIPELINE_IDs, a basic set that shows the flow

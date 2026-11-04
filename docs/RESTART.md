@@ -6,7 +6,7 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 
 ## State (2026-11-04 — cost work, model pilot, App bootstrap patch; start here)
 
-No `src/` change this session (post164 still live on both Apps). Session log: CLAUDE_HISTORY
+No `src/` change this session (post164 still live on both Apps; pushed 9f387ee, adc2adb). Session log: CLAUDE_HISTORY
 §[H19]; the harnesses: `tools/model_eval/` (README).
 - **Spend, October 2026** (EDO Spend Monitor screenshots; Soham's user can NOT read
   `system.billing` / `system.serving`): model serving $2,108.53 (opus-5-5 on D1 $2,075.28 ≈
@@ -41,8 +41,18 @@ No `src/` change this session (post164 still live on both Apps). Session log: CL
   Soham's word, after this file and the history are pushed.
 - **HOME is rebuilt on every `codingapp` restart** (all of `~/.claude`, the gh login, the
   clone, auto-memory): anything worth keeping goes in this repo, committed AND pushed.
-- **Next:** (1) ship the App patch (above); (2) the Apps schedule decision; (3) the items
-  of the 2026-11-03 block below (measure the 11 pairs, Rama's answers, live runs).
+- **GPT-6.1 Sol for the coding assistant (proposal to Venu):** same per-token price as
+  Sonnet 5.5 on Databricks, about a fifth of Opus's tokens per task on VulcanBench -> about
+  $0.33-0.87 per solved task vs $2.84 (Opus medium); Sonnet 5.5 is no saving ($2.75 at best,
+  20 / 23). NOT enabled in D1 (only gpt-oss endpoints); `codingapp`'s `CODEX_MODEL` names a
+  missing endpoint. Briefing page: Workspace `codingapp-patch-2026-11-04/coding-task-cost.html`.
+  If enabled: run the replay (`tools/model_eval/replay`) on Sol via Codex first (< $5). The
+  CodeGen agent itself stays Anthropic-only.
+- **DEFAULT profile token lives 15 min** (the App rotates it every 10): long CLI waits on it
+  fail "Invalid access token" - use the OAuth profile for anything slow.
+- **Next:** (1) ship the App patch (above); (2) the Apps schedule decision; (3) Venu's
+  answer on Sol; (4) the items of the 2026-11-03 block below (measure the 11 pairs, Rama's
+  answers, live runs).
 
 ## State (2026-11-03 evening — post164 DEPLOYED, main = staging App)
 

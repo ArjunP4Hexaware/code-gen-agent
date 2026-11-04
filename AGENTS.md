@@ -165,7 +165,9 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   that returns file:line pointers the lead then reads. Delegate edits only for large
   mechanical changes, with the lead's root cause, failing tests and placement written
   first - and check the diff against that, never the worker's own tests. Set model and
-  effort at a session's start (a switch re-sends the whole context uncached).
+  effort at a session's start (a switch re-sends the whole context uncached). Sonnet 5.5 is
+  no saving on long agentic work (more tokens, fewer solves; VulcanBench). Compare models by
+  cost per ACCEPTED task, never per token.
 - **Spend:** Claude Code tokens + Apps compute ≤ $1,500 / month (Soham). An App bills every
   RUNNING hour (Medium 0.5 DBU/h ≈ $290 / month); stopping or starting one is Soham's call.
 - **HOME is wiped on every restart of the coding App** (`~/.claude`, auto-memory, the
@@ -201,6 +203,9 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   CODEGEN_NOTIFICATION_EMAILS=syn.dl.prodsupport@synthetic.example` first (the CLI loads
   the local `.env`, whose DL would leak the client domain into EMAIL_TO).
 - **Gotchas:**
+  - the DEFAULT Databricks profile's PAT lives 15 minutes (the coding App rotates it
+    every 10): a CLI call that waits longer fails "Invalid access token" - use the OAuth
+    profile (RESTART.md) for slow calls;
   - bash heredocs mangle escapes and backticks — write patch scripts with the Write tool
     and run them as files; write commit messages to a file and `git commit -F`;
   - `fixtures/** -text` commits raw bytes — patch fixtures with `read_bytes` /

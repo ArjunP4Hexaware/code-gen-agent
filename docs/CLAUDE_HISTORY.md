@@ -3410,6 +3410,29 @@ README: `tools/model_eval/`):
   (RESTART 2026-11-04), not imported or deployed. `scripts/dev_bootstrap.sh` gained the
   work-branch step (from a clean `main` only).
 
+- **Full-suite grading finished:** 12 / 12 replay runs, no new suite failure against each
+  task's unfixed baseline (one t4 failure is also on the baseline; one t2 chooser timing
+  test is load-flaky, 3 / 3 alone).
+- **Pushed** 9f387ee (this history, RESTART, the AGENTS.md rules, `tools/model_eval/`) and
+  adc2adb (`dev_bootstrap.sh`'s hooks step exited under `set -e` when no global hooks path
+  is set - found by an end-to-end `~/bootstrap` run in a fresh HOME). Both suites green on
+  each (`.venv` 2406, `.venv-d1` 2068; `.venv-d1` was rebuilt this session).
+- **Logs:** the coding App mints a new 15-minute PAT every 10 minutes and retires the old
+  one ("PAT rotation complete ... Old token ELIMINATED"), so a CLI call on the DEFAULT
+  profile that waits longer than that fails "Invalid access token" - that, not a grant,
+  was the stuck-warehouse error. App logs otherwise clean. The `.sync.log` SKIP lines are
+  the test suite's scratch repos firing the global post-commit hook (harmless).
+- **GPT-6.1 Sol** (for Venu): on Databricks it costs exactly Sonnet 5.5's per-token rate
+  (28.571 in / 142.857 out / 1.429 cache read DBU per 1M; long context above 272k input
+  tokens = 2x input, 1.5x output), = OpenAI's list price at $0.07/DBU. VulcanBench Frontier
+  v4 (Codex): 23 / 23 at $0.33-0.43 per task (long tier not applied: up to 2x) vs Opus 5.5
+  medium $2.84; Sonnet 5.5's best cost per solved task is $2.75 (high, 20 / 23) - the token
+  count, not the token price, decides. Sol is NOT served in D1 (only `databricks-gpt-oss-*`);
+  the coding App's `app.yaml` names `CODEX_MODEL=databricks-gpt-6-1-sol`, an endpoint that
+  does not exist here. The briefing page `coding-task-cost.html` is in the Workspace folder
+  `codingapp-patch-2026-11-04/`; publishing it as an Artifact was refused (no claude.ai
+  login in this container, as in §[H18]).
+
 **Lessons:** a hidden test from the merged fix grades a design, not just behaviour - read
 the failure before scoring; price a weaker model per accepted result, not per run; anything
 this container should remember goes into the repo (HOME and auto-memory are wiped).

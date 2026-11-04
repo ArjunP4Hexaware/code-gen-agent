@@ -4,6 +4,25 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post169 — 2026-11-04 (a typed question says what it needs and where the agent looked)
+
+A data engineer on the staging App could not tell what a held-back value question wanted:
+"File format feeds[0].file_format - No document states this value ... Several tables:
+separate them with ';'", then "Why it is asked: contract validation: value, unstated ...".
+Now a typed question on an FRD field (`ui.backend.demo.pending_question`):
+- is a plain question with an example answer (`codegen.layout.hints.VALUE_QUESTIONS`: "What
+  format are the source files in?", e.g. csv, txt, pipe-delimited text; others "What is the
+  <field> for this feed?"), the example the input's placeholder;
+- says where the agent looked, from the run's FRD contract (`hints.where_looked`): the FRD
+  row by label + table / row and why it gave no value (several lines, a table, a pointer,
+  blank, a value it can't use) or that no row is labelled for it - coordinates and the row
+  label only, never a cell's value;
+- says what a blank answer does (the feed stays held back, the question comes back);
+- folds the contract's technical reason under "Technical detail"; the table-list hint
+  only on table questions. An STTM cell question (`columns[i]...`) keeps its STTM wording.
+Blocking semantics unchanged. `tests/test_value_question_card.py` (fails with only demo.py
+reverted) + `LayoutQuestions.test.tsx`; dist rebuilt.
+
 ## 0.5.8.post168 — 2026-11-04 (an FRD cell of labelled lines is read line by line)
 
 An exchange FRD run on the staging App states its format in the Structural Metadata

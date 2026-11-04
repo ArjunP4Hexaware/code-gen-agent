@@ -175,12 +175,20 @@ def _unstated_question(unstated) -> dict:
             "hint": "No document states this value; type it.", "suggested": None}
 
 
-def pending_question(pending, key: str, config) -> dict:
+def pending_question(pending, key: str, config, frd_contract: Path | None = None) -> dict:
     """The question for a held-back key no layout question carries: a band
     layer (source | stage | standard) or a value no document states (text,
-    typed by the person — the agent never guesses a target)."""
+    typed by the person — the agent never guesses a target). post169: a typed
+    value is asked as a plain question with an example, saying where the agent
+    looked (``frd_contract``: the run's FRD contract) and what a blank answer does."""
     from codegen.extract.generic import AUDIT_KEY_RE
-    from codegen.layout.hints import frd_field_help
+    from codegen.layout.hints import (
+        FRD_FIELD_HELP,
+        VALUE_QUESTIONS,
+        frd_field_help,
+        value_question,
+        where_looked,
+    )
     from codegen.layout.profile import BAND_LAYER_KEY_RE
     from codegen.layout.resolve import LayoutQuestion, band_layer_question
 
@@ -189,6 +197,7 @@ def pending_question(pending, key: str, config) -> dict:
         return band_layer_question("sttm", band.group("sheet"), f"band[{band.group('n')}]",
                                    pending.reason).as_dict()
     title = frd_field_help(key, [], config)[0]
+    example = None
     if AUDIT_KEY_RE.match(key):
         # Chunk B: the STTM lists no audit row — the person's list, in the
         # shape codegen.extract.generic.parse_audit_answers reads.
@@ -197,9 +206,15 @@ def pending_question(pending, key: str, config) -> dict:
                 "team confirms them — used with source = you and gate-flagged; the agent never "
                 "adds an audit set silently.")
     else:
-        hint = ("No document states this value. Type it as the source team confirms it — it "
-                "is used with source = you and gate-flagged; the agent never guesses a "
-                "target. Several tables: separate them with ';'.")
+        frd_field = re.sub(r"^feeds\[\d+\]\.", "", key)
+        looked = (where_looked(key, _read_json(frd_contract))
+                  if frd_field in VALUE_QUESTIONS or frd_field in FRD_FIELD_HELP else
+                  "No document states this value.")    # an STTM cell (columns[i]...)
+        if frd_field in VALUE_QUESTIONS or frd_field in FRD_FIELD_HELP:
+            title, example = value_question(key, config)
+        hint = (f"{looked} Type the value the source team confirms; it is used as your "
+                "answer and flagged for review. Left blank, the feed stays held back and this "
+                "question comes back on the next run.")
     # post95: the extractor's proposal (a blank stage type: what the sheet pairs with
     # the row's standard type) - one click, never pre-selected; typing still works
     candidates = [{"value": value, "source": "proposed",
@@ -213,7 +228,19 @@ def pending_question(pending, key: str, config) -> dict:
                 "Nothing is filled in until you answer.")
     return LayoutQuestion(
         document="frd", sheet=None, layer=None, role=key, kind="text", reason=pending.reason,
-        title=title, hint=hint, candidates=candidates).as_dict()
+        title=title, hint=hint, candidates=candidates).as_dict() | {"example": example}
+
+
+def _read_json(path: Path | None) -> dict | None:
+    """A run file as JSON, or None when it is absent / unreadable (the question
+    then says only that no document the agent read states the value)."""
+    if path is None:
+        return None
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def layout_feed_key(key: str, run_feeds: list, layout_feeds: list) -> str:
@@ -3036,7 +3063,8 @@ class DemoRunner:
                            "Answer it under 'Answers needed' on the Generate page and re-run "
                            f"(answers file: under `{section}:`) — the agent never guesses."),
                 ))
-                question = open_questions.get(key) or pending_question(pending, key, config)
+                question = open_questions.get(key) or pending_question(
+                    pending, key, config, frd_contract=frd_path)
                 self._run_items.append(needs_answer_item(
                     question, feed_name=pending.feed_name, sheet=pending.sheet,
                     reason=pending.reason))

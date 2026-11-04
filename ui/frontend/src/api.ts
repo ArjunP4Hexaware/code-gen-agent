@@ -219,6 +219,8 @@ export interface LayoutQuestion {
   hint?: string;
   suggested?: number | null;
   suggested_reason?: string;
+  // post169: a typed value question's example answer (the input's placeholder)
+  example?: string | null;
 }
 
 export type PairRule =

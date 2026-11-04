@@ -6,6 +6,11 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 
 ## State (2026-11-04 — cost work, model pilot, App bootstrap patch; start here)
 
+**First check (the session ended on /clear with a push still pending):** run
+`git fetch && git status -sb`. If it shows `ahead`, the last docs commits (the grand
+master's NULL decision, this note) were not pushed: run both suites (`pytest -n 4 --dist
+loadgroup` in `.venv` and `.venv-d1`), then `git push origin feature/multi-table`.
+
 post165 (DQ rows only where the STTM states them) and post166 (placeholder pipeline IDs, workbook only) pushed; post166 DEPLOYED to the dev App `codegen-agent` 2026-11-04 (started on Soham's word; deployment 01f1d87be2191ec5ad49305a107e1c79, commit 492032e; health = post166, live smoke Generate + Results 200, 0 console errors). The staging App still runs post164 (main). Earlier pushes 9f387ee, adc2adb, f1b0757. Session log: CLAUDE_HISTORY
 §[H19]; the harnesses: `tools/model_eval/` (README).
 - **Spend, October 2026** (EDO Spend Monitor screenshots; Soham's user can NOT read

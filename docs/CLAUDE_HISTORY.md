@@ -3447,7 +3447,7 @@ README: `tools/model_eval/`):
 - **post166 - placeholder pipeline IDs that show the flow** (492032e; Soham's exception to
   "Never invent IDs", now in AGENTS.md): workbook only, `placeholder_pipeline_ids` on in
   the ACFC overlay; grand master 0 (parent blank / NULL, was the constant 0 - the
-  framework owner's walkthrough said a master's parent defaults to 0: to confirm), master
+  framework owner's walkthrough said a master's parent defaults to 0; Soham decided NULL), master
   1, children on; ADLS / file-copy / fixed-width rows = File-to-Stage, STGDELTA =
   Stage-to-Standard, notebook rows = their flow; the combined IIG numbers each feed's
   children after the previous feeds' (pair_02: 0-7). metadata_inserts.sql keeps

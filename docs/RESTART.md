@@ -55,9 +55,9 @@ post165 (DQ rows only where the STTM states them) and post166 (placeholder pipel
   fail "Invalid access token" - use the OAuth profile for anything slow.
 - **Open from post165 / post166:** the FRD's Data Quality section and the STTM's "DQ
   rules" / "mandatory in DQ check" columns never reach DATA_QUALITY_RULES (Layer 2 only,
-  off) - proposed: list them in the review copy as "stated, not generated". Confirm with
-  the framework owner whether the grand master's PARENT_PIPELINE_ID is NULL (post166) or 0
-  (their walkthrough, METADATA_DB_SEMANTICS §2).
+  off) - proposed: list them in the review copy as "stated, not generated". Decided (Soham,
+  2026-11-04): the grand master's PARENT_PIPELINE_ID is NULL, as post166 writes it (not the
+  0 of the framework owner's walkthrough, METADATA_DB_SEMANTICS §2).
 - **Next:** (1) ship the App patch (above); (2) the Apps schedule decision; (3)
   Venu's answer on Sol; (4) the items of the 2026-11-03 block below (measure the 11 pairs, Rama's
   answers, live runs).

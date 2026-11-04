@@ -53,7 +53,7 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   assigned by the client's framework or by client instruction — the agent leaves them
   blank. The one exception (Soham, 2026-11-04, post166): under
   `placeholder_pipeline_ids` the IIG WORKBOOK shows placeholder PIPELINE_IDs that only
-  show the flow (grand master 0 with a blank parent, master 1, children on, parent =
+  show the flow (grand master 0 with a blank parent - NULL, Soham's decision, not 0 - master 1, children on, parent =
   their master), flagged `iig_placeholder_id`; `metadata_inserts.sql` never carries
   them (open `<<PIPELINE_ID#n>>`). Connection IDs come from the environment profile, never guessed. A `SYN_`
   template is never written.

@@ -3433,6 +3433,31 @@ README: `tools/model_eval/`):
   `codingapp-patch-2026-11-04/`; publishing it as an Artifact was refused (no claude.ai
   login in this container, as in §[H18]).
 
+- **post165 - Data Quality rows only where the STTM states them** (6c219bb). A reviewer of
+  a pair_11 IIG said its DQ sheet "drew from the ground-truth IIG". Cause: NullCheckRule /
+  DeDuplicationRule were written on every feed and LRTrimRule on every standard column,
+  the corpus's most frequent classes as a baseline (12 of that run's 19 DQ rows); dedup
+  also took the not-null columns. No golden was read at run time: the golden IIG in the
+  pair folder is classified a validation golden, never an input, and the corpus key route
+  (`pipeline_name_corpus`) only feeds TGT_PRIMARY_KEY on a Confirm. The FRD's Data Quality
+  section and the STTM's "DQ rules" columns still reach only Layer 2 (off for ACFC) - open.
+  Real-pair check (12 pairs, mock): outcomes identical; only DATA_QUALITY_RULES (+ its
+  review / provenance rows) changed - trims gone everywhere, dedup / null checks gone where
+  the STTM states no key / not-null; pair_11 keeps its key-based rows.
+- **post166 - placeholder pipeline IDs that show the flow** (492032e; Soham's exception to
+  "Never invent IDs", now in AGENTS.md): workbook only, `placeholder_pipeline_ids` on in
+  the ACFC overlay; grand master 0 (parent blank / NULL, was the constant 0 - the
+  framework owner's walkthrough said a master's parent defaults to 0: to confirm), master
+  1, children on; ADLS / file-copy / fixed-width rows = File-to-Stage, STGDELTA =
+  Stage-to-Standard, notebook rows = their flow; the combined IIG numbers each feed's
+  children after the previous feeds' (pair_02: 0-7). metadata_inserts.sql keeps
+  `<<PIPELINE_ID#n>>`. Real-pair check: outcomes identical; only the PIPELINE_ID sheets
+  changed; each SQL file one line (the top parent 0 -> NULL).
+- Both pushed after both suites (.venv 2414, .venv-d1 2076) and the real-pair checks;
+  post166 deployed to the dev App (health post166, live smoke green); staging unchanged. The first check's report was deleted by its own cleanup and its classifier
+  ran without openpyxl - rerun properly; keep a check's report outside the folder it
+  cleans and run it with the venv's Python.
+
 **Lessons:** a hidden test from the merged fix grades a design, not just behaviour - read
 the failure before scoring; price a weaker model per accepted result, not per run; anything
 this container should remember goes into the repo (HOME and auto-memory are wiped).

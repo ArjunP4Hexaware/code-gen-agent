@@ -6,7 +6,7 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 
 ## State (2026-11-04 — cost work, model pilot, App bootstrap patch; start here)
 
-No `src/` change this session (post164 still live on both Apps; pushed 9f387ee, adc2adb). Session log: CLAUDE_HISTORY
+post165 (DQ rows only where the STTM states them) and post166 (placeholder pipeline IDs, workbook only) pushed; post166 DEPLOYED to the dev App `codegen-agent` 2026-11-04 (started on Soham's word; deployment 01f1d87be2191ec5ad49305a107e1c79, commit 492032e; health = post166, live smoke Generate + Results 200, 0 console errors). The staging App still runs post164 (main). Earlier pushes 9f387ee, adc2adb, f1b0757. Session log: CLAUDE_HISTORY
 §[H19]; the harnesses: `tools/model_eval/` (README).
 - **Spend, October 2026** (EDO Spend Monitor screenshots; Soham's user can NOT read
   `system.billing` / `system.serving`): model serving $2,108.53 (opus-5-5 on D1 $2,075.28 ≈
@@ -15,8 +15,9 @@ No `src/` change this session (post164 still live on both Apps; pushed 9f387ee, 
   (Genie Code before the switch to Claude Code; ends). **Target: Claude Code tokens + Apps
   ≤ $1,500 / month** (the old Genie Code Tier-5 budget).
 - **Apps bill every RUNNING hour:** Medium = 0.5 DBU/h = 12 DBU/day ≈ $9.66/day at the
-  observed ≈ $0.81/DBU (≈ $290 / month each). Running 2026-11-04: `codegen-agent`,
-  `codingapp`, `codegen-agent-staging` (≈ $870 / month 24/7). Proposed, not done (Soham
+  observed ≈ $0.81/DBU (≈ $290 / month each). Running at the end of 2026-11-04:
+  `codegen-agent` (restarted for the post166 deploy), `codingapp`, `codegen-agent-staging`
+  (≈ $870 / month 24/7). Proposed, not done (Soham
   decides each stop / start): stop them outside working hours, or a scheduled stop/start
   job. The duplicate `code-gen-agent-staging` is stopped.
 - **Model choice, measured** (replay pilot, 4 past fixes, blind review): Opus 5.5 medium
@@ -30,13 +31,15 @@ No `src/` change this session (post164 still live on both Apps; pushed 9f387ee, 
   compaction risk). Don't re-run it without a new reason.
 - **The coding App (`codingapp`) - patch written, NOT imported / deployed.** Its source is
   the Workspace folder `coding-agents-databricks-apps` (SNAPSHOT deploy; the local copy is
-  `/app/python/source_code`, byte-identical before the patch). Changed there:
+  `/app/python/source_code`, byte-identical before the patch; HOME is wiped on restart, so
+  the copy that survives is the Workspace folder `codingapp-patch-2026-11-04/files/` +
+  `codingapp.patch`). The five files:
   `setup_bootstrap.sh` + `bootstrap_repos.txt` (new last setup step: the 14 Databricks
   skills as plain files instead of the plugin, writes `~/bootstrap`), `setup_claude.py`
   (`skillOverrides` for 23 unused template skills), `setup_mlflow.py` (no Stop hook while
   tracing is off; removes old copies), `app.py` (registers the step; the interactive-PAT
   path wrote Opus 4.7 / Sonnet 4.6 / Haiku 4.5 defaults - now 5.5). To ship: import those
-  six files into the Workspace folder (never `.git`), then `databricks apps deploy
+  five files into `coding-agents-databricks-apps` (never `.git`), then `databricks apps deploy
   codingapp` - this RESTARTS the container (session ends, HOME and /tmp wiped): only on
   Soham's word, after this file and the history are pushed.
 - **HOME is rebuilt on every `codingapp` restart** (all of `~/.claude`, the gh login, the
@@ -48,10 +51,15 @@ No `src/` change this session (post164 still live on both Apps; pushed 9f387ee, 
   missing endpoint. Briefing page: Workspace `codingapp-patch-2026-11-04/coding-task-cost.html`.
   If enabled: run the replay (`tools/model_eval/replay`) on Sol via Codex first (< $5). The
   CodeGen agent itself stays Anthropic-only.
-- **DEFAULT profile token lives 15 min** (the App rotates it every 10): long CLI waits on it
+- **DEFAULT profile token lives 15 min** (the coding App rotates it every 10): long CLI waits on it
   fail "Invalid access token" - use the OAuth profile for anything slow.
-- **Next:** (1) ship the App patch (above); (2) the Apps schedule decision; (3) Venu's
-  answer on Sol; (4) the items of the 2026-11-03 block below (measure the 11 pairs, Rama's
+- **Open from post165 / post166:** the FRD's Data Quality section and the STTM's "DQ
+  rules" / "mandatory in DQ check" columns never reach DATA_QUALITY_RULES (Layer 2 only,
+  off) - proposed: list them in the review copy as "stated, not generated". Confirm with
+  the framework owner whether the grand master's PARENT_PIPELINE_ID is NULL (post166) or 0
+  (their walkthrough, METADATA_DB_SEMANTICS §2).
+- **Next:** (1) ship the App patch (above); (2) the Apps schedule decision; (3)
+  Venu's answer on Sol; (4) the items of the 2026-11-03 block below (measure the 11 pairs, Rama's
   answers, live runs).
 
 ## State (2026-11-03 evening — post164 DEPLOYED, main = staging App)

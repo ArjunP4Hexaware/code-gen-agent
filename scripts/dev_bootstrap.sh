@@ -92,8 +92,9 @@ hooks() {
     step "git hooks"
     mkdir -p "$LOCAL_HOOKS"
     local names
-    names=$( (ls scripts/git-hooks; [ -n "$GLOBAL_HOOKS" ] && ls "$GLOBAL_HOOKS") 2>/dev/null \
-             | sort -u)
+    # `|| true`: a container with no global hooks path (or an empty one) is not an error
+    names=$( { ls scripts/git-hooks; [ -z "$GLOBAL_HOOKS" ] || ls "$GLOBAL_HOOKS"; } 2>/dev/null \
+             | sort -u || true)
     for name in $names; do
         cat > "$LOCAL_HOOKS/$name" <<EOF
 #!/usr/bin/env bash

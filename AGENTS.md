@@ -159,6 +159,17 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   Develop the next fix in a worktree (`git worktree add -b wip/<x> /tmp/t/<x> HEAD`, run
   with `PYTHONPATH=/tmp/t/<x>/src` and `-p no:cacheprovider`), then cherry-pick it onto
   the branch once the running checks are read, and delete the worktree and branch.
+- **Model choice (measured 2026-11-03, `tools/model_eval/`):** Opus 5.5 medium, no
+  workers, for code changes here (replay: 4/4 mergeable vs Haiku 5.5 xhigh 1/4 and Opus +
+  Haiku workers 2/4). Haiku only for read-only work (search, log / test-output triage)
+  that returns file:line pointers the lead then reads. Delegate edits only for large
+  mechanical changes, with the lead's root cause, failing tests and placement written
+  first - and check the diff against that, never the worker's own tests. Set model and
+  effort at a session's start (a switch re-sends the whole context uncached).
+- **Spend:** Claude Code tokens + Apps compute ≤ $1,500 / month (Soham). An App bills every
+  RUNNING hour (Medium 0.5 DBU/h ≈ $290 / month); stopping or starting one is Soham's call.
+- **HOME is wiped on every restart of the coding App** (`~/.claude`, auto-memory, the
+  clone, the gh login, /tmp): what must survive goes into this repo, committed and pushed.
 - **Multi-agent workflows / fan-outs:** never without a hard token budget and effort
   caps — an uncapped audit burned 1.7M tokens on 7 of 18 finders (2026-10-26).
   Deterministic tools first (coverage with test contexts, static graph), agents only on

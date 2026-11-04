@@ -4,7 +4,47 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-03 evening — post164 DEPLOYED, main = staging App; start here)
+## State (2026-11-04 — cost work, model pilot, App bootstrap patch; start here)
+
+No `src/` change this session (post164 still live on both Apps). Session log: CLAUDE_HISTORY
+§[H19]; the harnesses: `tools/model_eval/` (README).
+- **Spend, October 2026** (EDO Spend Monitor screenshots; Soham's user can NOT read
+  `system.billing` / `system.serving`): model serving $2,108.53 (opus-5-5 on D1 $2,075.28 ≈
+  all Claude Code - an App layout read is ~$0.34), Apps compute $480 (`codegen-agent`
+  $300.97, `codingapp` = this container $139.09, two console tests $39.56), Genie $468.35
+  (Genie Code before the switch to Claude Code; ends). **Target: Claude Code tokens + Apps
+  ≤ $1,500 / month** (the old Genie Code Tier-5 budget).
+- **Apps bill every RUNNING hour:** Medium = 0.5 DBU/h = 12 DBU/day ≈ $9.66/day at the
+  observed ≈ $0.81/DBU (≈ $290 / month each). Running 2026-11-04: `codegen-agent`,
+  `codingapp`, `codegen-agent-staging` (≈ $870 / month 24/7). Proposed, not done (Soham
+  decides each stop / start): stop them outside working hours, or a scheduled stop/start
+  job. The duplicate `code-gen-agent-staging` is stopped.
+- **Model choice, measured** (replay pilot, 4 past fixes, blind review): Opus 5.5 medium
+  solo 4/4 mergeable ($1.21 per mergeable fix); Haiku 5.5 xhigh solo 1/4 (patched the CLI
+  instead of the shared GenerateRun; symptom fixes); Opus lead + Haiku worker 2/4 (lead
+  delegated before the root cause; accepted a worker's semantic choice backed by its own
+  green tests). Haiku hits its 5x long-context tier by ~request 7 (the ~68k session
+  baseline). Rule in AGENTS.md.
+- **AGENTS.md split test** (6 adversarial probes x 2 arms x 2 runs, $17.59): no rule
+  violation in either arm; NOT adopted (saving ~$15-30 / month in real sessions vs the
+  compaction risk). Don't re-run it without a new reason.
+- **The coding App (`codingapp`) - patch written, NOT imported / deployed.** Its source is
+  the Workspace folder `coding-agents-databricks-apps` (SNAPSHOT deploy; the local copy is
+  `/app/python/source_code`, byte-identical before the patch). Changed there:
+  `setup_bootstrap.sh` + `bootstrap_repos.txt` (new last setup step: the 14 Databricks
+  skills as plain files instead of the plugin, writes `~/bootstrap`), `setup_claude.py`
+  (`skillOverrides` for 23 unused template skills), `setup_mlflow.py` (no Stop hook while
+  tracing is off; removes old copies), `app.py` (registers the step; the interactive-PAT
+  path wrote Opus 4.7 / Sonnet 4.6 / Haiku 4.5 defaults - now 5.5). To ship: import those
+  six files into the Workspace folder (never `.git`), then `databricks apps deploy
+  codingapp` - this RESTARTS the container (session ends, HOME and /tmp wiped): only on
+  Soham's word, after this file and the history are pushed.
+- **HOME is rebuilt on every `codingapp` restart** (all of `~/.claude`, the gh login, the
+  clone, auto-memory): anything worth keeping goes in this repo, committed AND pushed.
+- **Next:** (1) ship the App patch (above); (2) the Apps schedule decision; (3) the items
+  of the 2026-11-03 block below (measure the 11 pairs, Rama's answers, live runs).
+
+## State (2026-11-03 evening — post164 DEPLOYED, main = staging App)
 
 - **Live, dev App `codegen-agent`:** post164 (a88cd79; deployment
   01f1d7b294821f52ae8831217d2b349d). Health = post164, live smoke green (Generate +
@@ -579,10 +619,18 @@ filled with the feed's own values (target table, real location):
 
 ## After a container reset
 
-Venvs, `/tmp`, the OAuth profile and possibly `~/.gitconfig` are gone. Run
-`scripts/dev_bootstrap.sh` (idempotent; `--no-d1` / `--no-browser` / `--no-hooks`): it
-does the venv, Chromium, hooks and push-login steps below and prints the rest. The
-manual recipe stays here for when it fails.
+HOME (`/app/python/source_code`) is rebuilt on every restart of the coding App: the clone,
+venvs, `/tmp`, the gh login, `~/.claude` (settings, memory) and the OAuth profile are gone.
+With the App bootstrap patch deployed (State 2026-11-04), the routine is:
+1. `gh auth login` (the wrapper answers the prompts), then `~/bootstrap` - it re-clones
+   this repo on `feature/multi-table` (`bootstrap_repos.txt` in the App source), runs
+   `gh auth setup-git` and `scripts/dev_bootstrap.sh` (venvs, Chromium + libs, git hooks,
+   the work branch from a clean main, push login). The Databricks skills and the skill
+   trim are already done by the App's own setup.
+2. The Databricks OAuth login (below) when the App's API or SQL is needed.
+Without the patch: clone, then `scripts/dev_bootstrap.sh` (idempotent; `--no-d1` /
+`--no-browser` / `--no-hooks`), `databricks aitools install`, delete the MLflow Stop hook.
+The manual recipe stays here for when it fails.
 
 - **Venvs** via uv (pip's isolated pyspark build failed 2026-10-23):
   - `uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e
@@ -596,8 +644,10 @@ manual recipe stays here for when it fails.
   issued it.
 - **Git push:** `gh auth setup-git` (git then uses the `gh` login).
 - **Browser checks:** Chromium in `/tmp/pw` + libs in `/tmp/pwlibs`, run with
-  `LD_LIBRARY_PATH=/tmp/pwlibs/usr/lib/x86_64-linux-gnu:/tmp/pwlibs/lib/x86_64-linux-gnu
-  PLAYWRIGHT_BROWSERS_PATH=/tmp/pw node <script>`. Stub `/api/feeds` or
+  `LD_LIBRARY_PATH=/tmp/pwlibs/usr/lib/x86_64-linux-gnu:/tmp/pwlibs/lib/x86_64-linux-gnu:/tmp/pwlibs/usr/lib/x86_64-linux-gnu/nss
+  PLAYWRIGHT_BROWSERS_PATH=/tmp/pw node <script>` (without the `nss/` dir Chromium exits
+  127). Smoke: a script that `require`s `ui/frontend/node_modules/playwright` by path,
+  opens the page, waits for the `h1`, screenshots, prints the title + console errors. Stub `/api/feeds` or
   `/api/demo/status` with `page.route`. Rebuild:
   - `cd ui/frontend && npm ci`, then (no `npx` in the container)
     `PLAYWRIGHT_BROWSERS_PATH=/tmp/pw node node_modules/playwright/cli.js install
@@ -612,4 +662,10 @@ manual recipe stays here for when it fails.
 - **The MLflow Stop hook** in `/app/python/source_code/.claude/settings.json` was removed
   2026-10-23 (tracing was disabled and mlflow not installed; its `uv run` wrote
   `uv.lock` into the repo and rebuilt `.venv`). A reprovision may restore it — delete
-  `hooks.Stop` again.
+  `hooks.Stop` again. Cause found 2026-11-04: the App's `setup_mlflow.py` re-adds it on
+  every start even with tracing off - fixed by the App patch (State 2026-11-04).
+- **SQL on the system tables:** Soham's user has no USE SCHEMA on `system.billing` /
+  `system.serving`; spend comes from the EDO Spend Monitor (another workspace - not
+  reachable from here, read screenshots). Warehouse `D1-HRR-RO-SQ-S-01` fails to start
+  (WORKSPACE_CONFIGURATION_ERROR / PERMISSION_DENIED, an admin issue); the Serverless
+  Starter Warehouse starts (ask first, it bills).

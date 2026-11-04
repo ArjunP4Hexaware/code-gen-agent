@@ -3354,3 +3354,63 @@ What one session did, in order (per-version detail: `CHANGELOG_ACFC.md`; state:
 **Lessons:** check the App is idle before a scripted live run (Soham uses it too); a
 background script's subprocess needs the parent's environment; read what a refresh
 writes before running it across many pairs.
+
+## §[H19] Session 2026-11-03 → 04: what the spend is, which model, the coding App's own setup (no src change)
+
+What one session did, in order (state: `docs/RESTART.md` 2026-11-04; harnesses and their
+README: `tools/model_eval/`):
+- **Browser checks rebuilt** (no root, no npx): `npm ci`, Chromium headless shell in
+  `/tmp/pw`, the libs already in `/tmp/pwlibs`; a local mock App on port 8599
+  (`DATABRICKS_APP_PORT` overridden) + a Playwright smoke: title, `h1`, 0 console errors.
+  Switched the local checkout from `main` to `feature/multi-table`; removed the MLflow
+  Stop hook again.
+- **Claude Code cost.** Rates checked on the Databricks pricing page (DBU per 1M): Opus 5.5
+  57.143 in / 285.714 out / 2.857 cache read / 71.429 5-min write / 114.286 1-h write;
+  Sonnet 5.5 exactly half; Haiku 5.5 1.429 / 7.143 / 0.143 / 1.786 under 100k prompt
+  tokens, 5x above. One measured session: 92% cache hits, cache writes 48% of the DBU,
+  output 23%; a fresh session sends ~68k tokens before the first prompt (system prompt +
+  tools; AGENTS.md ~10.7k; ~118 skill descriptions ~11k incl. 14 plugin/user duplicates).
+  A 1-h cache would have cost +29% on that session (all gaps < 5 min) - not recommended
+  unless gaps of 5-60 min are common. Short-task benchmarks favour Sonnet; on long
+  agentic tasks (VulcanBench Frontier v4) Sonnet 5.5 medium/high lose to Opus 5.5 medium
+  and Haiku 5.5 xhigh looked competitive - which the replay pilot below did NOT confirm
+  for this repo.
+- **Where the money went (October):** Soham's user cannot read `system.billing` /
+  `system.serving` (USE SCHEMA denied; tried with the PAT and an OAuth profile); the
+  `D1-HRR-RO-SQ-S-01` warehouse fails to start (WORKSPACE_CONFIGURATION_ERROR /
+  PERMISSION_DENIED). From the EDO Spend Monitor screenshots: model serving $2,108.53
+  (≈ all Claude Code), Apps $480 (idle running hours: Medium = 0.5 DBU/h ≈ $0.81/DBU),
+  Genie $468.35 (Genie Code, before the switch). Target set by Soham: Claude Code + Apps
+  ≤ $1,500 / month.
+- **Replay pilot** (`tools/model_eval/replay`, $12.78 + ~$2 review): four past fixes
+  replayed from their parent commit with symptom-only briefs; three arms; graded by the
+  commit's hidden test, own-test proof, full suite vs baseline and a blind review.
+  Mergeable: Opus 5.5 medium solo 4/4, Haiku 5.5 xhigh solo 1/4, Opus lead + Haiku worker
+  2/4; cost per mergeable fix $1.21 / $2.77 / $2.59. Hidden tests missed what the review
+  caught: a fix in `cli.py` only (the App's `GenerateRun.finish()` path untouched),
+  symptom fixes for the stray band, a profile knob flipped outside the brief, blank types
+  quarantining edo_sfmc feeds. All t2 arms "failed" the hidden test only because it pins
+  the reference design (the stray band kept, empty); a behavioural version passed all
+  three. One suite failure (chooser timing test) was load-flaky: 3/3 alone. Research on
+  routing agreed: routing for accuracy has no headroom; fixed defaults often beat
+  routers; cheap models cost more per completed task through extra turns and cache
+  re-reads; handoffs lose causal chains, constraints and negative space.
+- **AGENTS.md split test** (`tools/model_eval/agents_md_split`, $17.59): reference
+  sections moved to a skill vs the full file, six adversarial probes, 2 runs each - no
+  violation in either arm, the skill loaded 12/12, split 15% cheaper. Kept the full file
+  (Soham's hypothesis: moving rules out lowers reliability): the saving mostly vanishes in
+  multi-hour sessions and a loaded skill can be compacted away; AGENTS.md is re-sent every
+  request.
+- **The coding App's setup** (`coding-agents-databricks-apps`, SNAPSHOT deploy). HOME is
+  rebuilt on every restart. Found: `setup_mlflow.py` re-adds the Stop hook each start;
+  `app.py` rewrites `~/.gitconfig` (dropping `gh auth setup-git`'s helper); the
+  interactive-PAT path wrote Opus 4.7 / Sonnet 4.6 / Haiku 4.5 defaults; plugin skills
+  cannot be switched off by `skillOverrides` (user skills can) - `aitools install
+  --skills-only --skills ...` installs chosen ones as plain files instead. Patch written
+  (RESTART 2026-11-04), not imported or deployed. `scripts/dev_bootstrap.sh` gained the
+  work-branch step (from a clean `main` only).
+
+**Lessons:** a hidden test from the merged fix grades a design, not just behaviour - read
+the failure before scoring; price a weaker model per accepted result, not per run; anything
+this container should remember goes into the repo (HOME and auto-memory are wiped).
+

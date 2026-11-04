@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Rebuild this repo's dev environment after a container reset (2026-10-23):
-# the two venvs, the headless Chromium for browser checks, the git hooks and
-# the git push login. Idempotent: every step checks before it acts, so a re-run
+# the two venvs, the headless Chromium for browser checks, the git hooks, the
+# work branch (from a clean main) and the git push login. Idempotent: every step checks before it acts, so a re-run
 # on a working container only verifies. The recipe it automates is
 # docs/RESTART.md "After a container reset".
 #
@@ -117,6 +117,21 @@ EOF
     ok "git hooks: $(echo "$names" | tr '\n' ' ')-> $LOCAL_HOOKS (repo first, then ${GLOBAL_HOOKS:-no global})"
 }
 [ "$DO_HOOKS" = 1 ] && hooks
+
+# -- work branch: a restored checkout comes back on main (the staging App's branch) --
+# Only from a clean main: never moves a checkout with local changes or on another branch.
+WORK_BRANCH=feature/multi-table
+step "work branch"
+current=$(git rev-parse --abbrev-ref HEAD)
+if [ "$current" = main ] && [ -z "$(git status --porcelain)" ]; then
+    git fetch -q origin "$WORK_BRANCH" && git switch -q "$WORK_BRANCH" \
+        && git merge -q --ff-only "origin/$WORK_BRANCH" && ok "switched main -> $WORK_BRANCH" \
+        || todo "work branch: could not switch to $WORK_BRANCH (see output above)"
+elif [ "$current" = "$WORK_BRANCH" ]; then
+    ok "on $WORK_BRANCH"
+else
+    ok "on $current (left as is)"
+fi
 
 # -- git push login --------------------------------------------------------------
 step "git push"

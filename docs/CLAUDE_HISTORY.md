@@ -3458,7 +3458,14 @@ README: `tools/model_eval/`):
   ran without openpyxl - rerun properly; keep a check's report outside the folder it
   cleans and run it with the venv's Python.
 
+- **The coding App patch shipped** (2026-11-04, Soham's word): the 2 pending docs commits
+  pushed (52982c9) after both suites (`.venv` 2413 passed + 1 load-timing failure,
+  `.venv-d1` 2075 + 1; both suites ran at once = 33 min; each failing test passed alone:
+  the chooser step budget and the iig_diff 30 s cap); the App's Workspace source checked
+  byte-identical to the patch base (app.py, setup_claude.py, setup_mlflow.py) before the
+  five files were imported; `databricks apps deploy codingapp` (SNAPSHOT) started - it
+  restarts this container; what to verify after is in RESTART.
+
 **Lessons:** a hidden test from the merged fix grades a design, not just behaviour - read
 the failure before scoring; price a weaker model per accepted result, not per run; anything
 this container should remember goes into the repo (HOME and auto-memory are wiped).
-

@@ -6,10 +6,14 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 
 ## State (2026-11-04 — cost work, model pilot, App bootstrap patch; start here)
 
-**First check (the session ended on /clear with a push still pending):** run
-`git fetch && git status -sb`. If it shows `ahead`, the last docs commits (the grand
-master's NULL decision, this note) were not pushed: run both suites (`pytest -n 4 --dist
-loadgroup` in `.venv` and `.venv-d1`), then `git push origin feature/multi-table`.
+**First check (this session ended on the `codingapp` deploy, 2026-11-04):** the bootstrap
+patch was imported into `coding-agents-databricks-apps` and `databricks apps deploy
+codingapp` was started (it restarts this container). Verify: (1) `gh auth login`, then
+`~/bootstrap` exists and runs; (2) `~/.claude/settings.json` has the 5.5 model defaults,
+`skillOverrides` (23 off) and no mlflow Stop hook; (3) the 14 Databricks skills are plain
+files (`/tmp/bootstrap-aitools.log` ok); (4) `databricks apps get codingapp` shows the new
+deployment SUCCEEDED. If the App came back without the patch: the pre-patch originals are
+the patch base (`codingapp-patch-2026-11-04/codingapp.patch`, reverse-apply).
 
 post165 (DQ rows only where the STTM states them) and post166 (placeholder pipeline IDs, workbook only) pushed; post166 DEPLOYED to the dev App `codegen-agent` 2026-11-04 (started on Soham's word; deployment 01f1d87be2191ec5ad49305a107e1c79, commit 492032e; health = post166, live smoke Generate + Results 200, 0 console errors). The staging App still runs post164 (main). Earlier pushes 9f387ee, adc2adb, f1b0757. Session log: CLAUDE_HISTORY
 §[H19]; the harnesses: `tools/model_eval/` (README).
@@ -34,7 +38,8 @@ post165 (DQ rows only where the STTM states them) and post166 (placeholder pipel
 - **AGENTS.md split test** (6 adversarial probes x 2 arms x 2 runs, $17.59): no rule
   violation in either arm; NOT adopted (saving ~$15-30 / month in real sessions vs the
   compaction risk). Don't re-run it without a new reason.
-- **The coding App (`codingapp`) - patch written, NOT imported / deployed.** Its source is
+- **The coding App (`codingapp`) - patch imported and deployed 2026-11-04** (Soham's word;
+  the Workspace source was checked byte-identical to the patch base first). Its source is
   the Workspace folder `coding-agents-databricks-apps` (SNAPSHOT deploy; the local copy is
   `/app/python/source_code`, byte-identical before the patch; HOME is wiped on restart, so
   the copy that survives is the Workspace folder `codingapp-patch-2026-11-04/files/` +
@@ -43,10 +48,9 @@ post165 (DQ rows only where the STTM states them) and post166 (placeholder pipel
   skills as plain files instead of the plugin, writes `~/bootstrap`), `setup_claude.py`
   (`skillOverrides` for 23 unused template skills), `setup_mlflow.py` (no Stop hook while
   tracing is off; removes old copies), `app.py` (registers the step; the interactive-PAT
-  path wrote Opus 4.7 / Sonnet 4.6 / Haiku 4.5 defaults - now 5.5). To ship: import those
-  five files into `coding-agents-databricks-apps` (never `.git`), then `databricks apps deploy
-  codingapp` - this RESTARTS the container (session ends, HOME and /tmp wiped): only on
-  Soham's word, after this file and the history are pushed.
+  path wrote Opus 4.7 / Sonnet 4.6 / Haiku 4.5 defaults - now 5.5). Shipped by importing
+  those five files into `coding-agents-databricks-apps` (never `.git`), then `databricks apps
+  deploy codingapp` - a deploy RESTARTS the container (session ends, HOME and /tmp wiped).
 - **HOME is rebuilt on every `codingapp` restart** (all of `~/.claude`, the gh login, the
   clone, auto-memory): anything worth keeping goes in this repo, committed AND pushed.
 - **GPT-6.1 Sol for the coding assistant (proposal to Venu):** same per-token price as
@@ -63,8 +67,7 @@ post165 (DQ rows only where the STTM states them) and post166 (placeholder pipel
   off) - proposed: list them in the review copy as "stated, not generated". Decided (Soham,
   2026-11-04): the grand master's PARENT_PIPELINE_ID is NULL, as post166 writes it (not the
   0 of the framework owner's walkthrough, METADATA_DB_SEMANTICS §2).
-- **Next:** (1) ship the App patch (above); (2) the Apps schedule decision; (3)
-  Venu's answer on Sol; (4) the items of the 2026-11-03 block below (measure the 11 pairs, Rama's
+- **Next:** (1) the Apps schedule decision; (2) Venu's answer on Sol; (3) the items of the 2026-11-03 block below (measure the 11 pairs, Rama's
   answers, live runs).
 
 ## State (2026-11-03 evening — post164 DEPLOYED, main = staging App)

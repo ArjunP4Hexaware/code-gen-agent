@@ -176,6 +176,9 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   RUNNING hour (Medium 0.5 DBU/h ≈ $290 / month); stopping or starting one is Soham's call.
 - **HOME is wiped on every restart of the coding App** (`~/.claude`, auto-memory, the
   clone, the gh login, /tmp): what must survive goes into this repo, committed and pushed.
+  After a restart: `gh auth login` (Soham), then `~/bootstrap` (written by the App's
+  `setup_bootstrap.sh`: git login via gh, clones this repo on `feature/multi-table`, runs
+  `scripts/dev_bootstrap.sh`).
 - **Multi-agent workflows / fan-outs:** never without a hard token budget and effort
   caps — an uncapped audit burned 1.7M tokens on 7 of 18 finders (2026-10-26).
   Deterministic tools first (coverage with test contexts, static graph), agents only on
@@ -219,9 +222,12 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
     App-path fix through the App's API (a local server on a scratch copy, mock);
   - a worktree has no `ui/frontend/node_modules`: symlink the main tree's for vitest /
     tsc / `npm run build`, remove the link before committing;
-  - after a container reset, `scripts/dev_bootstrap.sh` rebuilds the venvs, Chromium,
-    the git hooks (repo pre-push + the container's Workspace-sync post-commit, both) and
-    the push login; it prints what needs a person (OAuth);
+  - after a container reset, `~/bootstrap` runs `scripts/dev_bootstrap.sh`, which rebuilds
+    the venvs, Chromium, the git hooks (repo pre-push + the container's Workspace-sync
+    post-commit, both) and the push login; it prints what needs a person (OAuth). The
+    coding App's own setup lives in the Workspace folder `coding-agents-databricks-apps`
+    (SNAPSHOT deploy): change it by importing files there (never `.git`), then `databricks
+    apps deploy codingapp` - a restart, so only on Soham's word;
   - `isolation: "worktree"` agents branch from the default branch — reset each to the
     working branch first, cherry-pick back, delete the `worktree-agent-*` branch;
   - running the App locally inside this container: the container is itself a Databricks

@@ -2700,8 +2700,71 @@ def template_tab_rows(tab: str, feed: FrdFeed, config: Config, spec: ResolvedFee
         tpl = apply_environment(tpl, config)
     tpl = with_path_family(tpl, _feed_key(feed, spec), feed.source_system)
     if builder is _stg_std:
-        return builder(tab, feed, config, spec, faq, tpl, profile=profile)
-    return builder(tab, feed, config, spec, faq, tpl)
+        rows = builder(tab, feed, config, spec, faq, tpl, profile=profile)
+    else:
+        rows = builder(tab, feed, config, spec, faq, tpl)
+    return _placeholder_pipeline_ids(tab, rows, tpl)
+
+
+PLACEHOLDER_ID_NOTE = ("iig_placeholder_id:{tab}.PIPELINE_ID — placeholder flow IDs (grand "
+                       "master 0, master 1, children on): they show which pipeline runs "
+                       "which row; replace them with the framework's IDs before deploying "
+                       "(metadata_inserts.sql keeps <<PIPELINE_ID#n>>)")
+
+
+def _row_roles(tab: str, tpl: MetadataTemplateConfig, count: int) -> list[str | None]:
+    """The pipeline role of each of a sheet's ``count`` rows: a template row's own
+    ``_pipeline_role``; the schedule built from ``pipeline_roles`` in that order;
+    else the sheet's ``pipeline_id_roles`` role for every row."""
+    template = tpl.template_rows.get(tab)
+    if template:
+        return [row.get("_pipeline_role") for row in template]
+    if tab == "DATA_FACTORY_PIPELINE_SCHEDULE":
+        return [role.role for role in tpl.pipeline_roles]
+    return [tpl.pipeline_id_roles.get(tab)] * count
+
+
+def _placeholder_pipeline_ids(tab: str, rows: list[dict],
+                              tpl: MetadataTemplateConfig) -> list[dict]:
+    """post166: PIPELINE_ID / PARENT_PIPELINE_ID placeholders under
+    ``placeholder_pipeline_ids`` (config.py). A row whose role cannot be told (a
+    count that does not match its roles, an unknown role) keeps the blank."""
+    if not tpl.placeholder_pipeline_ids or not tpl.pipeline_roles or not rows:
+        return rows
+    ids = {role.role: number for number, role in enumerate(tpl.pipeline_roles)}
+    parents = {role.role: role.parent for role in tpl.pipeline_roles}
+    shared = {role.parent for role in tpl.pipeline_roles if role.parent}
+    roles = _row_roles(tab, tpl, len(rows))
+    if len(roles) != len(rows):
+        return rows
+    citation = tpl.pipeline_roles_citation or tpl.citation
+
+    def id_cell(role: str, note: bool) -> dict:
+        cell = _cell(str(ids[role]), "synthetic",
+                     f"placeholder flow ID — the {role} pipeline ({citation}); not the "
+                     "framework's ID: replace before deploying")
+        cell["badge_entry"].update(convention=True, placeholder_id=True,
+                                   placeholder_shared=role in shared)
+        if note:
+            cell["badge_entry"]["note"] = PLACEHOLDER_ID_NOTE.format(tab=tab)
+        return cell
+
+    out = []
+    for row, role in zip(rows, roles, strict=True):
+        if role not in ids:
+            out.append(row)
+            continue
+        row = {**row, "PIPELINE_ID": id_cell(role, note=True)}
+        if tab == "DATA_FACTORY_PIPELINE_SCHEDULE":
+            parent = parents.get(role)
+            if parent in ids:
+                row["PARENT_PIPELINE_ID"] = id_cell(parent, note=False)
+            else:
+                top = _cell("", "synthetic", "the top pipeline has no parent: blank (NULL)")
+                top["badge_entry"].update(convention=True, deliberate_blank=True)
+                row["PARENT_PIPELINE_ID"] = top
+        out.append(row)
+    return out
 
 
 def blank_flags(payload: dict) -> list[str]:

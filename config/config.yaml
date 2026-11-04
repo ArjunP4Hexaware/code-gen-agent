@@ -1302,6 +1302,14 @@ metadata:
         - {role: file_to_stage, name: "PL_File_{feed}_ADLS_To_Delta_Incr", description: "File to Stage", parent: master}
         - {role: stage_to_standard, name: "PL_File_{feed}_Delta_To_STD_Incr", description: "Stage to Standard", parent: master}
       pipeline_roles_citation: "framework pipeline naming convention (framework owners, 2026-10-07; docs/acfc/MULTI_TABLE_DESIGN.md step 5)"
+      # post166: placeholder flow IDs (config.py MetadataTemplateConfig); off here - the
+      # ACFC overlay turns them on. Which pipeline runs each non-schedule sheet's rows.
+      placeholder_pipeline_ids: false
+      pipeline_id_roles:
+        FILE_ADLS_INGESTION_DETAILS: file_to_stage
+        ADLS_DELTA_INGESTION_DETAILS: file_to_stage
+        ADLS_FIXED_WIDTH_HANDLER: file_to_stage
+        STGDELTA_STDDELTA_INGESTION_DET: stage_to_standard
       # Per-feed-family conventions (2026-10-08): two families' goldens fill three
       # cells differently. Shipped: the pair-1 (PRX) family's LOB and primary key
       # (the real golden), the generalized file pattern for OBJECT_NAME (the

@@ -547,6 +547,10 @@ metadata:
       # every sheet that carries it (schedule, notebook; the iig_v2 email sheet has no
       # such column), one feed-level INPUT_NEEDED feeds.<feed>.pipeline_name.<flow>
       # per flow row (per_flow; the notebook row of a flow takes the same answer).
+      # post166 (Soham, 2026-11-04): placeholder PIPELINE_IDs showing the flow (grand
+      # master 0 with a blank parent, master 1, each feed's children on, parent = the
+      # master) in the IIG workbook; metadata_inserts.sql keeps <<PIPELINE_ID#n>>.
+      placeholder_pipeline_ids: true
       pipeline_roles:
         # post102 (Soham, the pair_11 golden): ONE Daily grand master + master per
         # run; the children keep their feed's schedule (identical master rows are

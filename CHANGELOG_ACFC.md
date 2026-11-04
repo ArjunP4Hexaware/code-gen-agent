@@ -4,6 +4,23 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post166 — 2026-11-04 (placeholder pipeline IDs that show the flow)
+
+Soham: the IIG workbook shows placeholder PIPELINE_IDs, a basic set that shows the flow
+from grand master to master to child. New knob `metadata.templates.<t>.placeholder_pipeline_ids`
+(off in config.yaml, on in the ACFC overlay) + `pipeline_id_roles`:
+- DATA_FACTORY_PIPELINE_SCHEDULE: the `pipeline_roles` numbered from 0 - grand master 0,
+  PARENT_PIPELINE_ID blank (NULL; was the constant 0); master 1, parent 0; File-to-Stage 2
+  and Stage-to-Standard 3, both parent 1 (children of one master share its id).
+- The rows of ADLS_DELTA / FILE_ADLS / ADLS_FIXED_WIDTH carry File-to-Stage's id,
+  STGDELTA_STDDELTA Stage-to-Standard's, DATABRICKS_NOTEBOOK_DETAILS each flow's.
+- The combined IIG numbers each feed's own children after the previous feeds' (feed 2:
+  4, 5); the shared grand master / master stay 0 / 1 and are written once.
+- Workbook only: `metadata_inserts.sql` keeps `<<PIPELINE_ID#n>>` open (cells marked
+  `placeholder_id`); one `iig_placeholder_id:<SHEET>.PIPELINE_ID` flag per sheet says to
+  replace them before deploying. `tests/test_placeholder_pipeline_ids.py` fails with only
+  the fix reverted. AGENTS.md "Never invent IDs" names the exception.
+
 ## 0.5.8.post165 — 2026-11-04 (Data Quality rows only where the STTM states them)
 
 A generated IIG's DATA_QUALITY_RULES sheet carried NullCheckRule and DeDuplicationRule on

@@ -3466,6 +3466,27 @@ README: `tools/model_eval/`):
   five files were imported; `databricks apps deploy codingapp` (SNAPSHOT) started - it
   restarts this container; what to verify after is in RESTART.
 
+- **The codingapp deploy was held** after the import: Soham reported a DQ sheet "from the
+  prod IIG" (checked: pair_11's 15 DQ rows share 0 rows with its prod golden and every
+  column traces to an STTM cell; what comes from the corpus is the rule-class mapping itself
+  - Primary Key -> NullCheck + DeDup, typed -> DataTypeCast; and pair_11's FRD says NA to
+  duplicate / incomplete-record checks). Soham chose "option 1" (only rules the documents
+  state); the 12-pair survey and three open questions are in RESTART.
+- **A data engineer's staging run** asked a file-format question. Two causes found: (1) the
+  two Apps shared state + outputs (her pick replaced the dev App's `selection.json`, her run
+  card showed the dev App's run id) -> post167, per-App folders; (2) her FRD states the
+  format as "File Format: .txt" + "Delimiter: Pipe Delimited" lines in one cell, refused as
+  multi-line -> post168. Her feedback that the card was unreadable -> post169 (plain
+  question, where the agent looked, what blank does). A pasted reply with markdown bold
+  showed the asterisks in Teams: text Soham pastes is plain.
+- post167 / post168 / post169 pushed (54ee423) after both suites (`.venv` 2442, `.venv-d1`
+  2101; run one after the other - the morning's parallel pair took 33 min and failed two
+  timing tests, each green alone) and the 12-pair check for post168 (outcomes 12/12, all
+  296 artefacts identical but the harness's own BUILD / overlay files; the check script was
+  rebuilt in /tmp/t/pair_check.py: the harness report is `<out>/<label>/<label>.json`).
+  Deployed to the dev App (health post169, smoke green). One spiral-detector false trigger
+  (a planned red `-k` run, green under the whole-file run), logged.
+
 **Lessons:** a hidden test from the merged fix grades a design, not just behaviour - read
 the failure before scoring; price a weaker model per accepted result, not per run; anything
 this container should remember goes into the repo (HOME and auto-memory are wiped).

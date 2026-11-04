@@ -4,9 +4,47 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-04 — cost work, model pilot, App bootstrap patch; start here)
+## State (2026-11-04 evening — post167-169 deployed to the dev App; start here)
 
-**First check (this session ended on the `codingapp` deploy, 2026-11-04):** the bootstrap
+- **Live, dev App `codegen-agent`:** post169 (54ee423; deployment
+  01f1d8a1a6ed1313b9ac8021979609a1). Health = post169 (every root readable, the original
+  folders: it is the primary App), live smoke Generate + Results 200, 0 console errors.
+  Both suites green on the pushed tree (`.venv` 2442, `.venv-d1` 2101), vitest 271.
+  - **post167 - each App its own state + outputs** (`CODEGEN_STORAGE_PER_APP=state,outputs`,
+    `CODEGEN_STORAGE_PRIMARY_APP=codegen-agent` in app.yaml): seen 2026-11-04 - a data
+    engineer's document pick on staging replaced the dev App's `selection.json` and her run
+    card showed the dev App's run id. A non-primary App uses `codegen/state/<app>/` +
+    `codegen/outputs/<app>/` (made by the App, inherits Can Manage on `codegen`).
+    **Takes effect on staging only once `main` carries it** (Soham's word: merge + deploy
+    staging); until then staging still writes the dev App's folders. Staging then starts
+    with an empty layout cache / run list (its cache entries are keyed per tree anyway).
+  - **post168 - an FRD cell of `<label>: <value>` lines** ("File Format: .txt" + "Delimiter:
+    Pipe Delimited" in Object/data Format) is read line by line - the staging run asked
+    for a file format its FRD states. 12-pair check: outcomes 12/12, artefacts identical.
+  - **post169 - the typed question card:** a plain question + example, where the agent
+    looked (FRD row + coordinates), what a blank answer does, technical reason folded.
+    Open: Soham offered the data engineer a way to "click through" a blank value - that
+    is a rule change (blank = held back today); not built, his call.
+- **Open - DQ "option 1"** (Soham, 2026-11-04: DATA_QUALITY_RULES only from rules the
+  documents state; derived rows to the review copy). Survey of the 12 pairs (counts only):
+  the FRD's DQ section is one template (Uniqueness / duplicate check, Incomplete record
+  rejection, Record recycle, then BSL/EDH rows); only pair_03 states a duplicate check, no
+  pair states incomplete-record rejection (pair_11's says NA, yet post166 writes NullCheck +
+  DeDup on every feed); STTM: pairs 05 / 11 have a "DQ rules" sheet ("allow nulls" /
+  "don't allow nulls" per field), pair_07 a "mandatory fields include in DQ check" Y/N
+  column, pair_03 an empty "DQ rules (hard reject / soft check)" column. None of these is
+  read today (layout roles `dq_rules` / `dq_mandatory` exist, no extractor uses them).
+  Three questions to Soham before building: (1) does the STTM "DQ rules" sheet count when
+  the FRD says NA; (2) DataTypeCast / DateConversion (no document states them; the
+  framework may need them to cast): review copy only, or keep flagged; (3) pair_03's
+  dedup columns: the STTM Primary Key, or blank + flagged.
+- **Next:** (1) Soham: merge feature -> main + deploy staging (brings post167-169 to the
+  data engineers); (2) the DQ questions above; (3) the `codingapp` deploy (below; restarts
+  this container - last thing in a session).
+
+## State (2026-11-04 — cost work, model pilot, App bootstrap patch)
+
+**If a session ended on the `codingapp` deploy:** the bootstrap
 patch was imported into `coding-agents-databricks-apps` and `databricks apps deploy
 codingapp` was started (it restarts this container). Verify: (1) `gh auth login`, then
 `~/bootstrap` exists and runs; (2) `~/.claude/settings.json` has the 5.5 model defaults,
@@ -38,8 +76,9 @@ post165 (DQ rows only where the STTM states them) and post166 (placeholder pipel
 - **AGENTS.md split test** (6 adversarial probes x 2 arms x 2 runs, $17.59): no rule
   violation in either arm; NOT adopted (saving ~$15-30 / month in real sessions vs the
   compaction risk). Don't re-run it without a new reason.
-- **The coding App (`codingapp`) - patch imported and deployed 2026-11-04** (Soham's word;
-  the Workspace source was checked byte-identical to the patch base first). Its source is
+- **The coding App (`codingapp`) - patch IMPORTED 2026-11-04, deploy pending** (Soham's
+  word to ship it; the Workspace source was checked byte-identical to the patch base first,
+  the five imported files exported back byte-identical). Its source is
   the Workspace folder `coding-agents-databricks-apps` (SNAPSHOT deploy; the local copy is
   `/app/python/source_code`, byte-identical before the patch; HOME is wiped on restart, so
   the copy that survives is the Workspace folder `codingapp-patch-2026-11-04/files/` +
@@ -67,7 +106,7 @@ post165 (DQ rows only where the STTM states them) and post166 (placeholder pipel
   off) - proposed: list them in the review copy as "stated, not generated". Decided (Soham,
   2026-11-04): the grand master's PARENT_PIPELINE_ID is NULL, as post166 writes it (not the
   0 of the framework owner's walkthrough, METADATA_DB_SEMANTICS §2).
-- **Next:** (1) the Apps schedule decision; (2) Venu's answer on Sol; (3) the items of the 2026-11-03 block below (measure the 11 pairs, Rama's
+- **Next (this block):** (1) the Apps schedule decision; (2) Venu's answer on Sol; (3) the items of the 2026-11-03 block below (measure the 11 pairs, Rama's
   answers, live runs).
 
 ## State (2026-11-03 evening — post164 DEPLOYED, main = staging App)

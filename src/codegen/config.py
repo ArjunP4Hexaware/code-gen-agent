@@ -1917,6 +1917,9 @@ class MetadataTemplateConfig(BaseModel):
     # {container} (the ADLS TGT_CONTAINER_NAME constant), {domain_path}, {table}.
     dq_split_style: Literal["header_columns", "header_and_trailer"] = "header_columns"
     dq_split_location: str | None = None
+    # LRTrimRule (post165): a standard column's STTM load rule stating a trim; no
+    # statement = no trim row (the rule is never a corpus baseline).
+    dq_trim_rule_regex: str = r"(?i)\btrim"
     # AddCustomColumnsRule: an audit row's load rule naming a literal default.
     dq_literal_regex: str = (r"(?i)\b(?:default(?:ed)?|hard[\s-]*cod(?:e|ed))\s*(?:to|as|with)?"
                              r"\s*[:=]?\s*['\"‘’“”]([^'\"‘’“”]+)"

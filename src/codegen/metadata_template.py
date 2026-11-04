@@ -2411,23 +2411,23 @@ def _stage_dq_rules(kind: str, tpl: MetadataTemplateConfig, config: Config, feed
                  "TARGET_COLUMN": _cell(column, "from_sttm", "the audit column (STTM)")}
                 for column, literal in _audit_literals(spec, tpl)]
     if kind in ("null_check", "dedup"):
-        # D1 post45: the baseline PER FEED — once, on the first file's object
-        # (NullCheckRule 186 rows / 114 workbooks, DeDuplicationRule 160 / 90: ~1.6
-        # per workbook, not one per file); over the detail table's key columns.
-        keyed = set(_primary_key(fields, "stage")) | set(spec.not_null_columns)
+        # post165: only what the STTM states (it is the ground truth for the key), once
+        # per feed on the first file's object - never a corpus baseline. NullCheckRule:
+        # the detail table's Primary Key + not-null columns; DeDuplicationRule: its
+        # Primary Key only (a required column is not unique). Nothing stated = no row.
+        keyed = set(_primary_key(fields, "stage"))
+        if kind == "null_check":
+            keyed |= set(spec.not_null_columns)
         columns = [f.stage_column for f in fields if f.stage_column in keyed]
+        if not columns:
+            return []
+        why = ("the detail table's Primary Key / not-null columns (STTM Stage band)"
+               if kind == "null_check" else
+               "the detail table's Primary Key columns (STTM Stage band)")
         # 2026-10-14 (framework owner, the pair_9 goldens): INPUT_PARAM = the target
         # table's FQN <catalog>.<schema>.<table>
-        target = _target_fqn_cell(config, stage)
-        if not columns:
-            rule = _dq_head(tpl, kind)
-            rule["SOURCE_COLUMN"] = _cell("", "needs_template",
-                                          "the STTM marks no Primary Key / not-null column on "
-                                          "the detail table — open")
-            return [{**rule, "INPUT_PARAM": target, "_per_feed": True}]
-        return [{**_columns_rule(tpl, kind, columns, "the detail table's Primary Key / "
-                                                     "not-null columns (STTM Stage band)",
-                                 INPUT_PARAM=target),
+        return [{**_columns_rule(tpl, kind, columns, why,
+                                 INPUT_PARAM=_target_fqn_cell(config, stage)),
                  "_per_feed": True}]
     if kind == "referential_check":
         recycle = spec.recycle
@@ -2476,9 +2476,14 @@ def _std_dq_rules(kind: str, tpl: MetadataTemplateConfig, group: _TableGroup) ->
     if standard is None or not fields:
         return []
     if kind == "lr_trim":
-        return [_columns_rule(tpl, kind, [f.standard_column for f in fields],
-                              f"every column of the standard table {standard.table} (STTM "
-                              "Standard band)")]
+        # post165: only the columns whose STTM load rule states a trim
+        trim = re.compile(tpl.dq_trim_rule_regex)
+        stated = [f.standard_column for f in fields if trim.search(f.value_spec or "")]
+        if not stated:
+            return []
+        return [_columns_rule(tpl, kind, stated,
+                              f"the STTM load rule states a trim (standard table "
+                              f"{standard.table})")]
     if kind == "std_data_type_cast":
         typed = [f for f in fields if _base_type(f.standard_datatype).lower() != "string"]
         if not typed:

@@ -214,11 +214,16 @@ def test_schedule_descriptions_application_name_layer_day_and_owed_start_date(tm
                and "38.4%" in f for f in flags)
 
 
-def test_dq_baseline_null_check_dedup_and_lr_trim_with_the_target_fqn(tmp_path):
+def test_dq_null_check_and_dedup_from_the_sttm_with_the_target_fqn(tmp_path):
     spec, gate, xlsx = _run(FRD, _acfc(), tmp_path)
     rows = _rows(xlsx, DQ)
     classes = [r["RULE_CLASS"][0] for r in rows]
-    assert {"NullCheckRule", "DeDuplicationRule", "LRTrimRule"} <= set(classes)
+    # post165: the null check because this STTM states not-null columns; dedup only on
+    # an STTM Primary Key (this one states none); no trim stated
+    assert "NullCheckRule" in classes
+    keyed = any(f.primary_key for f in spec.detail_segment.fields)
+    assert ("DeDuplicationRule" in classes) == keyed
+    assert "LRTrimRule" not in classes
     # a flat feed: no header / trailer split, no AddCustomColumnsRule
     assert not {"AddCustomColumnsRule", "LoadHeaderAndTrailerToSeparateTablesRule"} & set(
         classes)

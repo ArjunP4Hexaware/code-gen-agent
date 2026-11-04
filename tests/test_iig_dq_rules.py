@@ -92,7 +92,9 @@ def test_stage_rules_per_file_in_the_corpus_order(dq):
         ("Predefined", "DeDuplicationRule", 4),
         ("Custom", "ReferentialCheckRule", 5)]
     split, custom, null, dedup, referential = first
-    assert _v(dedup, "SOURCE_COLUMN") == _v(null, "SOURCE_COLUMN")     # the key columns
+    # post165: dedup on the STTM Primary Key only; the null check adds the not-null columns
+    key = [f.stage_column for f in spec.segments[1].fields if f.primary_key]
+    assert _v(dedup, "SOURCE_COLUMN").split(",") == key
     header, trailer = spec.segments[0], spec.segments[2]
     assert _v(split, "SOURCE_COLUMN") == "|".join(
         ",".join(f.stage_column for f in seg.fields) for seg in (header, trailer))
@@ -120,14 +122,9 @@ def test_stddelta_rules_per_standard_table(dq):
     by_class: dict[str, list] = {}
     for r in std:
         by_class.setdefault(_v(r, "RULE_CLASS"), []).append(r)
-    assert len(by_class["LRTrimRule"]) == 3                       # one per standard table
-    detail = spec.segments[1]
-    trim = next(r for r in by_class["LRTrimRule"]
-                if "MEMBER_ID" in _v(r, "SOURCE_COLUMN").split(","))
-    assert _v(trim, "SOURCE_COLUMN").split(",") == [f.standard_column for f in detail.fields
-                                                    if f.standard_column]
-    assert _v(trim, "INPUT_PARAM") == "" and trim["INPUT_PARAM"]["badge_entry"]["badge"] == \
-        "synthetic"                                               # decided blank (SFMC rows)
+    # post165: pair 4's STTM states no trim -> no LRTrimRule
+    # (tests/test_dq_rules_from_documents.py writes one where a load rule states it)
+    assert "LRTrimRule" not in by_class
     casts = {_v(r, "INPUT_PARAM").rsplit(".", 1)[-1]: _v(r, "SOURCE_COLUMN")
              for r in by_class["DataTypeCastRule"]}
     trailer = spec.segments[2]

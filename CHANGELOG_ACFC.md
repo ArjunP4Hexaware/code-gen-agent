@@ -4,6 +4,23 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post165 — 2026-11-04 (Data Quality rows only where the STTM states them)
+
+A generated IIG's DATA_QUALITY_RULES sheet carried NullCheckRule and DeDuplicationRule on
+every feed and LRTrimRule on every standard column: the corpus's most frequent classes,
+written as a baseline whether or not the documents asked - read by a reviewer as drawn
+from the ground-truth IIG (12 of one run's 19 DQ rows). Now (Soham: the STTM is the ground
+truth for the primary key):
+- NullCheckRule on the STTM's Primary Key / not-null columns of the detail table; no row
+  (formerly an open one) when it states none.
+- DeDuplicationRule on the STTM Primary Key ONLY (it also took the not-null columns); no
+  row without a key.
+- LRTrimRule on the standard columns whose STTM load rule states a trim (new knob
+  `metadata.templates.<t>.dq_trim_rule_regex`, default `(?i)\btrim`); no row otherwise.
+Header / trailer split, AddCustomColumns, Referential, DataTypeCast and DateConversion are
+unchanged (each already from the STTM). `tests/test_dq_rules_from_documents.py` fails with
+only the fix reverted; three tests that pinned the baseline were changed on Soham's ask.
+
 ## 0.5.8.post164 — 2026-11-03 (Cancel run beside the questions; Clear past runs drops them)
 
 Soham: "Clear past runs" left a stopped run's blocking questions on the Generate page,

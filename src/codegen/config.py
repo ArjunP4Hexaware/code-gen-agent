@@ -472,6 +472,13 @@ class FrdExtractorConfig(BaseModel):
     requirement_landing_labels: list[str] = Field(default_factory=lambda: [
         "Raw ADLS Location", "ADLS Location"])
     inline_pair_separators: list[str] = Field(default_factory=lambda: [";"])
+    # post168 (an exchange FRD, 2026-11-04): an F1 cell whose EVERY line reads
+    # "<label>: <value>" with one of these labels ("File Format: .txt" then
+    # "Delimiter: Pipe Delimited" in the Object/data Format row) is read line by
+    # line - each line's value to its field - instead of refused as multi-line.
+    # Labels only as a client FRD writes them; an unknown label keeps the refusal.
+    cell_line_labels: dict[Literal["file_format", "delimiter"], list[str]] = Field(
+        default_factory=dict)
     list_separators: list[str] = Field(default_factory=lambda: [",", ";", "\n"])
     domain_separators: list[str] = Field(default_factory=lambda: ["/", ","])
     target_schema_markers: dict[str, list[str]] = Field(default_factory=dict)

@@ -4,6 +4,22 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post168 — 2026-11-04 (an FRD cell of labelled lines is read line by line)
+
+An exchange FRD run on the staging App states its format in the Structural Metadata
+"Object/data Format" row as two lines, "File Format: .txt" and "Delimiter: Pipe Delimited".
+The reader refused the cell as multi-line (`frd_multiline`), the STTM states no format, and
+the run asked the person for the file format - a value the FRD states. Now
+`extractor.frd.cell_line_labels` (`file_format: ["File Format"]`, `delimiter: ["Delimiter"]`,
+the labels as that FRD writes them) reads a cell whose EVERY line is `<label>: <value>` with
+those labels one line per field: the row's own field takes its line, the FRD feed's
+delimiter the Delimiter line (the resolver checks it against the STTM as before), each cited
+under the label as written (`inline_label`), one `frd_labelled_lines:` flag. Any other line
+(an unknown label, an unlabelled line, a repeated field) keeps the refusal. Real-pair check
+(12 pairs, mock, post167 vs post168): outcomes 12/12 identical, every artefact byte-identical
+(no pair has that cell shape). `tests/test_frd_labelled_lines.py` fails with only the reader
+reverted.
+
 ## 0.5.8.post167 — 2026-11-04 (each App its own state and outputs)
 
 Both Apps (`codegen-agent`, `codegen-agent-staging`) deploy one `app.yaml`, so they shared

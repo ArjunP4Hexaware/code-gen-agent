@@ -216,3 +216,17 @@
 - Permanent fix: the test lists, waits for the index (`_index_idle()`), then selects -
   what the App's chooser does. RESTART.md's "stale document_index.json" note was the same
   race, misattributed.
+
+## 2026-11-04: hook signal (b) — frd_docx.py edited 4x while a storage pytest -k run "still failing"
+- Actual cause: not a spiral. `pytest tests/test_storage.py -k "per_app or primary_app or second_app"`
+  was the planned RED run of post167's new tests; the fix then went green under the whole-file
+  run (`tests/test_storage.py`, 54 passed), which the hook does not link to the -k string. The 4
+  counted edits were to src/codegen/extract/frd_docx.py for a different task (post168, the FRD
+  labelled-lines reader), a file that command does not cover.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command — 6 passed)
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~3 minutes
+- Proposed refinement (for a retro, not now): clear a failing command when a later run of the same
+  test file without -k passes; ignore edits to files outside the failing command's paths.

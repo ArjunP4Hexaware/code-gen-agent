@@ -81,6 +81,11 @@ _FALLBACK_FIELDS = {          # used only when the primary label is blank/absent
     "name": "feed_name",
     "vendor_name": "source_system",
 }
+# post172: the single-value fields a "<label>: <value>" line of a cell may state (any
+# FRD label synonym of the field, or extractor.frd.cell_line_labels) - read only when
+# the field's own row is absent or blank; composite fields (feed name, landing, targets,
+# domain) keep their own readers.
+_LINE_FIELDS = ("file_format", "frequency", "source_system", "delimiter")
 _LIST_FIELDS = {
     "lobs": "lobs",
     "target_table_name": "tables",
@@ -1069,6 +1074,39 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
     # (path -> (value, evidence)), and the flags saying which cell was read so
     cell_lines: dict[str, tuple[str, FieldEvidence]] = {}
     line_flags: list[str] = []
+    # post172: every FRD label synonym of a single-value field is a line label too
+    line_labels: dict[str, list[str]] = {
+        field: [*frd_config.cell_line_labels.get(field, []),
+                *(label for key, synonyms in frd_config.labels.items()
+                  if {**_SCALAR_FIELDS, **_FALLBACK_FIELDS}.get(key) == field
+                  for label in synonyms)]
+        for field in _LINE_FIELDS}
+    blank_words = {normalize_label(b) for b in frd_config.blank_values}
+
+    def scan_cell_lines(prefix: str) -> None:
+        """post172: before a feed's fields are read, every single-value cell that is
+        nothing but labelled lines lends its OTHER lines to their fields (read only
+        where a field's own row is absent or blank - see get)."""
+        for field in _LINE_FIELDS:
+            for path in (f"{prefix}.{field}", f"{prefix}.{field}#fallback"):
+                source = profile.fields.get(path)
+                if source is None:
+                    continue
+                lines = labelled_cell_lines(_value(content, source, frd_config), line_labels)
+                for line_field, label, text in lines or []:
+                    if line_field == field:
+                        continue
+                    cited = FieldEvidence(
+                        table=source.table, row=source.row, col=source.col,
+                        label=source.label, section=source.section, inline_label=label,
+                        source=profile.source)
+                    if cell_lines.setdefault(f"{prefix}.{line_field}", (text, cited)) == (
+                            text, cited):
+                        line_flags.append(
+                            f"frd_labelled_lines:{prefix}.{line_field} — the table "
+                            f"{source.table} row {source.row} ({source.label!r}) cell states "
+                            f"it on its {label!r} line (read where the field's own row is "
+                            "absent or blank)")
 
     def from_cell_line(path: str) -> str | None:
         """The value a labelled line of ANOTHER field's cell states for ``path``."""
@@ -1080,6 +1118,20 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         return None if normalize_label(hit[0]) in blank else hit[0]
 
     def get(path: str) -> str:
+        value = _get(path)
+        if path in cell_lines and not path.endswith("#fallback"):
+            line = cell_lines[path][0]
+            if not value:
+                # post172: the field's own row is absent or blank - another cell's line
+                return from_cell_line(path) or ""
+            if normalize_label(line) != normalize_label(value) and \
+                    normalize_label(line) not in blank_words:
+                line_flags.append(f"frd_cell_line_conflict:{path} — the field's own row "
+                                  f"states {value!r}, a labelled line of another cell "
+                                  f"{line!r}; the row is kept")
+        return value
+
+    def _get(path: str) -> str:
         source = profile.fields.get(path)
         if source is None:
             return ""
@@ -1094,17 +1146,14 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             own |= {"domain_subdomain", "domain"}
         if field in ("domain", "sub_domain") and split_domain_labels(value):
             return value            # two labelled lines: split where the feed is built
-        lines = labelled_cell_lines(value, frd_config.cell_line_labels)
+        lines = labelled_cell_lines(value, line_labels) if field in _LINE_FIELDS else None
         if lines and any(f == field for f, _l, _v in lines):
             # post168: each labelled line to its own field, the label as written cited
-            prefix = clean.split(".", 1)[0]
+            # (post172: the other lines were lent to their fields by scan_cell_lines)
             for line_field, label, text in lines:
-                line_path = f"{prefix}.{line_field}"
-                cited = evidence[path].model_copy(update={"inline_label": label})
                 if line_field == field:
-                    evidence[path], value = cited, text
-                elif line_path not in profile.fields:
-                    cell_lines.setdefault(line_path, (text, cited))
+                    evidence[path] = evidence[path].model_copy(update={"inline_label": label})
+                    value = text
             line_flags.append(
                 f"frd_labelled_lines:{clean} — the table {source.table} row {source.row} "
                 f"({source.label!r}) cell states {len(lines)} '<label>: <value>' lines, read "
@@ -1183,6 +1232,7 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
     feeds: list[FrdFeed] = []
     for feed_index in range(max(profile.feed_count, 1)):
         prefix = f"feeds[{feed_index}]"
+        scan_cell_lines(prefix)
         feed_name = get_with_fallback(f"{prefix}.feed_name")
         if (profile.family == "F2" and feed_name and f"{prefix}.feed_name" not in profile.fields
                 and not _plain_name(feed_name)):

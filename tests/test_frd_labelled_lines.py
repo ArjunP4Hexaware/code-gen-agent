@@ -28,9 +28,9 @@ def config():
     return load_config(REPO / "config" / "config.yaml")
 
 
-def _feed(tmp_path, config, cell: str):
+def _feed(tmp_path, config, cell: str, **frd_kw):
     frd = tmp_path / "FRD.docx"
-    frd.write_bytes(fm.build_frd(format_cell=cell))
+    frd.write_bytes(fm.build_frd(format_cell=cell, **frd_kw))
     contract, _ = extract_frd_contract(frd, config, generated_date="2026-11-04")
     (feed,) = contract.feeds
     return feed, contract
@@ -106,3 +106,43 @@ def test_layout_gives_every_derived_feed_the_frds_format_and_delimiter(tmp_path,
     feeds = json.loads(out.read_text(encoding="utf-8"))["feeds"]
     assert len(feeds) == len(fm.FILES)
     assert {(f["file_format"], f["delimiter"]) for f in feeds} == {("txt", "Pipe Delimited")}
+
+
+# -- post172: any single-value field's labels, from any single-value cell ------------
+
+WEEKLY = "File Format: .csv\nFrequency: Weekly"
+
+
+def test_a_line_fills_another_field_whose_own_row_is_blank(tmp_path, config):
+    """The Frequency row is blank; the format cell's 'Frequency:' line (an FRD label
+    synonym of the field, no cell_line_labels entry needed) states it."""
+    feed, contract = _feed(tmp_path, config, WEEKLY, frequency="")
+    assert (feed.file_format, feed.frequency) == (".csv", "Weekly")
+    prov = contract.field_provenance["feeds[0].frequency"]
+    assert (prov.label, prov.inline_label) == ("Object/data Format", "Frequency")
+    assert any(f.startswith("frd_labelled_lines:feeds[0].frequency") for f in
+               contract.extraction_flags), contract.extraction_flags
+
+
+def test_a_stated_row_is_never_overwritten_by_another_cells_line(tmp_path, config):
+    feed, contract = _feed(tmp_path, config, WEEKLY)          # the row states Monthly
+    assert feed.frequency == "Monthly"
+    assert any(f.startswith("frd_cell_line_conflict:feeds[0].frequency") and "'Weekly'" in f
+               for f in contract.extraction_flags), contract.extraction_flags
+
+
+def test_the_same_value_on_both_is_no_conflict(tmp_path, config):
+    feed, contract = _feed(tmp_path, config, "File Format: .csv\nFrequency: Monthly")
+    assert feed.frequency == "Monthly"
+    assert not any(f.startswith("frd_cell_line_conflict") for f in contract.extraction_flags)
+
+
+def test_the_merged_labels_include_every_frd_synonym_of_a_line_field(config):
+    """Any label the FRD reader maps to the field reads its line - here the Data
+    Source row's own label, in a cell that also states the format."""
+    frd = config.extractor.frd
+    data_source = frd.labels["data_source"][0]
+    lines = labelled_cell_lines(f"File Format: .txt\n{data_source}: Northwind Benefits",
+                                {"file_format": ["File Format"],
+                                 "source_system": [data_source]})
+    assert lines and [f for f, _l, _v in lines] == ["file_format", "source_system"]

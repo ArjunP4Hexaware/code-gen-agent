@@ -3487,6 +3487,16 @@ README: `tools/model_eval/`):
   Deployed to the dev App (health post169, smoke green). One spiral-detector false trigger
   (a planned red `-k` run, green under the whole-file run), logged.
 
+- **2026-11-05:** post169 merged to `main` (f1bc603) and deployed to staging on Soham's word;
+  then post170, "Leave blank and continue" (Soham: a blank answer beats no answer - there is
+  still a partial workbook). Found while building it: the App's layout stage wrote every gap
+  answer into the FRD feed, so the blank token reached `metadata_inserts.sql` until a blank is
+  marked handled there and passed to the extractor instead; an empty delimiter meant
+  "fixed-width" (now `ResolvedFeedSpec.left_blank`); a SimpleNamespace stub in
+  test_review_summary caught a direct `spec.left_blank` read (now getattr). Both Apps on
+  post170 (main 502a3b6). DQ: Soham ruled the 11 rows no document states out, NullCheck =
+  the STTM wins over an FRD "NA". A second spiral-detector false trigger, logged.
+
 **Lessons:** a hidden test from the merged fix grades a design, not just behaviour - read
 the failure before scoring; price a weaker model per accepted result, not per run; anything
 this container should remember goes into the repo (HOME and auto-memory are wiped).

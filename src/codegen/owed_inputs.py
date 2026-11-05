@@ -131,15 +131,21 @@ def _template(config, output_mode, iig_template):
 
 def owed_inputs(spec, config, *, index: int | str | None = None, faq, output_mode=None,
                 iig_template: str | None = None, resolved=None,
-                profile=None) -> list[OwedInput]:
+                profile=None, frd_path=None) -> list[OwedInput]:
     """The FEED-level IIG cells of ``spec`` the workbook is written without
     (feed-scoped owed_cells the FAQ / answers leave unanswered) — a template
     that names owed cells (post68: any output mode). post59: ``resolved``
     (codegen.input_choices.resolve_feed) adds each defaulted input's proposal
     and its options."""
-    from codegen.metadata_template import landing_default, landing_key, owed_questions
+    from codegen.metadata_template import (
+        landing_default,
+        landing_key,
+        owed_questions,
+        with_run_frequency_from_frd,
+    )
 
-    tpl = _template(config, output_mode, iig_template)
+    # post177: the run-level masters' frequency from the run's feeds (``frd_path``)
+    tpl = with_run_frequency_from_frd(_template(config, output_mode, iig_template), frd_path)
     blank_items = left_blank_inputs(spec, index)
     # post84: the landing written from the convention — changeable, not open
     landing = landing_default(tpl, spec)

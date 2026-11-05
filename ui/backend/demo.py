@@ -2674,11 +2674,13 @@ class DemoRunner:
         """post59: the feed's defaulted inputs under the confirmed choices."""
         from codegen.faq import faq_for_spec
         from codegen.input_choices import resolve_feed
+        from codegen.metadata_template import with_run_frequency_from_frd
         from codegen.owed_inputs import _template, frd_feed_index
 
         tpl = _template(config, self.effective_output_parts(), self.iig_template)
         if tpl is None or not tpl.owed_cells:
             return []
+        tpl = with_run_frequency_from_frd(tpl, frd_path)   # post177: the masters' frequency
         return resolve_feed(spec, profile=config.conventions.get(self.conventions_profile),
                             tpl=tpl, inputs={}, choices=self.input_choices,
                             index=frd_feed_index(frd_path, spec.feed_id, config),
@@ -2699,7 +2701,8 @@ class DemoRunner:
         return [item.as_dict() for item in owed_inputs(
             spec, config, index=index, faq=faq,
             output_mode=self.effective_output_parts(), iig_template=self.iig_template,
-            resolved=resolved, profile=config.conventions.get(self.conventions_profile))]
+            resolved=resolved, profile=config.conventions.get(self.conventions_profile),
+            frd_path=frd_path)]
 
     def _run_level_inputs(self, config) -> list[dict]:
         """The run-level banner items (scope "run"), once per run: the

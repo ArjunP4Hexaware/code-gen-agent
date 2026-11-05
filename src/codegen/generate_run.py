@@ -157,7 +157,7 @@ class GenerateRun:
         index = owed_mod.frd_feed_index(frd_path, spec.feed_id, config)
         resolved = _input_choices(spec, config, self.inputs, self.choices, index,
                                   self.output_mode, self.iig_template, self.conventions_profile,
-                                  base=self.base)
+                                  base=self.base, frd_path=frd_path)
         self.records[spec.feed_id] = choices_mod.records(resolved)
         faq_answers = {**owed_mod.answers_for(self.inputs, index, spec.feed_id),
                        **choices_mod.faq_answers(resolved)}
@@ -182,7 +182,8 @@ class GenerateRun:
                 iig_template=self.iig_template,
                 faq=with_faq_answers(faq_for_spec(spec, config, base_dir=self.base),
                                      faq_answers),
-                resolved=resolved, profile=config.conventions.get(self.conventions_profile))
+                resolved=resolved, profile=config.conventions.get(self.conventions_profile),
+                frd_path=frd_path)
             for item in owed:
                 self.say(owed_mod.input_line(item))
             self.owed += owed

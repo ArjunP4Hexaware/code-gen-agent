@@ -43,7 +43,11 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
 - **A value not transcribed from an input is a bug, however plausible.** Every cell /
   column / DDL value comes from an input document, a cited config constant, or an answer
   the user gave; the rest stays blank AND flagged. Never synthesize a mapping to make a
-  diff close (the 2026-09 Genie episode: the documents answered it).
+  diff close (the 2026-09 Genie episode: the documents answered it). **A production
+  IIG is training and scoring material, never a value source** (Soham, 2026-11-05: users
+  bring an FRD + STTM, not a prod IIG): a convention may be LEARNED from the corpus and
+  proven on pairs it was not learned from; a constant copied from one pair's prod IIG is
+  this bug (post177 removed post102's Daily masters).
 - **Citation rule:** every conflict / assumption / confirm item and provenance note quotes
   the exact FRD field or STTM cell it rests on (models enforce non-empty citations; tests
   assert them). Layer scope comes from Load Strategy, never from which schemas a Target
@@ -263,7 +267,8 @@ fixtures/      synthetic / scrubbed only, each path re-included deliberately in 
                workbooks/synthetic_segmented_golden.xlsx
 tests/         offline, no Spark; fixture-driven tests SKIP with a reason when files are
                absent (conftest `require_fixture_files`)
-tools/ scripts/  iig_diff.py, iig_fill_rate.py, notebook_parity.py, ddl_shape.py;
+tools/ scripts/  iig_diff.py, iig_fill_rate.py, notebook_parity.py, ddl_shape.py
+               (+ `codegen shapes-report --runs <dir|URI>`: unfamiliar shapes across runs);
                container_harness.py, scrub_check.py, bump_version.py,
                build_acfc_shapes.py, dev_bootstrap.sh, git-hooks/
 docs/          RESTART.md, DESIGN.md, WORKFLOW.md (verdict semantics), LAYOUT_RECOGNITION.md,
@@ -346,6 +351,13 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   `extractor.delimiter_words`) — never "the character after a word". Recycle Flag
   cells: a `no_values` word is an unflagged row, every other non-empty cell must be a
   `Y ( <validation> )` flag; differing rules stop the extraction, never a silent pick.
+- **A cell of `<label>: <value>` lines** (post168/172/175, `frd_docx.split_labelled_lines`):
+  each line whose label is a known synonym of a single-value field (file format,
+  frequency, source system, delimiter) fills that field where its own row is absent or
+  blank (a stated row is never overwritten - `frd_cell_line_conflict:`); a line no field
+  knows is skipped and named (`frd_cell_line_ignored:`, Soham's option B); a cell with an
+  unlabelled (prose) line is refused whole. New spellings: config or the App's learned
+  labels, never a code edit. The parser self-extension plan: `docs/PARSER_SELF_EXTENSION.md`.
 - **Agreement between documents** goes through `gapfill.same_value(a, b, words)`: a
   punctuation-only value normalizes to '' — compare delimiters as characters (pass
   `extractor.delimiter_words`), never by `normalize` substring tests.
@@ -357,7 +369,11 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   key verbatim; printed sheet keys are `sheets[<i>]/<layer>/<role>`); `generate
   --answers` / the App's dialog fill them. **Proposed is not applied:** a proposal is
   written only when chosen (`profile_default` values are the exception — written
-  unasked, changeable).
+  unasked, changeable). **A blank answer** (post170, Soham: "a blank answer is still
+  better than no answer"): the reserved `answers.leave_blank` token on an
+  `answers.blankable_fields` value (file format / delimiter / frequency) lets the run
+  through - those cells blank + flagged, one non-blocking INPUT_NEEDED, the DDL unchanged;
+  an empty answer is still no answer; the token never reaches an artefact.
 - **Verdicts and outcomes.** Each feed's gate verdict is PASS / PASS_WITH_FLAGS / FAIL
   (`docs/WORKFLOW.md`); a flagged feed is PASS_WITH_FLAGS by design, not a failure. The
   run outcome (`codegen.run_stages.OUTCOMES`; exit codes in `docs/ACFC_DEPLOY.md`):
@@ -483,7 +499,12 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   states it; anything else is a `<<D1:NAME>>` placeholder kept OPEN, never written. To
   add a template: a key under `metadata.templates` with `tabs` transcribed from the
   client's workbook, `always_blank`, the knobs, a `citation`; client inventory rows go in
-  an overlay; pin headers + blank list in a test.
+  an overlay; pin headers + blank list in a test. **DATA_QUALITY_RULES only where a
+  document states the rule** (post171, Soham: "if we're arguing about things in the prod
+  IIG that's automatically wrong"; `dq_stated_only` in the ACFC overlay): DeDup only on an
+  FRD-stated duplicate check (STTM Primary Key columns), NullCheck on the fields the STTM
+  names for a DQ check (the STTM wins over an FRD "NA"), no cast rule; whatever is only
+  derivable is an `iig_dq_not_generated:` suggestion in the review copy, never a row.
 - **Scoring vs prod goldens:** `tools/iig_diff.py --golden <xlsx> --agent <every feed's
   *_IIG.xlsx>` with the default `--pair-mode identity` (`--pair-mode key` never for a
   score); `score.json` / `diff.xlsx` / `routing.csv` carry prod text and are never

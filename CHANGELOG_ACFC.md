@@ -4,6 +4,25 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post177 — 2026-11-05 (the masters' frequency from the documents, not a prod IIG)
+
+post102 pinned the grand master / master PIPELINE_FREQUENCY to `Daily` - a constant copied
+from the pair_11 production IIG that no document states (pair_12's production IIG says
+Weekly; its FRD and STTM say Weekly). Soham: values come from the FRD / STTM only, a
+production IIG is never a source. The ACFC overlay's master roles are now `frequency: run`:
+the ONE frequency every feed of the run states (each feed's own FREQUENCY), decided once
+per feed generation from the run's FRD contract (`metadata_template.with_run_frequency_config`
+in `generate_feed_result`; the question / name paths `owed_inputs`, `cli._input_choices`, the
+App's `_resolved_inputs` read the same contract). Feeds that differ, or a feed that states
+none: the masters' PIPELINE_FREQUENCY is blank + flagged (`iig_run_frequency_unstated:`), the
+names carry no frequency code, the detailed description falls back to the role's label.
+12-pair check (mock, post176 vs post177): outcomes 12/12 unchanged; changes only in the
+DATA_FACTORY_PIPELINE_SCHEDULE master rows (frequency, name, description, the corpus
+DAY_OF_SCHEDULE that follows a Weekly frequency) and their INSERT lines; pair_11 (Weekly +
+Monthly feeds) now blank masters, written once (10 combined rows, as its production IIG);
+pair_12 Weekly. `tests/test_run_frequency.py` (fails with the overlay, the payload wiring or
+the name tokens reverted).
+
 ## 0.5.8.post176 — 2026-11-05 (parser self-extension step 3: the model points, the code copies)
 
 A cell of the ingested FRD the reader refused (several lines no grammar reads) for a field

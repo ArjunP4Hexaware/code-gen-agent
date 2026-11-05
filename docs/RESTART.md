@@ -4,7 +4,76 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-05 late — post174 on BOTH Apps; start here)
+## Start here (session ended 2026-11-05 late night - nothing pending)
+
+**First check:** `git fetch && git status -sb` should say up to date with
+`origin/feature/multi-table`. Dev App on post177 (56f10cc); staging still post176 (`main`
+001500c) until Soham's word. Session log: CLAUDE_HISTORY §[H21].
+
+**Open, in order:**
+1. **Staging to post177** on Soham's word (merge recipe in AGENTS.md). The state overlay
+   change below is ALREADY live on both Apps (shared state).
+2. **`codingapp` deploy** - the bootstrap patch is IMPORTED (block "2026-11-04" below);
+   `databricks apps deploy codingapp` restarts this container: on Soham's word, last in a
+   session. After it: `gh auth login`, `~/bootstrap`, the checks in that block.
+3. **Step 3 for the STTM** - the same `layout/cell_locate.py` locator could read a refused
+   STTM cell (Soham allowed FRD + STTM); only FRD cells are wired.
+4. **Ask the BSA** about pairs 05 / 11's STTM "DQ rules" sheet (names fields those feeds do
+   not have - looks copied from another feed's template); and pair_12's recycle days (FRD
+   says 15, prod has 7) and stage load option (FRD "Truncate and Load", prod Append on 4 of
+   18 files).
+5. Older items: the Apps stop / start schedule (spend), Venu's answer on GPT-6.1 Sol, the
+   11-pair layout cost measurement, Rama's answers (blocks below).
+
+## State (2026-11-05 late night — post177 on the dev App)
+
+- **State overlay: three own-pair overrides REMOVED** (Soham's word; both copies - the
+  Workspace `codegen/state/codegen-state/overlays/acfc_prx.yaml` the Apps read and the
+  volume the harness reads; backup `acfc_prx.yaml.bak_20261105_pre_override_removal` beside
+  each). Gone: `path_family_by_source` (pair_11), `feed_overrides` (pair_12 src_file_name,
+  pair_2 email_statuses). Harness after: pair_12 84.9%, pair_11 36.6%, outcomes unchanged.
+  Still open for Soham: NO_OF_CYCLE_PER_DAY "1" fails on pairs 11 / 12.
+- **post177** (CHANGELOG; Soham: "it should only extract information from the FRD and
+  STTM ... the IIG is for training off of ... don't cheat"): the masters' frequency is
+  `run` = the feeds' one stated frequency, else blank + flagged - post102's Daily came
+  from the pair_11 prod IIG. AGENTS.md now says a prod IIG is never a value source.
+  Deployment 01f1d96994e91a3f81a5becd5f8caed0 (56f10cc); health post177; smoke Generate +
+  Results 0 console errors. Suites `.venv` 2507, `.venv-d1` 2160. 12-pair check: outcomes
+  12/12, only master rows + their INSERT lines change.
+- **Line-A analysis of pair_12** (wrong IIG cells whose prod value appears in the FRD /
+  STTM, 63 cells): 0 parser misses. 2 = the Daily constant (fixed); 18 recycle days and 4
+  load options = the agent follows the FRD, prod does not; 24 = naming conventions
+  (OBJECT_NAME, process name); 6 = environment (scored D1 vs prod PR); 9 = coincidental
+  text matches.
+- **Held-out audit** (values learned from prod IIGs, scored on pairs they were NOT learned
+  from; the 199-IIG corpus is not reachable from this container): header / footer /
+  schema-drift flags, `/Workspace` notebook prefix, ACTIVE_END_DATE hold; default path
+  family holds on pair_12's ADLS sheet but not its STGDELTA sheet; data_type_style mixed;
+  NO_OF_CYCLE_PER_DAY fails on 2 of 3.
+- **Delegation workbook** (Workspace `STTM_to_Artefacts_Agent_Delegation (1).xlsx`):
+  columns I-K (built today) + sheet "Measured 2026-11-05"; the original saved beside it
+  (`... - before 2026-11-05.xlsx`). Its 86% / 39% predate the honest scores above.
+- Recipes rebuilt this session: `/tmp/deleg_scripts/` (`pair_check.sh` + `classify.py`
+  = the 12-pair check; `heldout.sh`, `score_run.sh` [+ STRIP=1]); Chromium needs
+  `LD_LIBRARY_PATH=/tmp/pwlibs/usr/lib/x86_64-linux-gnu:/tmp/pwlibs/lib/x86_64-linux-gnu
+  PLAYWRIGHT_BROWSERS_PATH=/tmp/pw` for `/tmp/t/smoke/smoke.js`.
+
+## State (2026-11-05 night — post176 on BOTH Apps)
+
+- **Both Apps on post176** (Soham's word): dev from feature 5e75cdc (deployment
+  01f1d940960a1a60ba7235e66297e5d8), staging from `main` = 001500c (identical tree;
+  deployment 01f1d940a1fd1408bfb0709f8fb6e522). Health + smoke green on both; suites
+  `.venv` 2501, `.venv-d1` 2154; 12-pair check post174 vs post176: outcomes 12/12, every
+  artefact identical.
+- **Parser self-extension complete (steps 1-4)** - `docs/PARSER_SELF_EXTENSION.md`:
+  post175 = option B (a cell's known lines read, unknown ones skipped + flagged
+  `frd_cell_line_ignored:`); post176 = step 3 (`layout/cell_locate.py`: for a refused FRD
+  cell no other document fills, the model names the LINE; code copies + validates; cached;
+  `frd_model_located:` in the review copy; AGENTS.md records the exception). The STTM's
+  refused cells could use the same locator - not wired.
+- **Next:** the `codingapp` deploy (restarts this container - last in a session).
+
+## State (2026-11-05 late — post174 on BOTH Apps)
 
 - **Staging on post174 too** (`main` 7e0a608, identical tree; deployment
   01f1d93523c0196180a448cabe7e7940; health + smoke green; `/api/vocabulary` there:

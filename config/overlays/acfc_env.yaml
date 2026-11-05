@@ -552,11 +552,14 @@ metadata:
       # master) in the IIG workbook; metadata_inserts.sql keeps <<PIPELINE_ID#n>>.
       placeholder_pipeline_ids: true
       pipeline_roles:
-        # post102 (Soham, the pair_11 golden): ONE Daily grand master + master per
-        # run; the children keep their feed's schedule (identical master rows are
-        # then written once in the combined IIG, combined.dedup_rows)
-        - {role: grand_master, description: "Grand master", frequency: Daily}
-        - {role: master, description: "Master", parent: grand_master, frequency: Daily}
+        # post102: ONE grand master + master per run; the children keep their feed's
+        # schedule (identical master rows are then written once in the combined IIG,
+        # combined.dedup_rows). post177 (Soham, 2026-11-05: values come from the FRD /
+        # STTM only, a prod IIG is never a source): the masters' frequency is `run` =
+        # the one frequency every feed of the run states, else blank + flagged
+        # (iig_run_frequency_unstated) - no longer the pair_11 golden's Daily.
+        - {role: grand_master, description: "Grand master", frequency: run}
+        - {role: master, description: "Master", parent: grand_master, frequency: run}
         - {role: file_to_stage, description: "File to Stage", parent: master}
         - {role: stage_to_standard, description: "Stage to Standard", parent: master}
       owed_cells:

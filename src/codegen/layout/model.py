@@ -143,6 +143,8 @@ class LayoutModelProvider(Protocol):
 
     def advise_layout(self, request: dict) -> dict: ...
 
+    def locate_line(self, request: dict) -> dict: ...
+
 
 _SYSTEM_PROMPT = (
     "You are a spreadsheet LAYOUT recogniser for source-to-target mapping workbooks "
@@ -372,6 +374,14 @@ class MockLayoutProvider:
         self.requests.append(request)
         return _heuristic_advice(request)
 
+    # post176 (cell_locate): field -> line number, set by a test; else no line, so a
+    # mock / harness run is unchanged
+    locate_answers: dict[str, int] = {}
+
+    def locate_line(self, request: dict) -> dict:
+        self.requests.append(request)
+        return {"line": self.locate_answers.get(request.get("field"))}
+
 
 # ------------------------------------------------------------------ live
 
@@ -440,6 +450,15 @@ class FmapiLayoutProvider:
         return ask_for_json(self._chat(_ADVICE_SYSTEM_PROMPT), user_prompt, self._max_attempts,
                             "advice", counter=self._count)
 
+    def locate_line(self, request: dict) -> dict:
+        """post176: which line of one refused FRD cell states one field (a number)."""
+        from codegen.layout.cell_locate import SYSTEM_PROMPT
+
+        self.requests.append(request)
+        user_prompt = "Cell (the only material):\n" + json.dumps(request, indent=2)
+        return ask_for_json(self._chat(SYSTEM_PROMPT), user_prompt, self._max_attempts,
+                            "line", counter=self._count)
+
 
 class AnthropicLayoutProvider:
     name = "anthropic"
@@ -488,6 +507,15 @@ class AnthropicLayoutProvider:
         user_prompt = "Questions (the only material):\n" + json.dumps(request, indent=2)
         return ask_for_json(self._messages(_ADVICE_SYSTEM_PROMPT), user_prompt,
                             self._max_attempts, "advice", counter=self._count)
+
+    def locate_line(self, request: dict) -> dict:
+        """post176: which line of one refused FRD cell states one field (a number)."""
+        from codegen.layout.cell_locate import SYSTEM_PROMPT
+
+        self.requests.append(request)
+        user_prompt = "Cell (the only material):\n" + json.dumps(request, indent=2)
+        return ask_for_json(self._messages(SYSTEM_PROMPT), user_prompt, self._max_attempts,
+                            "line", counter=self._count)
 
 
 def build_layout_provider(config: Config, dry_run: bool, base_dir: Path | None = None

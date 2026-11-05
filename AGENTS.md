@@ -307,7 +307,10 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   decides WHERE things are, code copies the values, a validator sits between. Order:
   cache → synonyms → model → validate → user. The model sees only fingerprint material
   (header regions, table labels — never a data row) and no model string reaches a
-  contract, DDL or IIG cell. A sheet with no header row (no 3+ cell row in 25: a
+  contract, DDL or IIG cell. One exception (Soham, 2026-11-05, post176): a cell of the
+  INGESTED FRD the reader refused, for a field no other document fills - the model sees
+  that one cell's lines and answers a LINE NUMBER only; the code copies the line, the
+  field's vocabulary validates it, `frd_model_located:` flags it (`layout/cell_locate.py`). A sheet with no header row (no 3+ cell row in 25: a
   lookup / valid-values sheet) is CAPPED: the fingerprint hashes it, the model gets its
   summary line only (`fingerprint.model_region`) — keep the cache key and the prompt
   separate there. A model claim that validates carries the DOCUMENT's wording (the label

@@ -4,7 +4,22 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-05 — post170 LIVE on both Apps; start here)
+## State (2026-11-05 — post171 LIVE on both Apps; start here)
+
+- **Both Apps on post171** (Soham's word): dev from feature 2cf5096 (deployment
+  01f1d8c2e8ee1fcfb17af461e673a07e), staging from `main` = 5bce029 (identical tree;
+  deployment 01f1d8c2f5271d58b5dd216fb9b5c6ed). Health post171 + smoke green on both;
+  suites `.venv` 2464, `.venv-d1` 2122.
+- **post171 = DQ option 1 BUILT** (CHANGELOG): a DQ row only where a document states the
+  rule (`dq_stated_only`, ACFC overlay); the rest = `iig_dq_not_generated:` suggestions in
+  the review copy's summary. Real pairs: pair_03 = one FRD-stated DeDuplicationRule on its
+  4 STTM key columns; pair_11 16 -> 4 rows; pairs 05 / 11's STTM DQ rules sheet names 0 / 1
+  of the feed's fields (looks copied from another feed's template - worth asking the BSA).
+  The 12-pair check ran before the review-summary wiring (that adds summary rows only).
+- **Next:** the `codingapp` deploy (restarts this container - last in a session), then the
+  older items below.
+
+## State (2026-11-05 — post170 LIVE on both Apps)
 
 - **Both Apps on post170** (Soham's word): dev `codegen-agent` from feature 4d1465d
   (deployment 01f1d8b7f2161f93868ff10900a790f0); staging `codegen-agent-staging` from
@@ -52,9 +67,8 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
   Soham, 2026-11-05: "if we're arguing about things in the prod IIG that's automatically
   wrong" - pair_11's DeDuplication / DataTypeCast / DateConversion rows (11 of 15) are stated
   by neither document: they go. **NullCheck: the STTM wins** over an FRD "NA" (the STTM's
-  "DQ rules" sheet / "mandatory fields include in DQ check" column name the fields). Still
-  to settle when building: pair_03's dedup columns (the STTM Primary Key, or blank +
-  flagged) - ask. NOT built yet.
+  "DQ rules" sheet / "mandatory fields include in DQ check" column name the fields). pair_03's
+  dedup columns: the STTM Primary Key (Soham). BUILT in post171.
 - **Next:** (1) Soham: merge feature -> main + deploy staging (brings post167-169 to the
   data engineers); (2) the DQ questions above; (3) the `codingapp` deploy (below; restarts
   this container - last thing in a session).

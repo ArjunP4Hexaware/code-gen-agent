@@ -3497,6 +3497,13 @@ README: `tools/model_eval/`):
   post170 (main 502a3b6). DQ: Soham ruled the 11 rows no document states out, NullCheck =
   the STTM wins over an FRD "NA". A second spiral-detector false trigger, logged.
 
+- **post171, DQ option 1** (both Apps, main 5bce029): a DQ row only where the FRD / STTM
+  states the rule. Found on the way: pairs 05 / 11's STTM "DQ rules" sheet names fields the
+  feed does not have (0 / 1 of 22) - a review-copy line, never a row; the review summary is
+  built from `spec.provenance_flags` only, so the IIG writer's own flags never reached it
+  (the DQ suggestions are passed in explicitly). A post165 test asserting a NullCheckRule
+  from not-null cells was rewritten to the new rule; its FQN check moved to the new tests.
+
 **Lessons:** a hidden test from the merged fix grades a design, not just behaviour - read
 the failure before scoring; price a weaker model per accepted result, not per run; anything
 this container should remember goes into the repo (HOME and auto-memory are wiped).

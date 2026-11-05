@@ -166,13 +166,31 @@ def needs_answer_item(question: dict, *, feed_name: str | None = None,
             "reason": reason or question.get("reason") or "", "question": question}
 
 
-def _unstated_question(unstated) -> dict:
-    """post57: a value no document states, as a typed question (gaps:)."""
+def _unstated_question(unstated, config=None) -> dict:
+    """post57: a value no document states, as a typed question (gaps:). post170: the
+    plain question + the deliberate-blank choice where the field allows one."""
+    from codegen.layout.hints import VALUE_QUESTIONS
+
+    question, example = VALUE_QUESTIONS.get(unstated.field, (None, None))
     return {"document": "frd", "key": unstated.key, "sheet": None, "layer": None,
             "role": unstated.key, "kind": "text", "reason": unstated.reason,
             "header": [], "candidates": [],
-            "title": f"{unstated.field} of {unstated.feed_id}",
-            "hint": "No document states this value; type it.", "suggested": None}
+            "title": question or f"{unstated.field} of {unstated.feed_id}",
+            "hint": "No document states this value. Type the value the source team confirms"
+                    + ("; or leave it blank and continue - the cells it fills stay blank and "
+                       "flagged" if leave_blank_choice(unstated.key, config) else "") + ".",
+            "suggested": None, "example": example,
+            "leave_blank": leave_blank_choice(unstated.key, config)}
+
+
+def leave_blank_choice(key: str, config) -> str | None:
+    """post170: the answer that leaves ``key`` blank on purpose (``answers.leave_blank``)
+    when its field may be left blank (``answers.blankable_fields``), else None."""
+    settings = getattr(config, "answers", None)
+    if settings is None:
+        return None
+    field_name = re.sub(r"^feeds(\[\d+\]|\.[^.]+)\.", "", key)
+    return settings.leave_blank if field_name in settings.blankable_fields else None
 
 
 def pending_question(pending, key: str, config, frd_contract: Path | None = None) -> dict:
@@ -212,9 +230,13 @@ def pending_question(pending, key: str, config, frd_contract: Path | None = None
                   "No document states this value.")    # an STTM cell (columns[i]...)
         if frd_field in VALUE_QUESTIONS or frd_field in FRD_FIELD_HELP:
             title, example = value_question(key, config)
+        blank = leave_blank_choice(key, config)
         hint = (f"{looked} Type the value the source team confirms; it is used as your "
-                "answer and flagged for review. Left blank, the feed stays held back and this "
-                "question comes back on the next run.")
+                "answer and flagged for review. " + (
+                    "Or choose 'Leave blank and continue': the feed is generated and the "
+                    "cells this value fills stay blank and flagged." if blank else
+                    "Left blank, the feed stays held back and this question comes back on "
+                    "the next run."))
     # post95: the extractor's proposal (a blank stage type: what the sheet pairs with
     # the row's standard type) - one click, never pre-selected; typing still works
     candidates = [{"value": value, "source": "proposed",
@@ -228,7 +250,8 @@ def pending_question(pending, key: str, config, frd_contract: Path | None = None
                 "Nothing is filled in until you answer.")
     return LayoutQuestion(
         document="frd", sheet=None, layer=None, role=key, kind="text", reason=pending.reason,
-        title=title, hint=hint, candidates=candidates).as_dict() | {"example": example}
+        title=title, hint=hint, candidates=candidates).as_dict() | {
+            "example": example, "leave_blank": leave_blank_choice(key, config)}
 
 
 def _read_json(path: Path | None) -> dict | None:
@@ -272,6 +295,23 @@ def run_feed_answers(answers: dict, run_feeds: list, layout_feeds: list) -> dict
     by_name = {feed.feed_name: j for j, feed in enumerate(run_feeds)}
     return {by_name[layout_feeds[i].feed_name]: value for i, value in answers.items()
             if i < len(layout_feeds) and layout_feeds[i].feed_name in by_name}
+
+
+def blank_gaps(gaps: dict | None, config, run_feeds: list, layout_feeds: list) -> dict:
+    """post170: the gaps answers that leave a value blank on purpose, keyed by the RUN
+    FRD contract's feed index (the extractor's). The layout stage never writes them into
+    the FRD feed (the token is no value), so the extractor reads them itself."""
+    from codegen.layout.answers import blank_answer
+
+    by_feed: dict[int, dict[str, dict]] = {}
+    for key, choice in (gaps or {}).items():
+        match = re.match(r"^feeds\[(\d+)\]\.(.+)$", key)
+        value = choice.get("value") if isinstance(choice, dict) else choice
+        if match and blank_answer(key, value, config):
+            by_feed.setdefault(int(match.group(1)), {})[match.group(2)] = {"value": value}
+    return {f"feeds[{j}].{field}": choice
+            for j, fields in run_feed_answers(by_feed, run_feeds, layout_feeds).items()
+            for field, choice in fields.items()}
 
 
 def _dedup_items(items: list[dict]) -> list[dict]:
@@ -2245,7 +2285,7 @@ class DemoRunner:
                         "run's environment", "hint": "A required environment value: it is "
                         "kept for the next runs too (the environment picker).",
                         "suggested": None})
-        out += [_unstated_question(u) for u in unstated]
+        out += [_unstated_question(u, config) for u in unstated]
         for spec in specs:
             lob = lob_question_item(spec)
             if lob is not None:
@@ -3075,7 +3115,9 @@ class DemoRunner:
                 layout=resolution.sttm.profile,
                 skip_stage_tables=sorted(skip_tables),
                 width_answers=width_answers or None,
-                audit_answers=audit_answers or None)
+                audit_answers=audit_answers or None,
+                gaps=blank_gaps(self.last_answers.get("gaps"), config, run_feeds,
+                                layout_feeds) or None)
         except NeedsAnswersError as exc:
             # EVERY sheet is held back: the run ends as needs-answers with the
             # list — never "live run produced no feeds".
@@ -3134,7 +3176,7 @@ class DemoRunner:
             write_applied_answers(run_root / "answers.yaml", gaps, stage="this App run")
         for unstated in unstated_values:
             self._run_items.append(needs_answer_item(
-                _unstated_question(unstated), feed_name=unstated.feed_id,
+                _unstated_question(unstated, config), feed_name=unstated.feed_id,
                 reason=unstated.reason))
         # post47: a feed whose files no document keys to ONE LOB asks ONE question
         # (every file a key, the FRD's codes a dropdown) before generating.

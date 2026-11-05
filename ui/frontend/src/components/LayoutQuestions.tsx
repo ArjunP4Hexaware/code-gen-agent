@@ -232,6 +232,11 @@ export function answersPayload(questions: LayoutQuestion[], picks: AnswerPicks):
   return { sttm, frd, vdd, gaps };
 }
 
+/** post170: the person chose "Leave blank and continue" for this value. */
+export function isLeftBlank(q: LayoutQuestion, picks: AnswerPicks): boolean {
+  return Boolean(q.leave_blank) && picks.gaps[q.key]?.value === q.leave_blank;
+}
+
 function textPlaceholder(q: LayoutQuestion): string {
   if (q.example) return `e.g. ${q.example}`;          // post169: the field's own example
   if (/file_(name_)?patterns$/.test(q.key)) return "pattern_1_*.txt; pattern_2_*.txt";
@@ -338,19 +343,44 @@ export function QuestionItem({
       ) : null}
       {q.kind === "text" ? (
         // A value no document states — typed, lands as source=user under gaps.
-        <input
-          type="text"
-          aria-label={q.title || q.key}
-          style={{ width: "100%", marginTop: 4 }}
-          placeholder={textPlaceholder(q)}
-          value={picks.gaps[q.key]?.value ?? ""}
-          onChange={(e) => {
-            const value = e.target.value;
-            onChange(value.trim()
-              ? { ...picks, gaps: { ...picks.gaps, [q.key]: { value, source: "user" } } }
-              : clearPick(q, picks));
-          }}
-        />
+        // post170: or left blank on purpose (q.leave_blank, the reserved answer) -
+        // the feed is generated with the cells this value fills blank + flagged.
+        isLeftBlank(q, picks) ? (
+          <div className="hint" style={{ marginTop: 4, display: "flex", gap: 8,
+                                         alignItems: "center", flexWrap: "wrap" }}>
+            <span data-testid="left-blank">
+              Left blank — the feed will be generated with this value&apos;s cells blank and
+              flagged.
+            </span>
+            <button type="button" className="btn" onClick={() => onChange(clearPick(q, picks))}>
+              Type a value instead
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+            <input
+              type="text"
+              aria-label={q.title || q.key}
+              style={{ flex: "1 1 240px", minWidth: 0 }}
+              placeholder={textPlaceholder(q)}
+              value={picks.gaps[q.key]?.value ?? ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                onChange(value.trim()
+                  ? { ...picks, gaps: { ...picks.gaps, [q.key]: { value, source: "user" } } }
+                  : clearPick(q, picks));
+              }}
+            />
+            {q.leave_blank ? (
+              <button type="button" className="btn" onClick={() => onChange({
+                ...picks, gaps: { ...picks.gaps,
+                                  [q.key]: { value: q.leave_blank as string, source: "user" } },
+              })}>
+                Leave blank and continue
+              </button>
+            ) : null}
+          </div>
+        )
       ) : null}
       {q.kind === "files" ? (
         // ONE block: a dropdown per file over the candidates' values (strings —

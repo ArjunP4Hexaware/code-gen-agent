@@ -72,7 +72,9 @@ def test_the_file_format_card(tmp_path, config):
     assert card["title"] == "What format are the source files in?"
     assert card["example"] == "csv, txt, pipe-delimited text"
     assert card["hint"].startswith("The FRD's 'Object/data Format' row (table 6, row 4)")
-    assert "Left blank, the feed stays held back" in card["hint"]
+    # post170: a blankable value offers the deliberate blank instead of holding the feed
+    assert "Leave blank and continue" in card["hint"]
+    assert card["leave_blank"] == config.answers.leave_blank
     assert "Several tables" not in card["hint"]
     assert card["reason"] == "contract validation: value, unstated"     # kept, folded in the UI
 
@@ -80,6 +82,9 @@ def test_the_file_format_card(tmp_path, config):
 def test_a_table_question_says_how_to_list_several(tmp_path, config):
     card = _card(tmp_path, "feeds[0].stage_target.tables", {"feeds": [{}]}, config)
     assert "separate with ';'" in card["example"]
+    # a table can never be left blank (the DDL needs it): no blank choice, held back
+    assert card["leave_blank"] is None
+    assert "Left blank, the feed stays held back" in card["hint"]
 
 
 def test_an_sttm_cell_question_never_points_at_the_frd(tmp_path, config):

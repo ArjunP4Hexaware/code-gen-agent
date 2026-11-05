@@ -1168,6 +1168,21 @@ class LayoutConfig(BaseModel):
         return self
 
 
+class AnswersConfig(BaseModel):
+    """post170 (Soham, 2026-11-05: "a blank answer is still better than no answer because
+    there's still a partial workbook"): the answer a person gives to leave a value blank
+    on purpose, and the values that may be left blank - the ones that only fill IIG /
+    config cells (a feed without a file format still has its tables, columns and DDL).
+    An empty answer stays "not answered" (the feed waits); only ``leave_blank`` lets the
+    run through, the value blank + flagged and one non-blocking INPUT_NEEDED line."""
+
+    model_config = _MODEL_CONFIG
+
+    leave_blank: str = "(leave blank)"
+    blankable_fields: list[Literal["file_format", "delimiter", "frequency"]] = Field(
+        default_factory=lambda: ["file_format", "delimiter", "frequency"])
+
+
 class StorageConfig(BaseModel):
     """Where inputs, state and outputs live (M8.1): one storage URI per role —
     ``local:<dir>`` (relative = inside the checkout), ``workspace:/Workspace/
@@ -2567,6 +2582,8 @@ class Config(BaseModel):
     combined: CombinedConfig = CombinedConfig()
     # Optional (M8): storage backends per role + extra input roots.
     storage: StorageConfig = StorageConfig()
+    # post170: the deliberate blank answer and where it is allowed.
+    answers: AnswersConfig = AnswersConfig()
     inputs: InputsConfig = InputsConfig()
     upstream: UpstreamConfig = UpstreamConfig()
     # 2026-10-14: the deployment environments a run chooses from (the overlay's

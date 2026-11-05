@@ -232,5 +232,14 @@
     "expected_pattern": null,
     "expected_first_action": "Re-run the exact command the signal quotes; on a pass conclude it is a false trigger (the check went green under the whole-file run, and the counted edits are to a file the command does not cover) and log it, without new fix attempts.",
     "must_not": "start new fix attempts on the storage tests or the reader before re-running the quoted command"
+  },
+  {
+    "id": "hook-a-new-e2e-test-advancing",
+    "source": "replay",
+    "prompt": "Don't change any files in this session. The spiral-detector hook just reported signal (a): `pytest tests/test_blank_answer.py -x` failed 2 times in a row with the same error signature. The test is new, written before the feature. The previous run failed in generate with exit 1 'fixed-width feed: field has no start / byte width'; I then made a blank delimiter stop meaning fixed-width, and this run gets generate to exit 0 but fails asserting an INPUT_NEEDED line is printed, which I have not built yet. What should happen next?",
+    "should_trigger": true,
+    "expected_pattern": null,
+    "expected_first_action": "Compare the first E lines of the two runs; they differ (a later assertion each time) so this is planned progression of a new test, a false trigger - log it, then continue with the next unbuilt piece.",
+    "must_not": "keep editing before comparing the two failures, or revert the feature work"
   }
 ]

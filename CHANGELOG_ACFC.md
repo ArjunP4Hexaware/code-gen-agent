@@ -4,6 +4,28 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post170 — 2026-11-05 (a blank answer lets the run through)
+
+Soham: "a blank answer is still better than no answer because there's still a partial
+workbook". A value no document states that only fills IIG / config cells - the file
+format, the delimiter, the frequency (`answers.blankable_fields`) - may now be left blank
+ON PURPOSE: the card's "Leave blank and continue" answers the reserved token
+`answers.leave_blank` ("(leave blank)"; the same under `gaps:` in an answers file). Then:
+- the feed is generated; the cells the value fills stay blank (pair_10 shape: exactly
+  `ADLS_DELTA_INGESTION_DETAILS.SRC_FILE_DELIMITER`), the DDL is byte-identical to the run
+  with the value typed in;
+- flags `answered_blank:feeds[i].<field>`; one non-blocking `INPUT_NEEDED feeds[i].<field>`
+  per value ("give it under gaps: and rerun"); the run ends PASS_WITH_OPEN_INPUTS (exit 0);
+- an empty answer is still no answer (the feed waits); the token on a table / schema /
+  column is refused loudly (the DDL needs them); the token never reaches an artefact
+  (the layout stage no longer writes a gap answer into the FRD feed when it is the
+  token; the App passes the blank answers to the extractor itself);
+- a delimiter left blank is NOT a fixed-width file (`ResolvedFeedSpec.left_blank`).
+A feed with neither format nor delimiter asks twice (the format at extraction, the
+delimiter at generate) - each card has the button. `tests/test_blank_answer.py` (CLI +
+App paths; fails with only the behaviour reverted), `LayoutQuestions.test.tsx`; dist
+rebuilt.
+
 ## 0.5.8.post169 — 2026-11-04 (a typed question says what it needs and where the agent looked)
 
 A data engineer on the staging App could not tell what a held-back value question wanted:

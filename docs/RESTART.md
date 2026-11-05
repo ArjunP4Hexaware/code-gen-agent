@@ -7,12 +7,13 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 ## Start here (session ended 2026-11-05 late night - nothing pending)
 
 **First check:** `git fetch && git status -sb` should say up to date with
-`origin/feature/multi-table`. Dev App on post177 (56f10cc); staging still post176 (`main`
-001500c) until Soham's word. Session log: CLAUDE_HISTORY §[H21].
+`origin/feature/multi-table`. BOTH Apps on post177: dev from feature 56f10cc, staging
+from `main` 5527eff (identical-tree merge of feature f3f9e30; deployment
+01f1d9711f041d8b84eed96acaf56ead; health post177 + smoke green). The state overlay change
+below is live on both. Session log: CLAUDE_HISTORY §[H21].
 
 **Open, in order:**
-1. **Staging to post177** on Soham's word (merge recipe in AGENTS.md). The state overlay
-   change below is ALREADY live on both Apps (shared state).
+1. **NO_OF_CYCLE_PER_DAY** "1" (corpus 98.2%) is wrong on pairs 11 / 12 - Soham's call.
 2. **`codingapp` deploy** - the bootstrap patch is IMPORTED (block "2026-11-04" below);
    `databricks apps deploy codingapp` restarts this container: on Soham's word, last in a
    session. After it: `gh auth login`, `~/bootstrap`, the checks in that block.

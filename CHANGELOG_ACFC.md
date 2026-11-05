@@ -4,6 +4,90 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post169 — 2026-11-04 (a typed question says what it needs and where the agent looked)
+
+A data engineer on the staging App could not tell what a held-back value question wanted:
+"File format feeds[0].file_format - No document states this value ... Several tables:
+separate them with ';'", then "Why it is asked: contract validation: value, unstated ...".
+Now a typed question on an FRD field (`ui.backend.demo.pending_question`):
+- is a plain question with an example answer (`codegen.layout.hints.VALUE_QUESTIONS`: "What
+  format are the source files in?", e.g. csv, txt, pipe-delimited text; others "What is the
+  <field> for this feed?"), the example the input's placeholder;
+- says where the agent looked, from the run's FRD contract (`hints.where_looked`): the FRD
+  row by label + table / row and why it gave no value (several lines, a table, a pointer,
+  blank, a value it can't use) or that no row is labelled for it - coordinates and the row
+  label only, never a cell's value;
+- says what a blank answer does (the feed stays held back, the question comes back);
+- folds the contract's technical reason under "Technical detail"; the table-list hint
+  only on table questions. An STTM cell question (`columns[i]...`) keeps its STTM wording.
+Blocking semantics unchanged. `tests/test_value_question_card.py` (fails with only demo.py
+reverted) + `LayoutQuestions.test.tsx`; dist rebuilt.
+
+## 0.5.8.post168 — 2026-11-04 (an FRD cell of labelled lines is read line by line)
+
+An exchange FRD run on the staging App states its format in the Structural Metadata
+"Object/data Format" row as two lines, "File Format: .txt" and "Delimiter: Pipe Delimited".
+The reader refused the cell as multi-line (`frd_multiline`), the STTM states no format, and
+the run asked the person for the file format - a value the FRD states. Now
+`extractor.frd.cell_line_labels` (`file_format: ["File Format"]`, `delimiter: ["Delimiter"]`,
+the labels as that FRD writes them) reads a cell whose EVERY line is `<label>: <value>` with
+those labels one line per field: the row's own field takes its line, the FRD feed's
+delimiter the Delimiter line (the resolver checks it against the STTM as before), each cited
+under the label as written (`inline_label`), one `frd_labelled_lines:` flag. Any other line
+(an unknown label, an unlabelled line, a repeated field) keeps the refusal. Real-pair check
+(12 pairs, mock, post167 vs post168): outcomes 12/12 identical, every artefact byte-identical
+(no pair has that cell shape). `tests/test_frd_labelled_lines.py` fails with only the reader
+reverted.
+
+## 0.5.8.post167 — 2026-11-04 (each App its own state and outputs)
+
+Both Apps (`codegen-agent`, `codegen-agent-staging`) deploy one `app.yaml`, so they shared
+the state and outputs roles: a document pick on the staging App replaced the dev App's
+`selection.json`, a run card showed the other App's run, "Clear past runs" cleared both.
+Now `storage.per_app_roles` (env `CODEGEN_STORAGE_PER_APP`, `app.yaml`: `state,outputs`)
+puts those roles of every App but `storage.primary_app` (env `CODEGEN_STORAGE_PRIMARY_APP`,
+`app.yaml`: `codegen-agent`) in a subfolder named after it (`DATABRICKS_APP_NAME`), e.g.
+`codegen/state/codegen-agent-staging/`. The App makes that folder once inside the shared,
+already-granted one (no new grant); inputs, the pairs folder and `CODEGEN_STATE_DIR` stay
+shared; local roles, the CLI and the harness are unchanged; the dev App keeps its folders
+(runs, layout cache). `/api/health` probes the folders the App uses. Takes effect on staging
+only once `main` carries it. Tests: `tests/test_storage.py`, `tests/test_health_probe.py`
+(fail with only the fix reverted).
+
+## 0.5.8.post166 — 2026-11-04 (placeholder pipeline IDs that show the flow)
+
+Soham: the IIG workbook shows placeholder PIPELINE_IDs, a basic set that shows the flow
+from grand master to master to child. New knob `metadata.templates.<t>.placeholder_pipeline_ids`
+(off in config.yaml, on in the ACFC overlay) + `pipeline_id_roles`:
+- DATA_FACTORY_PIPELINE_SCHEDULE: the `pipeline_roles` numbered from 0 - grand master 0,
+  PARENT_PIPELINE_ID blank (NULL; was the constant 0); master 1, parent 0; File-to-Stage 2
+  and Stage-to-Standard 3, both parent 1 (children of one master share its id).
+- The rows of ADLS_DELTA / FILE_ADLS / ADLS_FIXED_WIDTH carry File-to-Stage's id,
+  STGDELTA_STDDELTA Stage-to-Standard's, DATABRICKS_NOTEBOOK_DETAILS each flow's.
+- The combined IIG numbers each feed's own children after the previous feeds' (feed 2:
+  4, 5); the shared grand master / master stay 0 / 1 and are written once.
+- Workbook only: `metadata_inserts.sql` keeps `<<PIPELINE_ID#n>>` open (cells marked
+  `placeholder_id`); one `iig_placeholder_id:<SHEET>.PIPELINE_ID` flag per sheet says to
+  replace them before deploying. `tests/test_placeholder_pipeline_ids.py` fails with only
+  the fix reverted. AGENTS.md "Never invent IDs" names the exception.
+
+## 0.5.8.post165 — 2026-11-04 (Data Quality rows only where the STTM states them)
+
+A generated IIG's DATA_QUALITY_RULES sheet carried NullCheckRule and DeDuplicationRule on
+every feed and LRTrimRule on every standard column: the corpus's most frequent classes,
+written as a baseline whether or not the documents asked - read by a reviewer as drawn
+from the ground-truth IIG (12 of one run's 19 DQ rows). Now (Soham: the STTM is the ground
+truth for the primary key):
+- NullCheckRule on the STTM's Primary Key / not-null columns of the detail table; no row
+  (formerly an open one) when it states none.
+- DeDuplicationRule on the STTM Primary Key ONLY (it also took the not-null columns); no
+  row without a key.
+- LRTrimRule on the standard columns whose STTM load rule states a trim (new knob
+  `metadata.templates.<t>.dq_trim_rule_regex`, default `(?i)\btrim`); no row otherwise.
+Header / trailer split, AddCustomColumns, Referential, DataTypeCast and DateConversion are
+unchanged (each already from the STTM). `tests/test_dq_rules_from_documents.py` fails with
+only the fix reverted; three tests that pinned the baseline were changed on Soham's ask.
+
 ## 0.5.8.post164 — 2026-11-03 (Cancel run beside the questions; Clear past runs drops them)
 
 Soham: "Clear past runs" left a stopped run's blocking questions on the Generate page,

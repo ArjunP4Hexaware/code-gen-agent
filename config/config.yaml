@@ -426,6 +426,13 @@ extractor:
     # landing line, read per requirement when the ADLS Location cell lists several
     requirement_landing_labels: ["Raw ADLS Location", "ADLS Location"]
     inline_pair_separators: [";"]
+    # post168 (an exchange FRD, 2026-11-04, the labels as it writes them): a cell whose
+    # every line is "<label>: <value>" with these labels is read line by line - the
+    # Object/data Format row's "File Format: .txt" + "Delimiter: Pipe Delimited". Any
+    # other line keeps the multi-line refusal (the other documents / the person answer).
+    cell_line_labels:
+      file_format: ["File Format"]
+      delimiter: ["Delimiter"]
     list_separators: [",", ";", "\n"]
     # 2026-10-14 (D1 pair_12): a LOB cell holding a Region / LOB table (nested,
     # or flattened one cell per line under its header row) — the LOB column's
@@ -1302,6 +1309,14 @@ metadata:
         - {role: file_to_stage, name: "PL_File_{feed}_ADLS_To_Delta_Incr", description: "File to Stage", parent: master}
         - {role: stage_to_standard, name: "PL_File_{feed}_Delta_To_STD_Incr", description: "Stage to Standard", parent: master}
       pipeline_roles_citation: "framework pipeline naming convention (framework owners, 2026-10-07; docs/acfc/MULTI_TABLE_DESIGN.md step 5)"
+      # post166: placeholder flow IDs (config.py MetadataTemplateConfig); off here - the
+      # ACFC overlay turns them on. Which pipeline runs each non-schedule sheet's rows.
+      placeholder_pipeline_ids: false
+      pipeline_id_roles:
+        FILE_ADLS_INGESTION_DETAILS: file_to_stage
+        ADLS_DELTA_INGESTION_DETAILS: file_to_stage
+        ADLS_FIXED_WIDTH_HANDLER: file_to_stage
+        STGDELTA_STDDELTA_INGESTION_DET: stage_to_standard
       # Per-feed-family conventions (2026-10-08): two families' goldens fill three
       # cells differently. Shipped: the pair-1 (PRX) family's LOB and primary key
       # (the real golden), the generalized file pattern for OBJECT_NAME (the
@@ -1633,6 +1648,12 @@ storage:
   state: "local:./ui/backend/state"     # decisions.json, layout_profiles/
   outputs: null                         # null = output.dir (local), as before M8
   scratch_dir: null                     # working copies of remote roles; null = system temp
+  # post167: roles a Databricks App keeps in a subfolder named after it (DATABRICKS_APP_NAME),
+  # so two Apps deployed from one app.yaml never share a selection, a run record or "Clear
+  # past runs"; remote roles only, inputs always shared. primary_app keeps the configured
+  # folders. Env CODEGEN_STORAGE_PER_APP / CODEGEN_STORAGE_PRIMARY_APP win (app.yaml).
+  per_app_roles: []
+  primary_app: null
 
 # M8.2: extra read-only input roots (storage URIs), scanned at depth 1 — the
 # root and its immediate subfolders (pair_1/ ... pair_N/). Env

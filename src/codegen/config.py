@@ -472,6 +472,13 @@ class FrdExtractorConfig(BaseModel):
     requirement_landing_labels: list[str] = Field(default_factory=lambda: [
         "Raw ADLS Location", "ADLS Location"])
     inline_pair_separators: list[str] = Field(default_factory=lambda: [";"])
+    # post168 (an exchange FRD, 2026-11-04): an F1 cell whose EVERY line reads
+    # "<label>: <value>" with one of these labels ("File Format: .txt" then
+    # "Delimiter: Pipe Delimited" in the Object/data Format row) is read line by
+    # line - each line's value to its field - instead of refused as multi-line.
+    # Labels only as a client FRD writes them; an unknown label keeps the refusal.
+    cell_line_labels: dict[Literal["file_format", "delimiter"], list[str]] = Field(
+        default_factory=dict)
     list_separators: list[str] = Field(default_factory=lambda: [",", ";", "\n"])
     domain_separators: list[str] = Field(default_factory=lambda: ["/", ","])
     target_schema_markers: dict[str, list[str]] = Field(default_factory=dict)
@@ -1178,6 +1185,14 @@ class StorageConfig(BaseModel):
     # Local scratch for the working copies of a remote role (None = the
     # system temp dir). Never the record: recreated freely.
     scratch_dir: str | None = None
+    # post167: roles a Databricks App keeps in a subfolder named after it
+    # (DATABRICKS_APP_NAME), so two Apps deployed from one app.yaml never share a
+    # selection, a run record or a "Clear past runs". Only remote roles; inputs are
+    # never per App. Env CODEGEN_STORAGE_PER_APP ("state,outputs") wins.
+    per_app_roles: list[Literal["state", "outputs"]] = Field(default_factory=list)
+    # The one App that keeps the configured folders themselves (its runs and
+    # layout cache predate the split). Env CODEGEN_STORAGE_PRIMARY_APP wins.
+    primary_app: str | None = None
 
     @model_validator(mode="after")
     def _uris_parse(self) -> StorageConfig:
@@ -1917,6 +1932,9 @@ class MetadataTemplateConfig(BaseModel):
     # {container} (the ADLS TGT_CONTAINER_NAME constant), {domain_path}, {table}.
     dq_split_style: Literal["header_columns", "header_and_trailer"] = "header_columns"
     dq_split_location: str | None = None
+    # LRTrimRule (post165): a standard column's STTM load rule stating a trim; no
+    # statement = no trim row (the rule is never a corpus baseline).
+    dq_trim_rule_regex: str = r"(?i)\btrim"
     # AddCustomColumnsRule: an audit row's load rule naming a literal default.
     dq_literal_regex: str = (r"(?i)\b(?:default(?:ed)?|hard[\s-]*cod(?:e|ed))\s*(?:to|as|with)?"
                              r"\s*[:=]?\s*['\"‘’“”]([^'\"‘’“”]+)"
@@ -2048,6 +2066,14 @@ class MetadataTemplateConfig(BaseModel):
     # tab -> rows of header -> value; keys starting with '_' steer the
     # builder (e.g. _layer: standard) and never render.
     template_rows: dict[str, list[dict[str, str]]] = Field(default_factory=dict)
+    # post166 (Soham, 2026-11-04): placeholder PIPELINE_IDs that show the flow - each
+    # pipeline_roles entry numbered from 0 in order (grand master 0, master 1, the
+    # children on), PARENT_PIPELINE_ID its parent's id, the top one's parent blank.
+    # Workbook only: metadata_inserts.sql keeps <<PIPELINE_ID#n>>. Off = the IDs stay
+    # always_blank. pipeline_id_roles: a non-schedule sheet -> the role whose pipeline
+    # runs its rows (the notebook sheet takes each template row's _pipeline_role).
+    placeholder_pipeline_ids: bool = False
+    pipeline_id_roles: dict[str, str] = Field(default_factory=dict)
     # Multi-table step 3 (docs/acfc/MULTI_TABLE_DESIGN.md rule 2): date
     # placeholder tokens of a stated file pattern written as the framework's
     # '*' wildcard in SRC_FILE_NAME / INPUT_PARAM (matched case-sensitively,

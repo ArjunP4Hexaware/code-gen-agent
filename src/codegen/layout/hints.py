@@ -218,3 +218,90 @@ def role_help(role: str, layer: str | None, candidates: list[dict]
 
 
 __all__ = ["FRD_FIELD_HELP", "ROLE_HELP", "frd_field_help", "role_help"]
+
+
+# post169: a value no document states, asked as a plain question with an example
+# answer (the typed card: "What format are the source files in?") - field (without
+# the feeds[i]. prefix) -> (question, example). Generic examples, never a client's.
+VALUE_QUESTIONS: dict[str, tuple[str, str]] = {
+    "file_format": ("What format are the source files in?", "csv, txt, pipe-delimited text"),
+    "delimiter": ("Which character separates the fields in the file?", "| (pipe), comma, tab"),
+    "frequency": ("How often does the file arrive?", "Daily, Weekly, Monthly"),
+    "landing_location": ("Where in the lake do the files land?",
+                         "the ADLS folder path the source team gives"),
+    "source_system": ("Which system or vendor sends the file?", "the vendor's name"),
+    "feed_name": ("What is the feed called?", "the object name in the FRD"),
+    "file_name_patterns": ("What are the file names?",
+                           "pattern_1_*.txt; pattern_2_*.txt (several: separate with ';')"),
+    "lobs": ("Which lines of business does the feed cover?", "ALL, or the LOB codes"),
+    "domain": ("Which data domain does the feed belong to?", "Member, Pharmacy, Provider"),
+    "sub_domain": ("Which subdomain does the feed belong to?", "Accumulators, Eligibility"),
+    "stage_target.tables": ("Which stage table(s) does the feed load?",
+                            "table name (several: separate with ';')"),
+    "standard_target.tables": ("Which standard table(s) does the feed load?",
+                               "table name (several: separate with ';')"),
+    "stage_target.schema": ("Which schema is the stage table in?", "the stage schema name"),
+    "standard_target.schema": ("Which schema is the standard table in?",
+                               "the standard schema name"),
+    "stage_target.load_strategy": ("How is the stage layer loaded?",
+                                   "Append, Truncate and Load, Upsert"),
+    "standard_target.load_strategy": ("How is the standard layer loaded?",
+                                      "Append, Truncate and Load, Upsert"),
+}
+
+# How the FRD's own row for a field was refused (contracts.frd StructuredValue kinds).
+_REFUSED_WORDS = {
+    "multiline": "states it over several lines the agent can't read as one value",
+    "nested_table": "holds a table there, not one value",
+    "per_file_blocks": "states it per file, in blocks",
+    "labelled_files": "lists files there, not one value",
+    "label_prefixed": "carries a different label in front of the value",
+    "pointer": "points to another document for it",
+}
+
+
+def value_question(path: str, config: Config) -> tuple[str, str | None]:
+    """(question, example or None) for a typed value question on ``path``."""
+    field = re.sub(r"^feeds\[\d+\]\.", "", path).replace("#fallback", "")
+    if field in VALUE_QUESTIONS:
+        return VALUE_QUESTIONS[field]
+    title = frd_field_help(path, [], config)[0]
+    return f"What is the {title[0].lower()}{title[1:]} for this feed?", None
+
+
+def where_looked(path: str, frd_contract: dict | None) -> str:
+    """One plain sentence: what the run's FRD contract says about ``path`` - the
+    row it read and why that gave no value, or that no row is labelled for it.
+    Coordinates and the document's own row label only, never a cell's value."""
+    if not frd_contract:
+        return "No document the agent read states it."
+    # derived feeds share the FRD's one row for a field: fall back to feeds[0]
+    keys = [path, re.sub(r"^feeds\[\d+\]", "feeds[0]", path)]
+    structured = frd_contract.get("structured") or {}
+    provenance = frd_contract.get("field_provenance") or {}
+    tail = ", and no other document states it."
+    for key in keys:
+        refused = structured.get(key)
+        if isinstance(refused, dict) and refused.get("kind") in _REFUSED_WORDS:
+            return (f"The FRD's '{refused.get('label')}' row (table {refused.get('table')}, row "
+                    f"{refused.get('row')}) {_REFUSED_WORDS[refused['kind']]}{tail}")
+    for key in keys:
+        source = provenance.get(key)
+        if isinstance(source, dict) and source.get("label"):
+            what = ("states a value the agent can't use for this field"
+                    if _stated(frd_contract, key) else "is blank or a placeholder")
+            return (f"The FRD's '{source['label']}' row (table {source.get('table')}, row "
+                    f"{source.get('row')}) {what}{tail}")
+    return "No FRD row is labelled for it" + tail
+
+
+def _stated(frd_contract: dict, key: str) -> bool:
+    """Whether the contract's feed carries a non-empty value at ``feeds[i].<field>``."""
+    match = re.match(r"^feeds\[(\d+)\]\.(.+)$", key)
+    feeds = frd_contract.get("feeds") or []
+    if match is None or int(match.group(1)) >= len(feeds):
+        return False
+    value: object = feeds[int(match.group(1))]
+    for part in match.group(2).split("."):
+        value = value.get(part) if isinstance(value, dict) else None
+    return bool(value)

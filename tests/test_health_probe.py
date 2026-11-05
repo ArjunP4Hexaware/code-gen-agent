@@ -59,6 +59,27 @@ def test_readable_empty_and_refused(fake):
     assert {c[0] for c in fake.ws.calls} <= {"list", "get_status"}   # read-only
 
 
+def test_a_second_app_probes_its_own_state_and_outputs_folders(fake):
+    """post167: the health card names the folders this App really uses — a
+    second App's own subfolder of state / outputs, the shared inputs."""
+    fake.ws.dirs.update({"/Users/u/shared/state/codegen-agent-staging",
+                         "/Users/u/shared/inputs"})
+    env = {"CODEGEN_STORAGE_INPUTS": "workspace:/Workspace/Users/u/shared/inputs",
+           "CODEGEN_STORAGE_STATE": "workspace:/Workspace/Users/u/shared/state",
+           "CODEGEN_STORAGE_OUTPUTS": "workspace:/Workspace/Users/u/shared/outputs",
+           "CODEGEN_STORAGE_PER_APP": "state,outputs",
+           "CODEGEN_STORAGE_PRIMARY_APP": "codegen-agent",
+           "DATABRICKS_APP_NAME": "codegen-agent-staging"}
+    values = {env_name: value for env_name, value in _probe(env, fake)}
+    assert values["CODEGEN_STORAGE_STATE"] == \
+        "workspace:/Workspace/Users/u/shared/state/codegen-agent-staging"
+    assert values["CODEGEN_STORAGE_OUTPUTS"] == \
+        "workspace:/Workspace/Users/u/shared/outputs/codegen-agent-staging"
+    assert values["CODEGEN_STORAGE_INPUTS"] == "workspace:/Workspace/Users/u/shared/inputs"
+    assert _probe({**env, "DATABRICKS_APP_NAME": "codegen-agent"}, fake)[
+        ("CODEGEN_STORAGE_STATE", "workspace:/Workspace/Users/u/shared/state")]
+
+
 def test_permission_denied_is_not_shared_and_a_bad_uri_is_invalid(fake):
     def denied(path):
         raise PermissionDenied(f"User does not have READ on {path}")

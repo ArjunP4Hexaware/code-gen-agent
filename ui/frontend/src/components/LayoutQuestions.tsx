@@ -233,6 +233,7 @@ export function answersPayload(questions: LayoutQuestion[], picks: AnswerPicks):
 }
 
 function textPlaceholder(q: LayoutQuestion): string {
+  if (q.example) return `e.g. ${q.example}`;          // post169: the field's own example
   if (/file_(name_)?patterns$/.test(q.key)) return "pattern_1_*.txt; pattern_2_*.txt";
   if (/\.tables$/.test(q.key)) return "table name (several: separate with ';')";
   return "the value, as the source team confirms it";
@@ -250,10 +251,9 @@ function whyLine(q: LayoutQuestion): string {
   }
   if (q.kind === "text") {
     // post96: a typed question with a proposal (a blank stage type) - never
-    // "no document states it" next to a suggestion read from the sheet
-    return q.candidates.length
-      ? "Pick the suggestion below, or type your own value, or leave it empty."
-      : "No document states it — type it, or leave it empty.";
+    // "no document states it" next to a suggestion read from the sheet. post169:
+    // without one the reason is folded and the hint says the rest (never here).
+    return "Pick the suggestion below, or type your own value, or leave it empty.";
   }
   if (q.kind === "files") {
     return "Pick each file's value from the list; a file left unanswered stays open "
@@ -307,9 +307,18 @@ export function QuestionItem({
         <strong>{q.title || q.key}</strong> <code style={{ fontSize: 11 }}>{q.key}</code>
       </div>
       {q.hint ? <div className="hint" style={{ marginTop: 2 }}>{q.hint}</div> : null}
-      <div className="hint" style={{ marginTop: 2, fontSize: 11 }}>
-        Why it is asked: {q.reason}. {whyLine(q)}
-      </div>
+      {q.kind === "text" && !q.candidates.length ? (
+        // post169: the hint already says where the agent looked and what a blank
+        // answer does; the contract's own reason is technical detail, folded
+        <details className="hint" style={{ marginTop: 2, fontSize: 11 }}>
+          <summary>Technical detail</summary>
+          {q.reason}
+        </details>
+      ) : (
+        <div className="hint" style={{ marginTop: 2, fontSize: 11 }}>
+          Why it is asked: {q.reason}. {whyLine(q)}
+        </div>
+      )}
       {advice ? (
         <div className="flag-hitl" style={{ padding: "4px 8px", marginTop: 4, fontSize: 12 }}>
           <strong>Model advice</strong>{" "}

@@ -926,6 +926,28 @@ def split_domain_labels(text: str | None) -> tuple[str | None, str | None] | Non
     return values["domain"], values["sub_domain"]
 
 
+def labelled_cell_lines(text: str | None, line_labels: dict[str, list[str]]
+                        ) -> list[tuple[str, str, str]] | None:
+    """post168: ``[(field, label as written, value), …]`` when a multi-line cell
+    is NOTHING but ``<label>: <value>`` lines whose labels are ``line_labels``
+    spellings (field -> labels), each field once - "File Format: .txt" then
+    "Delimiter: Pipe Delimited". None for any other cell (a line without a known
+    label, an unlabelled line, a repeated field, a single line): it reads as before."""
+    lines = [line for line in (text or "").splitlines() if line.strip()]
+    if len(lines) < 2:
+        return None
+    lookup = {normalize_label(label): field
+              for field, labels in line_labels.items() for label in labels}
+    found: list[tuple[str, str, str]] = []
+    for line in lines:
+        match = _PAIR_RE.match(line)
+        field = lookup.get(normalize_label(match.group(1))) if match else None
+        if field is None or any(f == field for f, _l, _v in found):
+            return None
+        found.append((field, match.group(1).strip(), match.group(2).strip()))
+    return found
+
+
 def _lobs_and_table(content: DocxContent, profile: FrdLayoutProfile, prefix: str, text: str,
                     frd_config, flags: list[str], cell_of) -> tuple[list[str], list[dict]]:
     """The feed's LOBs. 2026-10-14 (D1 pair_12): a LOB cell holding a Region /
@@ -1043,6 +1065,19 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
     structured: dict = {}
     labels = _lookup(frd_config.labels)
     mentions = frequency_mentions(content)
+    # post168: values another field's cell states on its own labelled line
+    # (path -> (value, evidence)), and the flags saying which cell was read so
+    cell_lines: dict[str, tuple[str, FieldEvidence]] = {}
+    line_flags: list[str] = []
+
+    def from_cell_line(path: str) -> str | None:
+        """The value a labelled line of ANOTHER field's cell states for ``path``."""
+        hit = cell_lines.get(path)
+        if hit is None:
+            return None
+        evidence[path] = hit[1]
+        blank = {normalize_label(b) for b in frd_config.blank_values}
+        return None if normalize_label(hit[0]) in blank else hit[0]
 
     def get(path: str) -> str:
         source = profile.fields.get(path)
@@ -1059,6 +1094,23 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             own |= {"domain_subdomain", "domain"}
         if field in ("domain", "sub_domain") and split_domain_labels(value):
             return value            # two labelled lines: split where the feed is built
+        lines = labelled_cell_lines(value, frd_config.cell_line_labels)
+        if lines and any(f == field for f, _l, _v in lines):
+            # post168: each labelled line to its own field, the label as written cited
+            prefix = clean.split(".", 1)[0]
+            for line_field, label, text in lines:
+                line_path = f"{prefix}.{line_field}"
+                cited = evidence[path].model_copy(update={"inline_label": label})
+                if line_field == field:
+                    evidence[path], value = cited, text
+                elif line_path not in profile.fields:
+                    cell_lines.setdefault(line_path, (text, cited))
+            line_flags.append(
+                f"frd_labelled_lines:{clean} — the table {source.table} row {source.row} "
+                f"({source.label!r}) cell states {len(lines)} '<label>: <value>' lines, read "
+                "one per field: " + ", ".join(f"{f} ({label!r})" for f, label, _v in lines))
+            blank = {normalize_label(b) for b in frd_config.blank_values}
+            return "" if normalize_label(value) in blank else value
         refused = classify_cell(content, source, field, value, frd_config, labels, own)
         if refused is not None:
             structured[clean] = refused
@@ -1258,12 +1310,13 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         for field, value in (("feed_name", named), ("source_system", system)):
             path = f"{prefix}.{field}"
             _require_one_line(path, value, evidence.get(path) or profile.fields.get(path))
+        file_format = get(f"{prefix}.file_format") or None    # before its cell's lines
         feeds.append(FrdFeed(
             feed_name=named,
             source_system=system,
             file_name_patterns=file_name_patterns,
-            file_format=get(f"{prefix}.file_format") or None,
-            delimiter=None,
+            file_format=file_format,
+            delimiter=from_cell_line(f"{prefix}.delimiter"),
             record_segments=[],
             frequency=get(f"{prefix}.frequency") or None,
             load_windows_sla=[],
@@ -1338,7 +1391,7 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                                 unresolved=[f"{u.field}: {u.reason}" for u in profile.unresolved]),
         structured=_requirement_landing_blocks(content, frd_config, structured, feeds,
                                                ambiguities),
-        extraction_flags=flags,
+        extraction_flags=[*flags, *dict.fromkeys(line_flags)],
     )
 
 

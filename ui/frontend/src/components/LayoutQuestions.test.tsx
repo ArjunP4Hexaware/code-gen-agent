@@ -291,9 +291,24 @@ describe("a typed question with a suggestion (post95 / post96)", () => {
     expect(latest.gaps["feeds[0].columns[87].target_type"]?.value).toBe("STRING");
   });
 
-  it("without a suggestion keeps the plain wording", () => {
+  it("without a suggestion shows the hint and folds the technical reason (post169)", () => {
     render(<Dialog questions={[typed([])]} initial={emptyPicks()} />);
     expect(radios()).toHaveLength(0);
-    expect(host.textContent).toContain("No document states it — type it, or leave it empty.");
+    const fold = host.querySelector("details");
+    expect(fold?.querySelector("summary")?.textContent).toBe("Technical detail");
+    expect(fold?.textContent).toContain("the stage cell is empty");
+    expect(fold?.open).toBe(false);
+    expect(host.textContent).not.toContain("Why it is asked");
+  });
+
+  it("shows the field's example answer as the placeholder (post169)", () => {
+    render(<Dialog questions={[{ ...typed([]), key: "feeds[0].file_format",
+                                 role: "feeds[0].file_format",
+                                 title: "What format are the source files in?",
+                                 example: "csv, txt, pipe-delimited text" }]}
+                   initial={emptyPicks()} />);
+    const input = host.querySelector("input[type=text]") as HTMLInputElement;
+    expect(input.placeholder).toBe("e.g. csv, txt, pipe-delimited text");
+    expect(host.textContent).toContain("What format are the source files in?");
   });
 });

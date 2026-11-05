@@ -2411,23 +2411,23 @@ def _stage_dq_rules(kind: str, tpl: MetadataTemplateConfig, config: Config, feed
                  "TARGET_COLUMN": _cell(column, "from_sttm", "the audit column (STTM)")}
                 for column, literal in _audit_literals(spec, tpl)]
     if kind in ("null_check", "dedup"):
-        # D1 post45: the baseline PER FEED — once, on the first file's object
-        # (NullCheckRule 186 rows / 114 workbooks, DeDuplicationRule 160 / 90: ~1.6
-        # per workbook, not one per file); over the detail table's key columns.
-        keyed = set(_primary_key(fields, "stage")) | set(spec.not_null_columns)
+        # post165: only what the STTM states (it is the ground truth for the key), once
+        # per feed on the first file's object - never a corpus baseline. NullCheckRule:
+        # the detail table's Primary Key + not-null columns; DeDuplicationRule: its
+        # Primary Key only (a required column is not unique). Nothing stated = no row.
+        keyed = set(_primary_key(fields, "stage"))
+        if kind == "null_check":
+            keyed |= set(spec.not_null_columns)
         columns = [f.stage_column for f in fields if f.stage_column in keyed]
+        if not columns:
+            return []
+        why = ("the detail table's Primary Key / not-null columns (STTM Stage band)"
+               if kind == "null_check" else
+               "the detail table's Primary Key columns (STTM Stage band)")
         # 2026-10-14 (framework owner, the pair_9 goldens): INPUT_PARAM = the target
         # table's FQN <catalog>.<schema>.<table>
-        target = _target_fqn_cell(config, stage)
-        if not columns:
-            rule = _dq_head(tpl, kind)
-            rule["SOURCE_COLUMN"] = _cell("", "needs_template",
-                                          "the STTM marks no Primary Key / not-null column on "
-                                          "the detail table — open")
-            return [{**rule, "INPUT_PARAM": target, "_per_feed": True}]
-        return [{**_columns_rule(tpl, kind, columns, "the detail table's Primary Key / "
-                                                     "not-null columns (STTM Stage band)",
-                                 INPUT_PARAM=target),
+        return [{**_columns_rule(tpl, kind, columns, why,
+                                 INPUT_PARAM=_target_fqn_cell(config, stage)),
                  "_per_feed": True}]
     if kind == "referential_check":
         recycle = spec.recycle
@@ -2476,9 +2476,14 @@ def _std_dq_rules(kind: str, tpl: MetadataTemplateConfig, group: _TableGroup) ->
     if standard is None or not fields:
         return []
     if kind == "lr_trim":
-        return [_columns_rule(tpl, kind, [f.standard_column for f in fields],
-                              f"every column of the standard table {standard.table} (STTM "
-                              "Standard band)")]
+        # post165: only the columns whose STTM load rule states a trim
+        trim = re.compile(tpl.dq_trim_rule_regex)
+        stated = [f.standard_column for f in fields if trim.search(f.value_spec or "")]
+        if not stated:
+            return []
+        return [_columns_rule(tpl, kind, stated,
+                              f"the STTM load rule states a trim (standard table "
+                              f"{standard.table})")]
     if kind == "std_data_type_cast":
         typed = [f for f in fields if _base_type(f.standard_datatype).lower() != "string"]
         if not typed:
@@ -2695,8 +2700,71 @@ def template_tab_rows(tab: str, feed: FrdFeed, config: Config, spec: ResolvedFee
         tpl = apply_environment(tpl, config)
     tpl = with_path_family(tpl, _feed_key(feed, spec), feed.source_system)
     if builder is _stg_std:
-        return builder(tab, feed, config, spec, faq, tpl, profile=profile)
-    return builder(tab, feed, config, spec, faq, tpl)
+        rows = builder(tab, feed, config, spec, faq, tpl, profile=profile)
+    else:
+        rows = builder(tab, feed, config, spec, faq, tpl)
+    return _placeholder_pipeline_ids(tab, rows, tpl)
+
+
+PLACEHOLDER_ID_NOTE = ("iig_placeholder_id:{tab}.PIPELINE_ID — placeholder flow IDs (grand "
+                       "master 0, master 1, children on): they show which pipeline runs "
+                       "which row; replace them with the framework's IDs before deploying "
+                       "(metadata_inserts.sql keeps <<PIPELINE_ID#n>>)")
+
+
+def _row_roles(tab: str, tpl: MetadataTemplateConfig, count: int) -> list[str | None]:
+    """The pipeline role of each of a sheet's ``count`` rows: a template row's own
+    ``_pipeline_role``; the schedule built from ``pipeline_roles`` in that order;
+    else the sheet's ``pipeline_id_roles`` role for every row."""
+    template = tpl.template_rows.get(tab)
+    if template:
+        return [row.get("_pipeline_role") for row in template]
+    if tab == "DATA_FACTORY_PIPELINE_SCHEDULE":
+        return [role.role for role in tpl.pipeline_roles]
+    return [tpl.pipeline_id_roles.get(tab)] * count
+
+
+def _placeholder_pipeline_ids(tab: str, rows: list[dict],
+                              tpl: MetadataTemplateConfig) -> list[dict]:
+    """post166: PIPELINE_ID / PARENT_PIPELINE_ID placeholders under
+    ``placeholder_pipeline_ids`` (config.py). A row whose role cannot be told (a
+    count that does not match its roles, an unknown role) keeps the blank."""
+    if not tpl.placeholder_pipeline_ids or not tpl.pipeline_roles or not rows:
+        return rows
+    ids = {role.role: number for number, role in enumerate(tpl.pipeline_roles)}
+    parents = {role.role: role.parent for role in tpl.pipeline_roles}
+    shared = {role.parent for role in tpl.pipeline_roles if role.parent}
+    roles = _row_roles(tab, tpl, len(rows))
+    if len(roles) != len(rows):
+        return rows
+    citation = tpl.pipeline_roles_citation or tpl.citation
+
+    def id_cell(role: str, note: bool) -> dict:
+        cell = _cell(str(ids[role]), "synthetic",
+                     f"placeholder flow ID — the {role} pipeline ({citation}); not the "
+                     "framework's ID: replace before deploying")
+        cell["badge_entry"].update(convention=True, placeholder_id=True,
+                                   placeholder_shared=role in shared)
+        if note:
+            cell["badge_entry"]["note"] = PLACEHOLDER_ID_NOTE.format(tab=tab)
+        return cell
+
+    out = []
+    for row, role in zip(rows, roles, strict=True):
+        if role not in ids:
+            out.append(row)
+            continue
+        row = {**row, "PIPELINE_ID": id_cell(role, note=True)}
+        if tab == "DATA_FACTORY_PIPELINE_SCHEDULE":
+            parent = parents.get(role)
+            if parent in ids:
+                row["PARENT_PIPELINE_ID"] = id_cell(parent, note=False)
+            else:
+                top = _cell("", "synthetic", "the top pipeline has no parent: blank (NULL)")
+                top["badge_entry"].update(convention=True, deliberate_blank=True)
+                row["PARENT_PIPELINE_ID"] = top
+        out.append(row)
+    return out
 
 
 def blank_flags(payload: dict) -> list[str]:

@@ -69,10 +69,13 @@ def build_sttm(sheets: dict[str, str] | None = None, *, own_file_rows: bool = Tr
 
 def build_frd(files: list[str] | None = None,
               domain_cell: str = "Member / Care Management", *,
-              name: str = PROJECT, table: str = TABLE) -> bytes:
+              name: str = PROJECT, table: str = TABLE,
+              format_cell: str = "Pipe delimited text, first row is a header") -> bytes:
     """F1: the project as the feed name, the files in Object Name, ONE table.
     ``domain_cell`` is the "Domain and Subdomain" row (pair_12 CAQH states
-    both labels there on two lines)."""
+    both labels there on two lines); ``format_cell`` the "Object/data Format"
+    row (an exchange FRD, 2026-11-04: "File Format: .txt" + "Delimiter: ..."
+    lines in one cell)."""
     files = list(FILES.values()) if files is None else files
     return docx_bytes([
         _f1("DM", "Descriptive Metadata", [
@@ -88,7 +91,7 @@ def build_frd(files: list[str] | None = None,
             ("SM-1", "Name", "Care management structure"),
             ("SM-2", "Description", ""),
             ("SM-3", "Functional Requirement", ""),
-            ("SM-4", "Object/data Format", "Pipe delimited text, first row is a header"),
+            ("SM-4", "Object/data Format", format_cell),
             ("SM-5", "Target Schema", "stg_nb_cm (stage), nb_cm (standard)"),
             ("SM-6", "Target Table Name", table),
             ("SM-7", "Domain and Subdomain", domain_cell),

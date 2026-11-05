@@ -2,9 +2,178 @@
 
 Where the work is now. Update this file at the end of a session; when a block stops
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
-CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
+`AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-03 — post163 DEPLOYED; start here)
+## State (2026-11-04 evening — post167-169 deployed to the dev App; start here)
+
+- **Live, dev App `codegen-agent`:** post169 (54ee423; deployment
+  01f1d8a1a6ed1313b9ac8021979609a1). Health = post169 (every root readable, the original
+  folders: it is the primary App), live smoke Generate + Results 200, 0 console errors.
+  Both suites green on the pushed tree (`.venv` 2442, `.venv-d1` 2101), vitest 271.
+  - **post167 - each App its own state + outputs** (`CODEGEN_STORAGE_PER_APP=state,outputs`,
+    `CODEGEN_STORAGE_PRIMARY_APP=codegen-agent` in app.yaml): seen 2026-11-04 - a data
+    engineer's document pick on staging replaced the dev App's `selection.json` and her run
+    card showed the dev App's run id. A non-primary App uses `codegen/state/<app>/` +
+    `codegen/outputs/<app>/` (made by the App, inherits Can Manage on `codegen`).
+    **Takes effect on staging only once `main` carries it** (Soham's word: merge + deploy
+    staging); until then staging still writes the dev App's folders. Staging then starts
+    with an empty layout cache / run list (its cache entries are keyed per tree anyway).
+  - **post168 - an FRD cell of `<label>: <value>` lines** ("File Format: .txt" + "Delimiter:
+    Pipe Delimited" in Object/data Format) is read line by line - the staging run asked
+    for a file format its FRD states. 12-pair check: outcomes 12/12, artefacts identical.
+  - **post169 - the typed question card:** a plain question + example, where the agent
+    looked (FRD row + coordinates), what a blank answer does, technical reason folded.
+    Open: Soham offered the data engineer a way to "click through" a blank value - that
+    is a rule change (blank = held back today); not built, his call.
+- **Open - DQ "option 1"** (Soham, 2026-11-04: DATA_QUALITY_RULES only from rules the
+  documents state; derived rows to the review copy). Survey of the 12 pairs (counts only):
+  the FRD's DQ section is one template (Uniqueness / duplicate check, Incomplete record
+  rejection, Record recycle, then BSL/EDH rows); only pair_03 states a duplicate check, no
+  pair states incomplete-record rejection (pair_11's says NA, yet post166 writes NullCheck +
+  DeDup on every feed); STTM: pairs 05 / 11 have a "DQ rules" sheet ("allow nulls" /
+  "don't allow nulls" per field), pair_07 a "mandatory fields include in DQ check" Y/N
+  column, pair_03 an empty "DQ rules (hard reject / soft check)" column. None of these is
+  read today (layout roles `dq_rules` / `dq_mandatory` exist, no extractor uses them).
+  Three questions to Soham before building: (1) does the STTM "DQ rules" sheet count when
+  the FRD says NA; (2) DataTypeCast / DateConversion (no document states them; the
+  framework may need them to cast): review copy only, or keep flagged; (3) pair_03's
+  dedup columns: the STTM Primary Key, or blank + flagged.
+- **Next:** (1) Soham: merge feature -> main + deploy staging (brings post167-169 to the
+  data engineers); (2) the DQ questions above; (3) the `codingapp` deploy (below; restarts
+  this container - last thing in a session).
+
+## State (2026-11-04 — cost work, model pilot, App bootstrap patch)
+
+**If a session ended on the `codingapp` deploy:** the bootstrap
+patch was imported into `coding-agents-databricks-apps` and `databricks apps deploy
+codingapp` was started (it restarts this container). Verify: (1) `gh auth login`, then
+`~/bootstrap` exists and runs; (2) `~/.claude/settings.json` has the 5.5 model defaults,
+`skillOverrides` (23 off) and no mlflow Stop hook; (3) the 14 Databricks skills are plain
+files (`/tmp/bootstrap-aitools.log` ok); (4) `databricks apps get codingapp` shows the new
+deployment SUCCEEDED. If the App came back without the patch: the pre-patch originals are
+the patch base (`codingapp-patch-2026-11-04/codingapp.patch`, reverse-apply).
+
+post165 (DQ rows only where the STTM states them) and post166 (placeholder pipeline IDs, workbook only) pushed; post166 DEPLOYED to the dev App `codegen-agent` 2026-11-04 (started on Soham's word; deployment 01f1d87be2191ec5ad49305a107e1c79, commit 492032e; health = post166, live smoke Generate + Results 200, 0 console errors). The staging App still runs post164 (main). Earlier pushes 9f387ee, adc2adb, f1b0757. Session log: CLAUDE_HISTORY
+§[H19]; the harnesses: `tools/model_eval/` (README).
+- **Spend, October 2026** (EDO Spend Monitor screenshots; Soham's user can NOT read
+  `system.billing` / `system.serving`): model serving $2,108.53 (opus-5-5 on D1 $2,075.28 ≈
+  all Claude Code - an App layout read is ~$0.34), Apps compute $480 (`codegen-agent`
+  $300.97, `codingapp` = this container $139.09, two console tests $39.56), Genie $468.35
+  (Genie Code before the switch to Claude Code; ends). **Target: Claude Code tokens + Apps
+  ≤ $1,500 / month** (the old Genie Code Tier-5 budget).
+- **Apps bill every RUNNING hour:** Medium = 0.5 DBU/h = 12 DBU/day ≈ $9.66/day at the
+  observed ≈ $0.81/DBU (≈ $290 / month each). Running at the end of 2026-11-04:
+  `codegen-agent` (restarted for the post166 deploy), `codingapp`, `codegen-agent-staging`
+  (≈ $870 / month 24/7). Proposed, not done (Soham
+  decides each stop / start): stop them outside working hours, or a scheduled stop/start
+  job. The duplicate `code-gen-agent-staging` is stopped.
+- **Model choice, measured** (replay pilot, 4 past fixes, blind review): Opus 5.5 medium
+  solo 4/4 mergeable ($1.21 per mergeable fix); Haiku 5.5 xhigh solo 1/4 (patched the CLI
+  instead of the shared GenerateRun; symptom fixes); Opus lead + Haiku worker 2/4 (lead
+  delegated before the root cause; accepted a worker's semantic choice backed by its own
+  green tests). Haiku hits its 5x long-context tier by ~request 7 (the ~68k session
+  baseline). Rule in AGENTS.md.
+- **AGENTS.md split test** (6 adversarial probes x 2 arms x 2 runs, $17.59): no rule
+  violation in either arm; NOT adopted (saving ~$15-30 / month in real sessions vs the
+  compaction risk). Don't re-run it without a new reason.
+- **The coding App (`codingapp`) - patch IMPORTED 2026-11-04, deploy pending** (Soham's
+  word to ship it; the Workspace source was checked byte-identical to the patch base first,
+  the five imported files exported back byte-identical). Its source is
+  the Workspace folder `coding-agents-databricks-apps` (SNAPSHOT deploy; the local copy is
+  `/app/python/source_code`, byte-identical before the patch; HOME is wiped on restart, so
+  the copy that survives is the Workspace folder `codingapp-patch-2026-11-04/files/` +
+  `codingapp.patch`). The five files:
+  `setup_bootstrap.sh` + `bootstrap_repos.txt` (new last setup step: the 14 Databricks
+  skills as plain files instead of the plugin, writes `~/bootstrap`), `setup_claude.py`
+  (`skillOverrides` for 23 unused template skills), `setup_mlflow.py` (no Stop hook while
+  tracing is off; removes old copies), `app.py` (registers the step; the interactive-PAT
+  path wrote Opus 4.7 / Sonnet 4.6 / Haiku 4.5 defaults - now 5.5). Shipped by importing
+  those five files into `coding-agents-databricks-apps` (never `.git`), then `databricks apps
+  deploy codingapp` - a deploy RESTARTS the container (session ends, HOME and /tmp wiped).
+- **HOME is rebuilt on every `codingapp` restart** (all of `~/.claude`, the gh login, the
+  clone, auto-memory): anything worth keeping goes in this repo, committed AND pushed.
+- **GPT-6.1 Sol for the coding assistant (proposal to Venu):** same per-token price as
+  Sonnet 5.5 on Databricks, about a fifth of Opus's tokens per task on VulcanBench -> about
+  $0.33-0.87 per solved task vs $2.84 (Opus medium); Sonnet 5.5 is no saving ($2.75 at best,
+  20 / 23). NOT enabled in D1 (only gpt-oss endpoints); `codingapp`'s `CODEX_MODEL` names a
+  missing endpoint. Briefing page: Workspace `codingapp-patch-2026-11-04/coding-task-cost.html`.
+  If enabled: run the replay (`tools/model_eval/replay`) on Sol via Codex first (< $5). The
+  CodeGen agent itself stays Anthropic-only.
+- **DEFAULT profile token lives 15 min** (the coding App rotates it every 10): long CLI waits on it
+  fail "Invalid access token" - use the OAuth profile for anything slow.
+- **Open from post165 / post166:** the FRD's Data Quality section and the STTM's "DQ
+  rules" / "mandatory in DQ check" columns never reach DATA_QUALITY_RULES (Layer 2 only,
+  off) - proposed: list them in the review copy as "stated, not generated". Decided (Soham,
+  2026-11-04): the grand master's PARENT_PIPELINE_ID is NULL, as post166 writes it (not the
+  0 of the framework owner's walkthrough, METADATA_DB_SEMANTICS §2).
+- **Next (this block):** (1) the Apps schedule decision; (2) Venu's answer on Sol; (3) the items of the 2026-11-03 block below (measure the 11 pairs, Rama's
+  answers, live runs).
+
+## State (2026-11-03 evening — post164 DEPLOYED, main = staging App)
+
+- **Live, dev App `codegen-agent`:** post164 (a88cd79; deployment
+  01f1d7b294821f52ae8831217d2b349d). Health = post164, live smoke green (Generate +
+  Results 200, 0 console errors). post164 = **Cancel run** beside a run's questions
+  (`POST /api/demo/cancel`; a cancel ends idle, not FAILED) + **Clear past runs** drops
+  a stopped run's blocking questions (it skipped needs_answers before). CHANGELOG_ACFC.md.
+  Both suites green on the commit (`.venv` 2406, `.venv-d1` 2068), vitest 270.
+- **Staging App `codegen-agent-staging`** (for the data engineers; AGENTS.md: never
+  deploy / run / re-grant without Soham's word): deployed from `main` = 7e70ef0, a
+  merge commit whose tree is IDENTICAL to post164 (main's 2 old commits kept; none of
+  the client documents main had removed is on feature). Deployment
+  01f1d7bc09ae173bbd71a37f544c0018 SUCCEEDED (the first attempt timed out downloading
+  the repo; a retry worked). Principal `app-5aprci codegen-agent-staging`, application
+  id 31fdee91-d999-4b8f-9071-f7c3dfd2819b. **Its health read every folder `empty` =
+  not shared yet:** Soham is granting Can Manage on `codegen` + Can Read on
+  `frd_sttm_pairs`; re-check `/api/health` (every root `readable`) and Choose documents
+  after. A duplicate App `code-gen-agent-staging` (hyphenated) was created by a double
+  submit - Soham is deleting it (keep `codegen-agent-staging`).
+- **Open, the two Apps share storage:** both read the same `app.yaml`, so they share the
+  outputs / state / inputs roles (runs, `selection.json`, the layout cache, the live-run
+  record; Clear past runs on one deletes the other's runs). Proposed, not built: the App
+  picks its state + outputs by `DATABRICKS_APP_NAME` (inputs + pairs stay shared), the
+  staging principal gets Can Manage on its own new folders. Ask Soham before building.
+- **pair_10 first-layout measurement (live, dev App, 2026-11-03):** the STTM layout was
+  cached, so the run was re-resolved past the cache (`refresh`) to read STTM + FRD with
+  the model: **4 calls, 30,088 in / 10,932 out tokens, 84 s = 4.84 DBU** (1.72 in + 3.12
+  out; 5.33 with the regional uplift; about $0.34 at $0.07/DBU). Slight overcount: it
+  includes the FRD call of the first (cached-STTM) resolve. Output = about 65% of the
+  cost. The run stopped NEEDS_ANSWERS (15 open lines, the known BSA gaps; no answers
+  given). The App's record still shows the 6-8 estimate (`measured_runs: 0`): it records
+  only a FINISHED run, and that one was paused. The reply to Venu (6-8 = deliberately
+  high; 4.84 measured; 3.15 was a different, now-off Layer-2 run) was drafted for Soham.
+- **Next:**
+  1. **Measure the other 11 pairs** (asked by Soham; NOT run - the App was busy with his
+     own pair_11 run). Recipe: build the pairs map (`databricks workspace list` of each
+     `frd_sttm_pairs/pair_<n>` -> JSON {pair_n: {sttm, frd, vdd}}; /tmp only, it holds
+     document names); BACK UP the layout cache first (`databricks workspace export-dir
+     <state>/layout_profiles <dir>`: a refresh overwrites every pair's cached layout and
+     tombstones a document it cannot fully place, which would re-ask Soham's earlier
+     answers), then `MEASURE_PAIRS_MAP=... python scripts/measure_layout_cost.py pair_1
+     ... pair_12` (arms the one-shot refresh BEFORE each run = a clean first read, no
+     double count; proceeds past questions with no answers; Cancel run after each; ~5
+     DBU per pair, ~60 DBU total), then import the backup back (`databricks workspace
+     import-dir --overwrite`). Report calls / tokens / DBU per pair, counts only. The
+     2026-11-03 backup (26 files) was in /tmp and is gone - nothing was overwritten
+     except pair_10's (by the refresh above).
+  2. **Record Rama's answers** to `docs/acfc/RAMA_QUESTIONS_2026-11-03.md` (15 questions:
+     child pipelines, ID assignment, N-object vs per-table pipelines; settles pair_11's
+     child count, the ID rule and pairs 08 / 09). The shareable HTML page was built in
+     `out/share/` (gitignored, lost on reset) - publishing it needed a claude.ai login.
+     Prod facts found for it: PIPELINE_ID = GROUP_ID + 200 on 297 of 299 prod rows
+     (pair_07 the exception), the stage -> standard group = GROUP_ID + 1 (pair_02),
+     pair_11's 12 vs 10 schedule rows = 5 feeds vs 4 (not children per feed), pair_09
+     carries BOTH shapes (one group of 36 objects and 36 one-object groups).
+  3. Carried over from the block below: live runs pair_05 / 07 / 08 / 10, the end user's
+     fixes (pair_07, pair_03 / pair_11 STTM spaces), Anju's golden load.
+- **Other workspaces:** this container cannot call another workspace (trusted-workload
+  check, AGENTS.md). Soham asked what `app-spend-monitor` (workspace 2465312035833126)
+  reads: not answerable from here - its App page (Resources / Environment / source) or
+  the CLI from his own machine. Likely the billing system tables, unconfirmed. A CLI
+  profile `spend-ws` was saved in /tmp/cgs/oauth.cfg (gone on reset).
+- **The rules file is now `AGENTS.md`** (renamed from CLAUDE.md for Codex, 2026-11-03).
+
+## State (2026-11-03 — post163 deployed)
 
 - **Live:** post163 (ae5aec7) - post160 STTM-authoritative tables, post161 HEDIS H4
   reader, post162 dark mode, post163 the Results feeds fold. Health + live smoke green.
@@ -515,10 +684,18 @@ filled with the feed's own values (target table, real location):
 
 ## After a container reset
 
-Venvs, `/tmp`, the OAuth profile and possibly `~/.gitconfig` are gone. Run
-`scripts/dev_bootstrap.sh` (idempotent; `--no-d1` / `--no-browser` / `--no-hooks`): it
-does the venv, Chromium, hooks and push-login steps below and prints the rest. The
-manual recipe stays here for when it fails.
+HOME (`/app/python/source_code`) is rebuilt on every restart of the coding App: the clone,
+venvs, `/tmp`, the gh login, `~/.claude` (settings, memory) and the OAuth profile are gone.
+With the App bootstrap patch deployed (State 2026-11-04), the routine is:
+1. `gh auth login` (the wrapper answers the prompts), then `~/bootstrap` - it re-clones
+   this repo on `feature/multi-table` (`bootstrap_repos.txt` in the App source), runs
+   `gh auth setup-git` and `scripts/dev_bootstrap.sh` (venvs, Chromium + libs, git hooks,
+   the work branch from a clean main, push login). The Databricks skills and the skill
+   trim are already done by the App's own setup.
+2. The Databricks OAuth login (below) when the App's API or SQL is needed.
+Without the patch: clone, then `scripts/dev_bootstrap.sh` (idempotent; `--no-d1` /
+`--no-browser` / `--no-hooks`), `databricks aitools install`, delete the MLflow Stop hook.
+The manual recipe stays here for when it fails.
 
 - **Venvs** via uv (pip's isolated pyspark build failed 2026-10-23):
   - `uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e
@@ -532,8 +709,10 @@ manual recipe stays here for when it fails.
   issued it.
 - **Git push:** `gh auth setup-git` (git then uses the `gh` login).
 - **Browser checks:** Chromium in `/tmp/pw` + libs in `/tmp/pwlibs`, run with
-  `LD_LIBRARY_PATH=/tmp/pwlibs/usr/lib/x86_64-linux-gnu:/tmp/pwlibs/lib/x86_64-linux-gnu
-  PLAYWRIGHT_BROWSERS_PATH=/tmp/pw node <script>`. Stub `/api/feeds` or
+  `LD_LIBRARY_PATH=/tmp/pwlibs/usr/lib/x86_64-linux-gnu:/tmp/pwlibs/lib/x86_64-linux-gnu:/tmp/pwlibs/usr/lib/x86_64-linux-gnu/nss
+  PLAYWRIGHT_BROWSERS_PATH=/tmp/pw node <script>` (without the `nss/` dir Chromium exits
+  127). Smoke: a script that `require`s `ui/frontend/node_modules/playwright` by path,
+  opens the page, waits for the `h1`, screenshots, prints the title + console errors. Stub `/api/feeds` or
   `/api/demo/status` with `page.route`. Rebuild:
   - `cd ui/frontend && npm ci`, then (no `npx` in the container)
     `PLAYWRIGHT_BROWSERS_PATH=/tmp/pw node node_modules/playwright/cli.js install
@@ -548,4 +727,10 @@ manual recipe stays here for when it fails.
 - **The MLflow Stop hook** in `/app/python/source_code/.claude/settings.json` was removed
   2026-10-23 (tracing was disabled and mlflow not installed; its `uv run` wrote
   `uv.lock` into the repo and rebuilt `.venv`). A reprovision may restore it — delete
-  `hooks.Stop` again.
+  `hooks.Stop` again. Cause found 2026-11-04: the App's `setup_mlflow.py` re-adds it on
+  every start even with tracing off - fixed by the App patch (State 2026-11-04).
+- **SQL on the system tables:** Soham's user has no USE SCHEMA on `system.billing` /
+  `system.serving`; spend comes from the EDO Spend Monitor (another workspace - not
+  reachable from here, read screenshots). Warehouse `D1-HRR-RO-SQ-S-01` fails to start
+  (WORKSPACE_CONFIGURATION_ERROR / PERMISSION_DENIED, an admin issue); the Serverless
+  Starter Warehouse starts (ask first, it bills).

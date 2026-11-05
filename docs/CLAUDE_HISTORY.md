@@ -1,5 +1,7 @@
 # CLAUDE.md history (moved 2026-10-14)
 
+(Since 2026-11-03 the rules file is `AGENTS.md`; "CLAUDE.md" below means that file.)
+
 Sections moved verbatim out of CLAUDE.md to keep it under the 150k-character limit. Read the relevant one before touching the code it describes.
 
 ## Parent branch `fix/remove-mock-provider-ui-text` (state as of 2026-09-23)
@@ -3297,3 +3299,194 @@ What one session did, in order (per-version detail: `CHANGELOG_ACFC.md`):
   out tokens; measured pair_11 Layer-2 run 3.15 DBU; a cached pair 0.
 - Also: the progress-sheet Office Scripts (dump + update, 2 Nov), the prompt-injection
   explainer, the request to Anju for one deployed consumption load.
+
+## §[H18] Session 2026-11-03: the Rama sheet, a measured first layout run, Cancel run, main = the staging App, post164
+
+What one session did, in order (per-version detail: `CHANGELOG_ACFC.md`; state:
+`docs/RESTART.md`):
+- **Rama question sheet** (`docs/acfc/RAMA_QUESTIONS_2026-11-03.md`, 0af89db): 15
+  questions in three topics (child pipelines, ID assignment, one pipeline of N objects
+  vs one per table), each opened by what the prod rows show
+  (`docs/acfc/iig_goldens/01_pair_group_index.csv`): PIPELINE_ID = GROUP_ID + 200 on 297
+  of 299 rows, the stage -> standard group = GROUP_ID + 1, overlapping ID ranges, OBJECT_ID
+  used two ways, pair_09 in both shapes. Finding: pair_11's 12 vs 10 schedule rows are 5
+  feeds vs 4, not a children-per-feed difference. A shareable page was built; publishing
+  it was refused (the session authenticated with a token, not a claude.ai login).
+- **The 6-8 DBU question (Venu):** traced to post148 - a deliberately high round-up of a
+  2026-10-27 offline estimate (1.5-4.5 DBU from two pairs' request sizes; output never
+  measured). Soham's draft called the 3.15 DBU Layer-2 run "an average"; corrected (one
+  run, a different stage, now off). Rates re-checked on the pricing page (Opus 5.5:
+  57.143 / 285.714 in / out, cache read 2.857, cache write 71.429 / 114.286; +10%
+  regional) - the agent uses no prompt caching, so the cache prices do not apply.
+- **Measured one new pair's first layout read** (pair_10, live, dev App): 4.84 DBU (4
+  calls, 30,088 / 10,932 tokens, 84 s), via a re-resolve past the cached STTM layout; the
+  run stopped NEEDS_ANSWERS and was left unanswered. Lesson: the `refresh` re-resolve
+  OVERWRITES the persistent layout cache (state role) and tombstones a document it cannot
+  fully place - back the cache up before measuring many pairs; arm the one-shot refresh
+  before the run (`/api/demo/layout-refresh`) for a clean first read, rather than
+  refreshing a paused run (double-counts the first resolve).
+- **post164** (deployed, a88cd79): Soham found Clear past runs left a stopped run's
+  blocking questions and there was no way out of a run asking questions. Cause:
+  `clear_runs` reset the page only for done / failed / idle AND only when the last run's
+  own folder was deleted. Fix + Cancel run (`/api/demo/cancel`, beside the questions and
+  in the dialog); a cancel now ends idle instead of FAILED (tests that pinned "a cancel
+  fails loudly" were changed on Soham's ask). The 9-case regression test fails on post163.
+- **Measuring the other 11 pairs** was started and stopped: the first attempt never
+  reached the App (the token subprocess got a stripped env - pass `os.environ`), and on
+  the retry the App was busy with Soham's own pair_11 run - the script refused to touch
+  it. The script is `scripts/measure_layout_cost.py`; the recipe is in RESTART.md.
+- **main made identical to feature/multi-table** for a stable test App: one merge commit
+  (7e70ef0, tree = post164) pushed as a fast-forward, no force-push. Soham created
+  `codegen-agent-staging` from main (plus a duplicate `code-gen-agent-staging` from a
+  double submit, being deleted); its deploy first timed out downloading the repo, a
+  retry worked. The staging principal could see none of the folders until shared.
+  Explained: an App always uses its own service principal (no on-behalf-of auth), so
+  users need no folder access and Can Use on the App = access to every document it
+  holds; the two Apps share storage via `app.yaml` (open).
+- **Cross-workspace:** a login to workspace 2465312035833126 (to read `app-spend-monitor`)
+  succeeded but every call was refused by its trusted-workload check - this container
+  cannot reach other workspaces; not routed around.
+- **CLAUDE.md renamed to AGENTS.md** (Soham works with Codex next); the living
+  references (RESTART, this file's header, the skills, the scrub test) point to it.
+  Mentions in `src/` / `config/` comments and in older docs were left as they are (a
+  `src/` edit needs a version bump).
+
+**Lessons:** check the App is idle before a scripted live run (Soham uses it too); a
+background script's subprocess needs the parent's environment; read what a refresh
+writes before running it across many pairs.
+
+## §[H19] Session 2026-11-03 → 04: what the spend is, which model, the coding App's own setup (no src change)
+
+What one session did, in order (state: `docs/RESTART.md` 2026-11-04; harnesses and their
+README: `tools/model_eval/`):
+- **Browser checks rebuilt** (no root, no npx): `npm ci`, Chromium headless shell in
+  `/tmp/pw`, the libs already in `/tmp/pwlibs`; a local mock App on port 8599
+  (`DATABRICKS_APP_PORT` overridden) + a Playwright smoke: title, `h1`, 0 console errors.
+  Switched the local checkout from `main` to `feature/multi-table`; removed the MLflow
+  Stop hook again.
+- **Claude Code cost.** Rates checked on the Databricks pricing page (DBU per 1M): Opus 5.5
+  57.143 in / 285.714 out / 2.857 cache read / 71.429 5-min write / 114.286 1-h write;
+  Sonnet 5.5 exactly half; Haiku 5.5 1.429 / 7.143 / 0.143 / 1.786 under 100k prompt
+  tokens, 5x above. One measured session: 92% cache hits, cache writes 48% of the DBU,
+  output 23%; a fresh session sends ~68k tokens before the first prompt (system prompt +
+  tools; AGENTS.md ~10.7k; ~118 skill descriptions ~11k incl. 14 plugin/user duplicates).
+  A 1-h cache would have cost +29% on that session (all gaps < 5 min) - not recommended
+  unless gaps of 5-60 min are common. Short-task benchmarks favour Sonnet; on long
+  agentic tasks (VulcanBench Frontier v4) Sonnet 5.5 medium/high lose to Opus 5.5 medium
+  and Haiku 5.5 xhigh looked competitive - which the replay pilot below did NOT confirm
+  for this repo.
+- **Where the money went (October):** Soham's user cannot read `system.billing` /
+  `system.serving` (USE SCHEMA denied; tried with the PAT and an OAuth profile); the
+  `D1-HRR-RO-SQ-S-01` warehouse fails to start (WORKSPACE_CONFIGURATION_ERROR /
+  PERMISSION_DENIED). From the EDO Spend Monitor screenshots: model serving $2,108.53
+  (≈ all Claude Code), Apps $480 (idle running hours: Medium = 0.5 DBU/h ≈ $0.81/DBU),
+  Genie $468.35 (Genie Code, before the switch). Target set by Soham: Claude Code + Apps
+  ≤ $1,500 / month.
+- **Replay pilot** (`tools/model_eval/replay`, $12.78 + ~$2 review): four past fixes
+  replayed from their parent commit with symptom-only briefs; three arms; graded by the
+  commit's hidden test, own-test proof, full suite vs baseline and a blind review.
+  Mergeable: Opus 5.5 medium solo 4/4, Haiku 5.5 xhigh solo 1/4, Opus lead + Haiku worker
+  2/4; cost per mergeable fix $1.21 / $2.77 / $2.59. Hidden tests missed what the review
+  caught: a fix in `cli.py` only (the App's `GenerateRun.finish()` path untouched),
+  symptom fixes for the stray band, a profile knob flipped outside the brief, blank types
+  quarantining edo_sfmc feeds. All t2 arms "failed" the hidden test only because it pins
+  the reference design (the stray band kept, empty); a behavioural version passed all
+  three. One suite failure (chooser timing test) was load-flaky: 3/3 alone. Research on
+  routing agreed: routing for accuracy has no headroom; fixed defaults often beat
+  routers; cheap models cost more per completed task through extra turns and cache
+  re-reads; handoffs lose causal chains, constraints and negative space.
+- **AGENTS.md split test** (`tools/model_eval/agents_md_split`, $17.59): reference
+  sections moved to a skill vs the full file, six adversarial probes, 2 runs each - no
+  violation in either arm, the skill loaded 12/12, split 15% cheaper. Kept the full file
+  (Soham's hypothesis: moving rules out lowers reliability): the saving mostly vanishes in
+  multi-hour sessions and a loaded skill can be compacted away; AGENTS.md is re-sent every
+  request.
+- **The coding App's setup** (`coding-agents-databricks-apps`, SNAPSHOT deploy). HOME is
+  rebuilt on every restart. Found: `setup_mlflow.py` re-adds the Stop hook each start;
+  `app.py` rewrites `~/.gitconfig` (dropping `gh auth setup-git`'s helper); the
+  interactive-PAT path wrote Opus 4.7 / Sonnet 4.6 / Haiku 4.5 defaults; plugin skills
+  cannot be switched off by `skillOverrides` (user skills can) - `aitools install
+  --skills-only --skills ...` installs chosen ones as plain files instead. Patch written
+  (RESTART 2026-11-04), not imported or deployed. `scripts/dev_bootstrap.sh` gained the
+  work-branch step (from a clean `main` only).
+
+- **Full-suite grading finished:** 12 / 12 replay runs, no new suite failure against each
+  task's unfixed baseline (one t4 failure is also on the baseline; one t2 chooser timing
+  test is load-flaky, 3 / 3 alone).
+- **Pushed** 9f387ee (this history, RESTART, the AGENTS.md rules, `tools/model_eval/`) and
+  adc2adb (`dev_bootstrap.sh`'s hooks step exited under `set -e` when no global hooks path
+  is set - found by an end-to-end `~/bootstrap` run in a fresh HOME). Both suites green on
+  each (`.venv` 2406, `.venv-d1` 2068; `.venv-d1` was rebuilt this session).
+- **Logs:** the coding App mints a new 15-minute PAT every 10 minutes and retires the old
+  one ("PAT rotation complete ... Old token ELIMINATED"), so a CLI call on the DEFAULT
+  profile that waits longer than that fails "Invalid access token" - that, not a grant,
+  was the stuck-warehouse error. App logs otherwise clean. The `.sync.log` SKIP lines are
+  the test suite's scratch repos firing the global post-commit hook (harmless).
+- **GPT-6.1 Sol** (for Venu): on Databricks it costs exactly Sonnet 5.5's per-token rate
+  (28.571 in / 142.857 out / 1.429 cache read DBU per 1M; long context above 272k input
+  tokens = 2x input, 1.5x output), = OpenAI's list price at $0.07/DBU. VulcanBench Frontier
+  v4 (Codex): 23 / 23 at $0.33-0.43 per task (long tier not applied: up to 2x) vs Opus 5.5
+  medium $2.84; Sonnet 5.5's best cost per solved task is $2.75 (high, 20 / 23) - the token
+  count, not the token price, decides. Sol is NOT served in D1 (only `databricks-gpt-oss-*`);
+  the coding App's `app.yaml` names `CODEX_MODEL=databricks-gpt-6-1-sol`, an endpoint that
+  does not exist here. The briefing page `coding-task-cost.html` is in the Workspace folder
+  `codingapp-patch-2026-11-04/`; publishing it as an Artifact was refused (no claude.ai
+  login in this container, as in §[H18]).
+
+- **post165 - Data Quality rows only where the STTM states them** (6c219bb). A reviewer of
+  a pair_11 IIG said its DQ sheet "drew from the ground-truth IIG". Cause: NullCheckRule /
+  DeDuplicationRule were written on every feed and LRTrimRule on every standard column,
+  the corpus's most frequent classes as a baseline (12 of that run's 19 DQ rows); dedup
+  also took the not-null columns. No golden was read at run time: the golden IIG in the
+  pair folder is classified a validation golden, never an input, and the corpus key route
+  (`pipeline_name_corpus`) only feeds TGT_PRIMARY_KEY on a Confirm. The FRD's Data Quality
+  section and the STTM's "DQ rules" columns still reach only Layer 2 (off for ACFC) - open.
+  Real-pair check (12 pairs, mock): outcomes identical; only DATA_QUALITY_RULES (+ its
+  review / provenance rows) changed - trims gone everywhere, dedup / null checks gone where
+  the STTM states no key / not-null; pair_11 keeps its key-based rows.
+- **post166 - placeholder pipeline IDs that show the flow** (492032e; Soham's exception to
+  "Never invent IDs", now in AGENTS.md): workbook only, `placeholder_pipeline_ids` on in
+  the ACFC overlay; grand master 0 (parent blank / NULL, was the constant 0 - the
+  framework owner's walkthrough said a master's parent defaults to 0; Soham decided NULL), master
+  1, children on; ADLS / file-copy / fixed-width rows = File-to-Stage, STGDELTA =
+  Stage-to-Standard, notebook rows = their flow; the combined IIG numbers each feed's
+  children after the previous feeds' (pair_02: 0-7). metadata_inserts.sql keeps
+  `<<PIPELINE_ID#n>>`. Real-pair check: outcomes identical; only the PIPELINE_ID sheets
+  changed; each SQL file one line (the top parent 0 -> NULL).
+- Both pushed after both suites (.venv 2414, .venv-d1 2076) and the real-pair checks;
+  post166 deployed to the dev App (health post166, live smoke green); staging unchanged. The first check's report was deleted by its own cleanup and its classifier
+  ran without openpyxl - rerun properly; keep a check's report outside the folder it
+  cleans and run it with the venv's Python.
+
+- **The coding App patch shipped** (2026-11-04, Soham's word): the 2 pending docs commits
+  pushed (52982c9) after both suites (`.venv` 2413 passed + 1 load-timing failure,
+  `.venv-d1` 2075 + 1; both suites ran at once = 33 min; each failing test passed alone:
+  the chooser step budget and the iig_diff 30 s cap); the App's Workspace source checked
+  byte-identical to the patch base (app.py, setup_claude.py, setup_mlflow.py) before the
+  five files were imported; `databricks apps deploy codingapp` (SNAPSHOT) started - it
+  restarts this container; what to verify after is in RESTART.
+
+- **The codingapp deploy was held** after the import: Soham reported a DQ sheet "from the
+  prod IIG" (checked: pair_11's 15 DQ rows share 0 rows with its prod golden and every
+  column traces to an STTM cell; what comes from the corpus is the rule-class mapping itself
+  - Primary Key -> NullCheck + DeDup, typed -> DataTypeCast; and pair_11's FRD says NA to
+  duplicate / incomplete-record checks). Soham chose "option 1" (only rules the documents
+  state); the 12-pair survey and three open questions are in RESTART.
+- **A data engineer's staging run** asked a file-format question. Two causes found: (1) the
+  two Apps shared state + outputs (her pick replaced the dev App's `selection.json`, her run
+  card showed the dev App's run id) -> post167, per-App folders; (2) her FRD states the
+  format as "File Format: .txt" + "Delimiter: Pipe Delimited" lines in one cell, refused as
+  multi-line -> post168. Her feedback that the card was unreadable -> post169 (plain
+  question, where the agent looked, what blank does). A pasted reply with markdown bold
+  showed the asterisks in Teams: text Soham pastes is plain.
+- post167 / post168 / post169 pushed (54ee423) after both suites (`.venv` 2442, `.venv-d1`
+  2101; run one after the other - the morning's parallel pair took 33 min and failed two
+  timing tests, each green alone) and the 12-pair check for post168 (outcomes 12/12, all
+  296 artefacts identical but the harness's own BUILD / overlay files; the check script was
+  rebuilt in /tmp/t/pair_check.py: the harness report is `<out>/<label>/<label>.json`).
+  Deployed to the dev App (health post169, smoke green). One spiral-detector false trigger
+  (a planned red `-k` run, green under the whole-file run), logged.
+
+**Lessons:** a hidden test from the merged fix grades a design, not just behaviour - read
+the failure before scoring; price a weaker model per accepted result, not per run; anything
+this container should remember goes into the repo (HOME and auto-memory are wiped).

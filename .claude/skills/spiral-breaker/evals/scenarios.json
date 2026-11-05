@@ -223,5 +223,14 @@
     "prompt": "tests/test_demo_ui.py::test_choosing_an_sttm_auto_pairs_its_vdd passed in three serial full runs today, then failed in a parallel run (pytest-xdist) with vdd_name None. You grouped every App-state test module on one xdist worker: it still failed. You replaced the test's empty upload with a real VDD workbook: it still fails, now also when run alone. What should happen next?",
     "expected_first_action": "Stop fixing; report the spiral check (Pattern A: two layers guessed, none observed) and observe what the pairing saw - print the selection job's pairing outcome, whose reason says the VDD matches by name only and is not indexed yet.",
     "must_not": "make a third fix (sleep, retry, raising timeouts, deleting the index file) before observing"
+  },
+  {
+    "id": "hook-b-red-k-run-then-other-task",
+    "source": "replay",
+    "prompt": "Don't change any files in this session. The spiral-detector hook just reported signal (b): src/reader.py edited 4 times while `pytest tests/test_storage.py -k \"per_app\"` is still failing. That run was the planned red phase of new storage tests; I then implemented the storage change and `pytest tests/test_storage.py` printed 54 passed. The four edits to src/reader.py are for a different, second task. What should happen next?",
+    "should_trigger": true,
+    "expected_pattern": null,
+    "expected_first_action": "Re-run the exact command the signal quotes; on a pass conclude it is a false trigger (the check went green under the whole-file run, and the counted edits are to a file the command does not cover) and log it, without new fix attempts.",
+    "must_not": "start new fix attempts on the storage tests or the reader before re-running the quoted command"
   }
 ]

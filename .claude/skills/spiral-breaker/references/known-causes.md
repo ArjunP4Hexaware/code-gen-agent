@@ -97,7 +97,9 @@ Entry format:
   `-W error::DeprecationWarning` probe under .venv-d1 tripping openpyxl 3.1.2's utcnow;
   the counted edits were CLAUDE.md restart notes; the command without the flag exit 0);
   2026-10-18 (post68: a pinned "notebook owes nothing" assertion fixed once inside a
-  multi-file run; the counted edits added one test block per item to a new test file)
+  multi-file run; the counted edits added one test block per item to a new test file);
+  2026-11-04 (post167: a planned RED `-k` run, green under the whole-file run; the
+  counted edits were to another module for the next task)
 - Permanent fix: none yet — candidate hook refinement logged for /spiral-retro.
 
 ## Hook (a) false positive: one test name, a different failure each run

@@ -547,6 +547,10 @@ metadata:
       # every sheet that carries it (schedule, notebook; the iig_v2 email sheet has no
       # such column), one feed-level INPUT_NEEDED feeds.<feed>.pipeline_name.<flow>
       # per flow row (per_flow; the notebook row of a flow takes the same answer).
+      # post166 (Soham, 2026-11-04): placeholder PIPELINE_IDs showing the flow (grand
+      # master 0 with a blank parent, master 1, each feed's children on, parent = the
+      # master) in the IIG workbook; metadata_inserts.sql keeps <<PIPELINE_ID#n>>.
+      placeholder_pipeline_ids: true
       pipeline_roles:
         # post102 (Soham, the pair_11 golden): ONE Daily grand master + master per
         # run; the children keep their feed's schedule (identical master rows are
@@ -595,11 +599,12 @@ metadata:
         # derived (metadata_template._target_fqn_cell), no longer an owed input; open
         # only while the environment's catalog is unset (its own INPUT_NEEDED asks).
       # 2026-10-14 (D1 post45 item 1): DATA_QUALITY_RULES from the STTM, the corpus's
-      # classes (patterns_post45 rule_classes): the baseline per feed NullCheckRule
-      # (Predefined, 186 rows / 114 workbooks), DeDuplicationRule (Predefined, 160 / 90
-      # — the second Predefined class; post44 had AddCustomColumnsRule there, 38 / 4),
-      # LRTrimRule (STDDelta, 180 / 104); DataTypeCastRule / DateConversionRule
-      # (STDDelta) when the STTM types call for them; AddCustomColumnsRule and
+      # classes (patterns_post45 rule_classes) for the class names and parameter formats.
+      # post165 (2026-11-04): a row exists only when the STTM states it - never a corpus
+      # baseline: NullCheckRule on the STTM Primary Key / not-null columns, DeDuplicationRule
+      # on the STTM Primary Key only, LRTrimRule on the columns whose load rule states a
+      # trim (dq_trim_rule_regex); DataTypeCastRule / DateConversionRule (STDDelta) when the
+      # STTM types call for them; AddCustomColumnsRule and
       # LoadHeaderAndTrailerToSeparateTablesRule only for header / trailer feeds;
       # ReferentialCheckRule (Custom) only on a named lookup. Parameter formats: the
       # CAQH golden (split / AddCustomColumns / Referential) and the SFMC reference IIG.

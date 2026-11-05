@@ -154,6 +154,9 @@ def cell_sql(column: str, value, entry: dict, row_number: int, rules: DbRules | 
     upper = column.upper()
     if upper in rules.null_columns:
         return "NULL"
+    if (entry or {}).get("placeholder_id"):
+        # post166: a placeholder flow ID is the workbook's only - the SQL asks
+        return placeholder(column, row_number)
     if not _blank(value):
         text = str(value)
         mapped = rules.value_map.get(upper, {}).get(text.strip())

@@ -119,6 +119,47 @@ def _shift_object_ids(payload: dict, offset: int) -> dict:
     return {**payload, "tabs": tabs}
 
 
+_PIPELINE_ID_COLUMNS = ("PIPELINE_ID", "PARENT_PIPELINE_ID")
+
+
+def _own_pipeline_ids(payload: dict) -> list[int]:
+    """post166: a feed's own placeholder pipeline ids (not the run-level shared
+    ones: the grand master / master every feed repeats)."""
+    found = set()
+    for tab in payload["tabs"].values():
+        for row in tab["rows"]:
+            for column in _PIPELINE_ID_COLUMNS:
+                entry = (row.get("badges", {}).get(column) or {})
+                value = str(row["values"].get(column, "")).strip()
+                if entry.get("placeholder_id") and not entry.get("placeholder_shared") \
+                        and value.isdigit():
+                    found.add(int(value))
+    return sorted(found)
+
+
+def _shift_pipeline_ids(payload: dict, offset: int) -> dict:
+    """post166: a feed's own placeholder pipeline ids moved by ``offset`` on every
+    sheet alike, so its rows keep naming the same pipeline in the combined IIG."""
+    if not offset:
+        return payload
+    tabs = {}
+    for sheet, tab in payload["tabs"].items():
+        rows = []
+        for row in tab["rows"]:
+            for column in _PIPELINE_ID_COLUMNS:
+                entry = dict(row.get("badges", {}).get(column) or {})
+                value = str(row["values"].get(column, "")).strip()
+                if entry.get("placeholder_id") and not entry.get("placeholder_shared") \
+                        and value.isdigit():
+                    entry["tooltip"] = ((entry.get("tooltip") or "") + " — in the combined "
+                                        "IIG numbered across the run's feeds").lstrip(" —")
+                    row = {**row, "values": {**row["values"], column: str(int(value) + offset)},
+                           "badges": {**row.get("badges", {}), column: entry}}
+            rows.append(row)
+        tabs[sheet] = {**tab, "rows": rows}
+    return {**payload, "tabs": tabs}
+
+
 def merge_payloads(feeds: list[tuple[str, dict]], dedup_sheets: list[str],
                    dedup_rows: dict | None = None, object_ids: str = "group") -> _Merge:
     """The feeds' IIG payloads as one: sheets in the first payload's order, each
@@ -129,6 +170,13 @@ def merge_payloads(feeds: list[tuple[str, dict]], dedup_sheets: list[str],
     but differing elsewhere are kept and listed in ``same_name``.
     ``object_ids="run"``: OBJECT_ID numbered across the feeds, in feed order."""
     dedup_rows = dedup_rows or {}
+    # post166: each feed's own placeholder pipeline ids follow the previous feeds'
+    shifted, offset = [], 0
+    for slug, payload in feeds:
+        own = _own_pipeline_ids(payload)
+        shifted.append((slug, _shift_pipeline_ids(payload, offset)))
+        offset += len(own)
+    feeds = shifted
     if object_ids == "run":
         shifted, offset = [], 0
         for slug, payload in feeds:

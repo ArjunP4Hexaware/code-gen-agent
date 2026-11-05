@@ -575,6 +575,10 @@ offline — **do not call Graph or Databricks from inside the extractors or the 
   proprietary-foundation-model-serving): Claude Opus 5.5 = 57.143 input / 285.714 output
   DBU per 1M tokens (+10% with regional processing); $ = the contract's $/DBU x rate
   (the page's example: $0.07). A cached pair makes no model call; output dominates.
+- **Learned labels** (post174, `codegen.vocabulary`): an answer a refused FRD cell
+  already states proposes its line label; proposals + approvals live in the SHARED state
+  root (`vocabulary/`), approved on the dev App only (Soham), applied by `load_config` on
+  both Apps from the next run - never before approval, never a cell value stored.
 - Layer-2 approve / reject decisions are recorded (`ui/backend/state/decisions.json`)
   but never merged into generated code and never gate.
 

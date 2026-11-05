@@ -380,6 +380,42 @@ def branding_logo() -> Response:
                     headers={"Cache-Control": "no-cache"})
 
 
+def _can_decide_vocabulary() -> bool:
+    """post174 (Soham): proposals are approved on the dev App only - the primary App
+    (CODEGEN_STORAGE_PRIMARY_APP), or no App at all (a local server)."""
+    app_name = os.environ.get("DATABRICKS_APP_NAME", "").strip()
+    return not app_name or app_name == os.environ.get("CODEGEN_STORAGE_PRIMARY_APP", "").strip()
+
+
+@app.get("/api/vocabulary")
+def vocabulary_state() -> dict:
+    """post174: the labels the runs proposed (pending), the approved ones, and whether
+    this App may decide (docs/PARSER_SELF_EXTENSION.md step 2)."""
+    from codegen import vocabulary
+
+    try:
+        state = vocabulary.load(vocabulary.state_backend(_require_store().config))
+    except Exception as exc:  # noqa: BLE001 - the shared state root unreachable
+        raise HTTPException(502, f"vocabulary unavailable — {type(exc).__name__}") from exc
+    return {**state, "can_decide": _can_decide_vocabulary()}
+
+
+@app.post("/api/vocabulary/{proposal_id}/{decision}")
+def vocabulary_decide(proposal_id: str, decision: str) -> dict:
+    from codegen import vocabulary
+
+    if decision not in ("approve", "reject"):
+        raise HTTPException(404, "decision is approve or reject")
+    if not _can_decide_vocabulary():
+        raise HTTPException(403, "labels are approved on the dev App only")
+    backend = vocabulary.state_backend(_require_store().config)
+    try:
+        vocabulary.decide(backend, proposal_id, approve=decision == "approve")
+    except KeyError as exc:
+        raise HTTPException(404, f"no pending proposal {proposal_id}") from exc
+    return vocabulary_state()
+
+
 @app.get("/api/health/facts")
 def health_facts() -> dict:
     """The static half of /api/health — no storage probe, answers at once —

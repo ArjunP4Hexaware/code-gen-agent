@@ -4,7 +4,19 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-05 late — post173 on the dev App; start here)
+## State (2026-11-05 late — post174 on the dev App, post173 on staging; start here)
+
+- **Dev App on post174** (fcafbf5; deployment 01f1d9327a761c3fb1638fb51b6acb9a; health +
+  smoke green, `/api/vocabulary` answers from the shared state root, can_decide true).
+  Staging on post173 (`main` b1615d4, Soham's word; health + smoke green). Suites `.venv`
+  2487, `.venv-d1` 2140.
+- **Parser self-extension:** steps 1, 2 (post174, learned labels: proposed by a run's
+  answers, approved on the dev App, shared via `<state root>/vocabulary/`), 4 built. Step 3
+  allowed by Soham for a refused cell of the ingested FRD / STTM only - not built.
+  Open choice for Soham: read a cell's KNOWN lines and ignore unknown ones (today every line
+  must be known, post168's rule).
+
+## State (2026-11-05 late — post173 on the dev App)
 
 - **Dev App on post173** (b1b61bd; deployment 01f1d928f9f917e6a165549728866686; health +
   smoke green). Staging stays on post171 (`main` 5bce029) until Soham's word.

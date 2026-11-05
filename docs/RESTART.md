@@ -4,22 +4,15 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (session 2026-11-05 late night - waiting on Soham for item 1)
+## Start here (session ended 2026-11-05 late night - nothing pending)
 
 **First check:** `git fetch && git status -sb` should say up to date with
 `origin/feature/multi-table`. Dev App on post177 (56f10cc); staging still post176 (`main`
-001500c) until Soham's word.
+001500c) until Soham's word. Session log: CLAUDE_HISTORY §[H21].
 
 **Open, in order:**
-1. **Soham's call - the three own-pair overrides in the STATE overlay**
-   (`dbfs:/Volumes/d1_dlk/codegen/state/overlays/acfc_prx.yaml`, shared by BOTH Apps):
-   `path_family_by_source` (pair_11's source -> per_table, from the pair_11 prod IIG),
-   `feed_overrides.<pair_12 feed>.src_file_name: prefix_middle` (pair_12 prod IIG),
-   `feed_overrides.<3 pair_2 feeds>.email_statuses` (pair_2 prod IIG). Each applies only
-   to the pair it was copied from (training on the test). Removing them falls back to the
-   multi-source conventions; measured: pair_12 86.2% -> 84.9%, pair_11 38.3% -> 36.6%.
-   Also for him: `NO_OF_CYCLE_PER_DAY` "1" (corpus 98.2%) is wrong on 2 of 3 held-out
-   pairs (pair_11 0/10, pair_12 0/4; pair_2 36/36).
+1. **Staging to post177** on Soham's word (merge recipe in AGENTS.md). The state overlay
+   change below is ALREADY live on both Apps (shared state).
 2. **`codingapp` deploy** - the bootstrap patch is IMPORTED (block "2026-11-04" below);
    `databricks apps deploy codingapp` restarts this container: on Soham's word, last in a
    session. After it: `gh auth login`, `~/bootstrap`, the checks in that block.
@@ -34,6 +27,12 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 
 ## State (2026-11-05 late night — post177 on the dev App)
 
+- **State overlay: three own-pair overrides REMOVED** (Soham's word; both copies - the
+  Workspace `codegen/state/codegen-state/overlays/acfc_prx.yaml` the Apps read and the
+  volume the harness reads; backup `acfc_prx.yaml.bak_20261105_pre_override_removal` beside
+  each). Gone: `path_family_by_source` (pair_11), `feed_overrides` (pair_12 src_file_name,
+  pair_2 email_statuses). Harness after: pair_12 84.9%, pair_11 36.6%, outcomes unchanged.
+  Still open for Soham: NO_OF_CYCLE_PER_DAY "1" fails on pairs 11 / 12.
 - **post177** (CHANGELOG; Soham: "it should only extract information from the FRD and
   STTM ... the IIG is for training off of ... don't cheat"): the masters' frequency is
   `run` = the feeds' one stated frequency, else blank + flagged - post102's Daily came

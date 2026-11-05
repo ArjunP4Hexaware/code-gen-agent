@@ -20,6 +20,14 @@ Mappings deep-merge onto the tracked values; a list replaces. Any config key may
 be set; the ones below are the golden-alignment fields (2026-10-15). All sit
 under `metadata.templates.iig_v2.`
 
+**Never a value copied from a production IIG into that same feed** (Soham, 2026-11-05;
+AGENTS.md: a prod IIG is training / scoring material, never a value source). A field
+here holds a convention that holds across feeds (proven on pairs it was not taken
+from) or a client fact no document carries. On 2026-11-05 the ACFC state overlay's
+`path_family_by_source` (pair_11) and `feed_overrides.*.src_file_name` (pair_12) /
+`.email_statuses` (pair_2) were removed for that reason; the previous file is
+`overlays/acfc_prx.yaml.bak_20261105_pre_override_removal` (Workspace state + volume).
+
 | Field | Meaning |
 | --- | --- |
 | `corpus_cells.DATABRICKS_NOTEBOOK_DETAILS.DATABRICKS_NOTEBOOK_NAME.values.<kind>` | The notebook NAME of one leg, per notebook kind (the feed family). Kinds: `stg_to_std`; for the file-to-stage leg `delimited`, `delimited_tpl`, `fixed_width`, `fixed_width_tpl`, `pipe_segmented`, `pipe_segmented_tpl` (`_tpl` = a TPL subdomain, `tpl_subdomains`). The version suffix is part of the value. |

@@ -3553,3 +3553,24 @@ how closely the output matches a golden; a reserved answer must be traced throug
 path that applies answers (CLI extract, App layout, resolver) before it is trusted not to
 leak; run the suites one after the other - in parallel they double the time and trip the
 timing tests.
+
+## §[H21] Session 2026-11-05 late: the delegation workbook, "don't cheat", post177
+
+- **Delegation workbook** (Workspace `STTM_to_Artefacts_Agent_Delegation (1).xlsx`, the
+  original saved beside it): columns I-K "built today" + a "Measured 2026-11-05" sheet
+  (12-pair mock run, counts only; IIG vs prod on pairs 11 / 12). Hours stay estimates.
+- **Line A of pair_12** (wrong cells whose prod value appears in the FRD / STTM): 0 parser
+  misses - the text match was fooled; the one real defect was post102's Daily masters, a
+  constant copied from the pair_11 prod IIG.
+- **Soham's hard rule** ("it should only extract information from the FRD and STTM. the IIG
+  is for training off of ... don't cheat"): post177 (masters' frequency = the feeds' one
+  stated frequency, else blank + flagged) and AGENTS.md; the state overlay's three own-pair
+  overrides removed (OVERLAY_FIELDS.md). Honest scores: pair_12 86.2% -> 84.9%, pair_11
+  38.3% -> 36.6% - copying had bought ~1-2 points.
+- **Held-out audit:** header / footer / schema-drift flags, the notebook prefix and
+  ACTIVE_END_DATE hold on pairs they were not learned from; NO_OF_CYCLE_PER_DAY "1" (corpus
+  98.2%) fails on pairs 11 and 12 - open. The 199-IIG corpus is not reachable here.
+
+**Lessons:** a close match to a golden is no evidence of a correct reader - check where each
+value came from; a "line A" text match needs the field's own cell, not any occurrence (short
+values match by accident); score on pairs a value was NOT learned from.

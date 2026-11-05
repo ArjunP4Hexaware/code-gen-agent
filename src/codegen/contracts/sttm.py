@@ -245,6 +245,9 @@ class SttmField(BaseModel):
     standard_column: str | None
     standard_datatype: str | None
     value_spec: str | None = None
+    # post171: the STTM's own "include in DQ check" cell (layout role dq_mandatory) -
+    # None when the sheet has no such column, never inferred
+    dq_check: bool | None = None
     # Segmented-dialect extension (CAQH) — see docs/DESIGN.md §1.
     record_segment: RecordSegment | None = None
     stage_table: str | None = None

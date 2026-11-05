@@ -2410,6 +2410,8 @@ def _stage_dq_rules(kind: str, tpl: MetadataTemplateConfig, config: Config, feed
                                         f"the STTM's audit row {column}: a literal default"),
                  "TARGET_COLUMN": _cell(column, "from_sttm", "the audit column (STTM)")}
                 for column, literal in _audit_literals(spec, tpl)]
+    if kind in ("null_check", "dedup") and tpl.dq_stated_only:
+        return _stated_key_rules(kind, tpl, config, spec, fields, stage)
     if kind in ("null_check", "dedup"):
         # post165: only what the STTM states (it is the ground truth for the key), once
         # per feed on the first file's object - never a corpus baseline. NullCheckRule:
@@ -2453,6 +2455,8 @@ def _stage_dq_rules(kind: str, tpl: MetadataTemplateConfig, config: Config, feed
                                       "STTM Load Rule text, formats in the template's shape"),
                  "TARGET_COLUMN": _cell(joined, "from_sttm")}]
     if kind == "data_type_cast":
+        if tpl.dq_stated_only:
+            return []               # post171: no document states a cast rule
         typed = [f for f in fields if _base_type(f.stage_datatype).lower() != "string"]
         if not typed:
             return []
@@ -2463,6 +2467,112 @@ def _stage_dq_rules(kind: str, tpl: MetadataTemplateConfig, config: Config, feed
                                                 "qualified stage table"
                                                 + catalog_mapping_note(stage)))]
     return []
+
+
+def _dq_words(text) -> str:
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).split())
+
+
+def frd_dq_check(rules: list[str], tpl: MetadataTemplateConfig, kind: str) -> str | None:
+    """post171: what the FRD's DQ-section row for ``kind`` states (the reader writes a
+    positional DQ row as "<row label>: <value>") - None when no row is labelled so, or
+    its value states no check ("NA", "None", "No rejection ..." - dq_no_check_words)."""
+    labels = [_dq_words(label) for label in tpl.dq_frd_check_labels.get(kind, [])]
+    no_check = [_dq_words(word) for word in tpl.dq_no_check_words]
+    for rule in rules or []:
+        head, sep, value = rule.partition(": ")
+        if not sep or not any(label and label in _dq_words(head) for label in labels):
+            continue
+        words = _dq_words(value)
+        if not words or any(words == w or words.startswith(w + " ") for w in no_check if w):
+            return None
+        return value.strip()
+    return None
+
+
+def sttm_dq_null_columns(spec: ResolvedFeedSpec, fields: list,
+                         tpl: MetadataTemplateConfig) -> tuple[list[str], int]:
+    """post171: (stage columns, unmatched count) the STTM names for a DQ null check -
+    the fields whose "include in DQ check" cell says yes, then the DQ rules sheet's
+    null-check rows naming one of THIS feed's source fields; a sheet row naming no field
+    of the feed is counted, never matched loosely."""
+    columns = [f.stage_column for f in fields if getattr(f, "dq_check", None)]
+    field_headers = {_dq_words(h) for h in tpl.dq_sheet_field_headers}
+    rule_headers = {_dq_words(h) for h in tpl.dq_sheet_rule_headers}
+    null_values = {_dq_words(v) for v in tpl.dq_sheet_null_values}
+    by_source = {_dq_words(f.source_column): f.stage_column for f in fields}
+    unmatched = 0
+    for row in getattr(spec, "dq_sheet_rows", None) or []:
+        name = next((v for h, v in row.items() if _dq_words(h) in field_headers), None)
+        rule = next((v for h, v in row.items() if _dq_words(h) in rule_headers), None)
+        if _dq_words(rule) not in null_values:
+            continue
+        column = by_source.get(_dq_words(name))
+        if column is None:
+            unmatched += 1
+        elif column not in columns:
+            columns.append(column)
+    return columns, unmatched
+
+
+def _stated_key_rules(kind: str, tpl: MetadataTemplateConfig, config: Config,
+                      spec: ResolvedFeedSpec, fields: list, stage) -> list[dict]:
+    """post171 ("DQ option 1"): NullCheckRule / DeDuplicationRule only where a document
+    states the rule (MetadataTemplateConfig.dq_stated_only)."""
+    if kind == "null_check":
+        columns, _unmatched = sttm_dq_null_columns(spec, fields, tpl)
+        why = "the fields the STTM names for the DQ null check"
+        if not columns and frd_dq_check(spec.validation_rules, tpl, "null_check"):
+            keyed = set(_primary_key(fields, "stage")) | set(spec.not_null_columns)
+            columns = [f.stage_column for f in fields if f.stage_column in keyed]
+            why = ("the FRD states an incomplete-record rejection; the STTM's key / "
+                   "required columns")
+        if not columns:
+            return []
+        return [{**_columns_rule(tpl, kind, columns, why,
+                                 INPUT_PARAM=_target_fqn_cell(config, stage)), "_per_feed": True}]
+    stated = frd_dq_check(spec.validation_rules, tpl, "dedup")
+    if stated is None:
+        return []
+    columns = _primary_key(fields, "stage")
+    if columns:
+        return [{**_columns_rule(tpl, kind, columns,
+                                 "the FRD states a duplicate check; the STTM's Primary Key",
+                                 INPUT_PARAM=_target_fqn_cell(config, stage)), "_per_feed": True}]
+    open_cell = _cell("", "needs_template", "the FRD states a duplicate check; the STTM marks "
+                                            "no Primary Key column - open")
+    return [{**_dq_head(tpl, kind), "SOURCE_COLUMN": open_cell, "TARGET_COLUMN": dict(open_cell),
+             "INPUT_PARAM": _target_fqn_cell(config, stage), "_per_feed": True}]
+
+
+def dq_not_generated_flags(spec: ResolvedFeedSpec, tpl: MetadataTemplateConfig) -> list[str]:
+    """post171: the review copy's suggestions - each rule the documents do NOT state but
+    the STTM's columns would support, one ``iig_dq_not_generated:`` flag (never a row)."""
+    if tpl is None or not tpl.dq_stated_only or spec is None:
+        return []
+    fields = [f for segment in spec.segments for f in segment.fields]
+    flags = []
+    key = [f.stage_column for f in fields if f.primary_key]
+    if key and frd_dq_check(spec.validation_rules, tpl, "dedup") is None:
+        flags.append(f"iig_dq_not_generated:DeDuplicationRule — the STTM marks {len(key)} "
+                     "Primary Key column(s), but the FRD states no duplicate check; add the "
+                     "rule if the BSA confirms one")
+    columns, unmatched = sttm_dq_null_columns(spec, fields, tpl)
+    if unmatched:
+        flags.append(f"iig_dq_not_generated:NullCheckRule — the STTM's DQ rules sheet names "
+                     f"{unmatched} null-check field(s) this feed does not have")
+    if not columns and set(spec.not_null_columns) and \
+            frd_dq_check(spec.validation_rules, tpl, "null_check") is None:
+        flags.append(f"iig_dq_not_generated:NullCheckRule — the STTM marks "
+                     f"{len(set(spec.not_null_columns))} required column(s), but no document "
+                     "states a null-check rule; add it if the BSA confirms one")
+    typed = [f for f in fields if f.standard_column and _base_type(
+        f.standard_datatype).lower() not in ("string", "")]
+    if typed:
+        flags.append(f"iig_dq_not_generated:DataTypeCastRule — {len(typed)} standard "
+                     "column(s) are typed other than String, but no document states a cast "
+                     "rule; add it if the framework needs it to load them")
+    return flags
 
 
 _STD_KINDS = ("lr_trim", "std_date_conversion", "std_data_type_cast")
@@ -2485,6 +2595,8 @@ def _std_dq_rules(kind: str, tpl: MetadataTemplateConfig, group: _TableGroup) ->
                               f"the STTM load rule states a trim (standard table "
                               f"{standard.table})")]
     if kind == "std_data_type_cast":
+        if tpl.dq_stated_only:
+            return []               # post171: no document states a cast rule
         typed = [f for f in fields if _base_type(f.standard_datatype).lower() != "string"]
         if not typed:
             return []
@@ -2508,6 +2620,8 @@ def _std_dq_rules(kind: str, tpl: MetadataTemplateConfig, group: _TableGroup) ->
             if match is not None:
                 param = _cell(tpl.date_format_param_joiner.join(match.groups()), "from_sttm",
                               "STTM Load Rule text, formats in the template's shape")
+            elif tpl.dq_stated_only:
+                continue            # post171: the type alone states no conversion rule
             elif formats is not None:
                 # post74: the formats the stage / standard type cells state
                 param = _cell(tpl.date_format_param_joiner.join(formats), "from_sttm",

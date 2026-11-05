@@ -214,30 +214,21 @@ def test_schedule_descriptions_application_name_layer_day_and_owed_start_date(tm
                and "38.4%" in f for f in flags)
 
 
-def test_dq_null_check_and_dedup_from_the_sttm_with_the_target_fqn(tmp_path):
+def test_dq_key_rules_only_where_a_document_states_them(tmp_path):
+    """post165 wrote a NullCheckRule because this STTM marks not-null columns; post171
+    (Soham, "DQ option 1"): not-null cells alone state no DQ rule, and this FRD / STTM
+    state none - no NullCheck / DeDup row, each one a review-copy suggestion instead.
+    The INPUT_PARAM FQN of a stated key rule: tests/test_dq_stated_only.py."""
     spec, gate, xlsx = _run(FRD, _acfc(), tmp_path)
     rows = _rows(xlsx, DQ)
     classes = [r["RULE_CLASS"][0] for r in rows]
-    # post165: the null check because this STTM states not-null columns; dedup only on
-    # an STTM Primary Key (this one states none); no trim stated
-    assert "NullCheckRule" in classes
-    keyed = any(f.primary_key for f in spec.detail_segment.fields)
-    assert ("DeDuplicationRule" in classes) == keyed
+    assert not {"NullCheckRule", "DeDuplicationRule", "DataTypeCastRule"} & set(classes)
     assert "LRTrimRule" not in classes
     # a flat feed: no header / trailer split, no AddCustomColumnsRule
     assert not {"AddCustomColumnsRule", "LoadHeaderAndTrailerToSeparateTablesRule"} & set(
         classes)
-    for row in rows:
-        if row["RULE_CLASS"][0] in ("NullCheckRule", "DeDuplicationRule"):
-            assert row["RULE_TYPE"][0] == "Predefined"
-            # 2026-10-14 (framework owner, the pair_9 goldens): the target table's
-            # FQN — the environment catalog (D1: PR_DLK -> d1_dlk) + STTM schema.table
-            stage = spec.detail_segment.stage_table
-            assert row["INPUT_PARAM"][0] == f"d1_dlk.{stage.schema_name}.{stage.table}"
     flags = _notes(gate)
-    assert not [f for f in flags if f.startswith("iig_owed:DATA_QUALITY_RULES.INPUT_PARAM")]
-    assert any(f.startswith("iig_env:DATA_QUALITY_RULES.INPUT_PARAM — the catalog from "
-                            "environment D1 (default)") for f in flags)
+    assert any(f.startswith("iig_dq_not_generated:NullCheckRule") for f in flags), flags
 
 
 def test_an_application_name_answer_is_the_application_everywhere(tmp_path):

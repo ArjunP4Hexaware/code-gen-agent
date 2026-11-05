@@ -4,7 +4,20 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-05 — post171 LIVE on both Apps; start here)
+## State (2026-11-05 late — post173 on the dev App; start here)
+
+- **Dev App on post173** (b1b61bd; deployment 01f1d928f9f917e6a165549728866686; health +
+  smoke green). Staging stays on post171 (`main` 5bce029) until Soham's word.
+  Suites `.venv` 2473, `.venv-d1` 2131.
+- **Parser self-extension** (Soham: "I cannot viably manage a solution every single time I
+  need to extend the parser") - plan `docs/PARSER_SELF_EXTENSION.md`: step 1 (post172,
+  labelled lines for every single-value FRD field) and step 4 (post173, `codegen
+  shapes-report --runs <dir | workspace:...>`) built; on the dev App's outputs the report
+  lists 4 FRD shapes of today's run (label-prefixed Data Source, nested-table Object Name,
+  per-file-block landing, pointer Frequency). **Next: step 2** (proposed vocabulary,
+  approved in the App). **Step 3 waits on Soham** (the model seeing a refused FRD cell).
+
+## State (2026-11-05 — post171 LIVE on both Apps)
 
 - **Both Apps on post171** (Soham's word): dev from feature 2cf5096 (deployment
   01f1d8c2e8ee1fcfb17af461e673a07e), staging from `main` = 5bce029 (identical tree;

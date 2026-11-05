@@ -4,6 +4,20 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post172 — 2026-11-05 (parser self-extension step 1: labelled lines for every single-value field)
+
+Soham: "I cannot viably manage a solution every single time I need to extend the parser".
+Plan: `docs/PARSER_SELF_EXTENSION.md` (4 steps). Step 1: post168 read "<label>: <value>" lines
+for the file format and the delimiter only (`cell_line_labels`). Now a line's label may be
+ANY FRD label synonym of a single-value field (file format, frequency, source system,
+delimiter - `extract.frd_docx._LINE_FIELDS`), in ANY single-value cell made only of such
+lines: a pre-pass per feed lends each line to its field, read where that field's own row is
+absent or blank, cited under the label as written; a stated row is never overwritten (a
+different value = `frd_cell_line_conflict:` flag, the row kept). A new label spelling is
+still config. Real-pair check (12 pairs, mock): outcomes 12/12, every artefact identical (no
+pair has such a cell). `tests/test_frd_labelled_lines.py` (the new cases fail with only the
+reader reverted).
+
 ## 0.5.8.post171 — 2026-11-05 (DQ option 1: a DQ row only where a document states the rule)
 
 Soham: "are these present in the STTM or FRD? ... if we're arguing about things in the prod

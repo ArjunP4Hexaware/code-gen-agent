@@ -70,7 +70,8 @@ def build_sttm(sheets: dict[str, str] | None = None, *, own_file_rows: bool = Tr
 def build_frd(files: list[str] | None = None,
               domain_cell: str = "Member / Care Management", *,
               name: str = PROJECT, table: str = TABLE,
-              format_cell: str = "Pipe delimited text, first row is a header") -> bytes:
+              format_cell: str = "Pipe delimited text, first row is a header",
+              frequency: str = "Monthly") -> bytes:
     """F1: the project as the feed name, the files in Object Name, ONE table.
     ``domain_cell`` is the "Domain and Subdomain" row (pair_12 CAQH states
     both labels there on two lines); ``format_cell`` the "Object/data Format"
@@ -84,7 +85,7 @@ def build_frd(files: list[str] | None = None,
             ("DM-3", "Functional Requirement", "Ingest the care management files into stage and standard."),
             ("DM-4", "Data Source", "Northwind Benefits"),
             ("DM-5", "Object Name", "\n".join(files)),
-            ("DM-6", "Frequency", "Monthly"),
+            ("DM-6", "Frequency", frequency),
             ("DM-7", "LOBs", "ALL"),
         ]),
         _f1("SM", "Structural Metadata", [

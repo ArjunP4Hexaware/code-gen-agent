@@ -931,26 +931,42 @@ def split_domain_labels(text: str | None) -> tuple[str | None, str | None] | Non
     return values["domain"], values["sub_domain"]
 
 
-def labelled_cell_lines(text: str | None, line_labels: dict[str, list[str]]
-                        ) -> list[tuple[str, str, str]] | None:
-    """post168: ``[(field, label as written, value), …]`` when a multi-line cell
-    is NOTHING but ``<label>: <value>`` lines whose labels are ``line_labels``
-    spellings (field -> labels), each field once - "File Format: .txt" then
-    "Delimiter: Pipe Delimited". None for any other cell (a line without a known
-    label, an unlabelled line, a repeated field, a single line): it reads as before."""
+def split_labelled_lines(text: str | None, line_labels: dict[str, list[str]]
+                         ) -> tuple[list[tuple[str, str, str]], list[str]] | None:
+    """``(found, ignored)`` for a multi-line cell that is NOTHING but ``<label>: <value>``
+    lines: ``found`` = ``[(field, label as written, value), …]`` for the lines whose
+    labels are ``line_labels`` spellings (field -> labels), ``ignored`` = the labels as
+    written of the other lines (post175, Soham: option B - a known line is read, an
+    unknown one is skipped and flagged, never guessed). None for any other cell - a line
+    without a label (prose), a known field twice, a single line, no known line - it
+    reads as before."""
     lines = [line for line in (text or "").splitlines() if line.strip()]
     if len(lines) < 2:
         return None
     lookup = {normalize_label(label): field
               for field, labels in line_labels.items() for label in labels}
     found: list[tuple[str, str, str]] = []
+    ignored: list[str] = []
     for line in lines:
         match = _PAIR_RE.match(line)
-        field = lookup.get(normalize_label(match.group(1))) if match else None
-        if field is None or any(f == field for f, _l, _v in found):
+        if match is None:
+            return None                      # an unlabelled line: prose, never split
+        field = lookup.get(normalize_label(match.group(1)))
+        if field is None:
+            ignored.append(match.group(1).strip())
+            continue
+        if any(f == field for f, _l, _v in found):
             return None
         found.append((field, match.group(1).strip(), match.group(2).strip()))
-    return found
+    return (found, ignored) if found else None
+
+
+def labelled_cell_lines(text: str | None, line_labels: dict[str, list[str]]
+                        ) -> list[tuple[str, str, str]] | None:
+    """post168: the known ``(field, label as written, value)`` lines of a cell of
+    ``<label>: <value>`` lines (``split_labelled_lines``), else None."""
+    split = split_labelled_lines(text, line_labels)
+    return split[0] if split else None
 
 
 def _lobs_and_table(content: DocxContent, profile: FrdLayoutProfile, prefix: str, text: str,
@@ -1146,7 +1162,14 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             own |= {"domain_subdomain", "domain"}
         if field in ("domain", "sub_domain") and split_domain_labels(value):
             return value            # two labelled lines: split where the feed is built
-        lines = labelled_cell_lines(value, line_labels) if field in _LINE_FIELDS else None
+        split = split_labelled_lines(value, line_labels) if field in _LINE_FIELDS else None
+        lines = split[0] if split else None
+        if split and split[1]:
+            # post175 (option B): a line no field knows is skipped - the reviewer sees it
+            line_flags.append(
+                f"frd_cell_line_ignored:{clean} — the table {source.table} row {source.row} "
+                f"({source.label!r}) cell's line(s) " + ", ".join(repr(x) for x in split[1])
+                + " not read: no field knows that label (learned labels: the App's card)")
         if lines and any(f == field for f, _l, _v in lines):
             # post168: each labelled line to its own field, the label as written cited
             # (post172: the other lines were lent to their fields by scan_cell_lines)

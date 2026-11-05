@@ -33,5 +33,7 @@ Order: 1 -> 4 -> 2 -> 3 (3 only on Soham's word).
 - Step 4: built in post173 (`codegen shapes-report`, `tests/test_shapes_report.py`).
 - Step 2: built in post174 (`codegen.vocabulary`, the Generate page's card; approve on the
   dev App, shared by both Apps).
-- Step 3: Soham, 2026-11-05: allowed for a refused cell of the ingested FRD / STTM (the only
-  two inputs) - not built yet.
+- Step 3: built in post176 (`layout/cell_locate.py`; Soham, 2026-11-05: a refused cell of the
+  ingested FRD / STTM only). FRD cells today; the STTM's refused cells would use the same
+  locator.
+- Option B (post175, Soham): a cell's known lines are read, unknown ones skipped and flagged.

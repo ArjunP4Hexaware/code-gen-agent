@@ -1965,7 +1965,8 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             _vdd_facts(vdd_doc.profile if vdd_doc is not None else None,  # type: ignore[arg-type]
                        vdd_workbook),
             answers.get("gaps") or {}, config, base,
-            asked={q.key for q in split_questions})
+            asked={q.key for q in split_questions},
+            locator=_cell_locator(provider, runtime_cache_dir, config))
         frd_contract = gap.contract
         if frd_is_docx:
             # M9.3: what the layout stage DID to the contract (named the feed,
@@ -2954,10 +2955,11 @@ class _FeedGapFiller:
 
     def __init__(self, contract: FrdContract, index: int, facts: dict, vdd: dict,
                  gaps: dict, config: Config, base_dir: Path, result: GapFillResult,
-                 asked: set[str] | None = None) -> None:
+                 asked: set[str] | None = None, locator=None) -> None:
         from codegen.layout.hints import frd_field_help
 
         self.asked = asked or set()
+        self.locator = locator          # post176: layout.cell_locate.CellLocator
         self.contract = contract
         self.feed = contract.feeds[index]
         self.patched = self.feed
@@ -3214,6 +3216,43 @@ class _FeedGapFiller:
         self.result.handled.add(key)
         return True
 
+    def _line_named_by_model(self, meta: dict) -> None:
+        """post176 (docs/PARSER_SELF_EXTENSION.md step 3; Soham: a refused cell of the
+        ingested FRD only): for a locatable field this FRD feed leaves empty and no
+        other document states (STTM meta rows, VDD FILES), the layout model names the
+        LINE of the FRD's refused multi-line cell that states it; the line's value is
+        copied verbatim and validated by the field's vocabulary (cell_locate.valid)."""
+        if self.locator is None:
+            return
+        from codegen.layout.cell_locate import LOCATABLE
+        from codegen.resolve.gapfill import Statement
+
+        structured = self.contract.structured or {}
+        for dotted in LOCATABLE:
+            key = self.prefix + dotted
+            if self.handled(dotted) or _feed_get(self.patched, dotted) not in (None, "", []):
+                continue
+            if dotted in meta or self.vdd.get(dotted):
+                continue                                  # another document states it
+            own = structured.get(key) or structured.get(f"feeds[0].{dotted}")
+            # the delimiter has no FRD row: it is looked for in the format cell
+            cell = own or structured.get(self.prefix + "file_format") or structured.get(
+                "feeds[0].file_format")
+            if cell is None:
+                continue
+            cell = cell.model_dump() if hasattr(cell, "model_dump") else dict(cell)
+            hit = self.locator(dotted, cell, self._title(key))
+            if hit is None:
+                continue
+            line, value = hit
+            where = (f"FRD table {cell.get('table')} row {cell.get('row')} "
+                     f"({cell.get('label')!r}) line {line}")
+            self.record_fill(dotted, Statement(value, "FRD", f"{where}, located by the model"))
+            self.result.flags.append(
+                f"frd_model_located:{key} — {where}: the layout model named the line, the "
+                f"value is copied verbatim ({value!r}) and fits the field's vocabulary; "
+                "check it before approving")
+
     def _file_format(self) -> bool:
         """Round 7 (D1 App, VDD attached, 2026-10-13): the FRD's 'Object/data
         Format' cell read "File Data Ingestion" — an ingestion TYPE, not a file
@@ -3363,6 +3402,10 @@ class _FeedGapFiller:
         # sttm) -> VDD FILES sheet -> ask. Only the last two are decided here.
         self._file_patterns()
 
+        # a''. post176 (step 3): a value no other document states, in a cell of the FRD
+        # the reader refused - the model points at the line, the code copies it
+        self._line_named_by_model(meta)
+
         # b. file format / delimiter: STTM meta row, then VDD FILES.
         for dotted in ("file_format", "delimiter"):
             if self.handled(dotted):
@@ -3501,15 +3544,24 @@ class _FeedGapFiller:
         return self.patched
 
 
+def _cell_locator(provider, runtime_cache_dir: Path | None, config: Config):
+    """post176: the step-3 locator for this run, or None without a provider."""
+    if provider is None:
+        return None
+    from codegen.layout.cell_locate import CellLocator
+
+    return CellLocator(provider, runtime_cache_dir, config)
+
+
 def fill_frd_gaps(contract: FrdContract, frd_doc, facts: dict, vdd: dict, gaps: dict,
-                  config: Config, base_dir: Path, asked: set[str] | None = None
-                  ) -> GapFillResult:
+                  config: Config, base_dir: Path, asked: set[str] | None = None,
+                  locator=None) -> GapFillResult:
     """Apply the FRD gap chain to every feed (see resolve/gapfill.py). ``asked``:
     the keys the split step already asks (``feeds[i].file_name_patterns``) —
     never asked a second time in another form."""
     result = GapFillResult(contract=contract)
     feeds = [_FeedGapFiller(contract, index, facts, vdd, gaps, config, base_dir, result,
-                            asked or set()).run()
+                            asked or set(), locator).run()
              for index in range(len(contract.feeds))]
     result.contract = contract.model_copy(update={"feeds": feeds})
     return result

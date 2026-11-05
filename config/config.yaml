@@ -1522,7 +1522,9 @@ iig_review:
   # post160: + frd_tables_set_aside: (FRD stage tables the STTM does not build)
   # post171: + iig_dq_not_generated: (a DQ rule the documents do not state - a suggestion)
   review_flag_prefixes: ["layout_model_placed:", "frd_crosscheck:", "layout_crosscheck:",
-                         "frd_tables_set_aside:", "iig_dq_not_generated:"]
+                         "frd_tables_set_aside:", "iig_dq_not_generated:",
+                         "frd_cell_line_ignored:", "frd_cell_line_conflict:",
+                         "frd_model_located:"]
   review_flag_label: "check before approving (layout / cross-document)"
   review_flag_owner: "engineer + BSA"
   owners:

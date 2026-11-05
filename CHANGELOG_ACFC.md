@@ -4,6 +4,31 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post176 — 2026-11-05 (parser self-extension step 3: the model points, the code copies)
+
+A cell of the ingested FRD the reader refused (several lines no grammar reads) for a field
+no other document fills (STTM meta rows, VDD FILES): the layout model is asked WHICH LINE
+states the file format / delimiter / frequency - it sees that one cell's lines and the
+field, answers a line number, never a value (`layout/cell_locate.py`, `locate_line` on the
+FMAPI / Anthropic providers, its own system prompt). The code copies the line (after its
+label), the field's vocabulary validates it (format tokens, `delimiter_char`, a cadence
+word); a wrong line, a refused value, a line outside the cell or one the stored text cut
+short leaves the field open. Cached per (field, cell text) in the runtime layout cache
+(`cell_locate/`, line numbers only). Each value is a cited FRD fill + `frd_model_located:`
+flag, listed in the review copy. The mock provider answers no line (dry runs / the harness
+unchanged). AGENTS.md: the one exception to "the model sees fingerprint material only"
+(Soham). `tests/test_cell_locate.py` (the layout case fails with only the stage reverted).
+
+## 0.5.8.post175 — 2026-11-05 (a cell's known lines are read, unknown ones skipped and flagged)
+
+Soham, option B: a cell of "<label>: <value>" lines used to be read only when EVERY label
+was known (post168). Now the known lines are read and each line no field knows is skipped,
+never guessed - one `frd_cell_line_ignored:` flag names the skipped labels (with the cell's
+coordinates) and reaches the review copy's "check before approving" rows (prefix added, with
+`frd_cell_line_conflict:`). Still refused whole: a cell with any UNLABELLED line (prose), a
+field stated twice, no known line. `codegen.extract.frd_docx.split_labelled_lines`;
+`tests/test_frd_labelled_lines.py` (fails with only the reader reverted).
+
 ## 0.5.8.post174 — 2026-11-05 (parser self-extension step 2: proposed labels, approved once)
 
 When a person answers a question with a value a REFUSED FRD cell already states on a

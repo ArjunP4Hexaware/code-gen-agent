@@ -43,8 +43,8 @@ def test_the_exact_cell_reads_one_value_per_labelled_line():
 
 @pytest.mark.parametrize("text", [
     None, "", "File Format: .txt",                          # one line: read as before
-    "File Format: .txt\nEncoding: UTF-8",                   # a label no field knows
-    "File Format: .txt\nfirst row is a header",             # an unlabelled line
+    "Encoding: UTF-8\nCharset: Latin-1",                    # no line a field knows
+    "File Format: .txt\nfirst row is a header",             # an unlabelled line (prose)
     "File Format: .txt\nFile Format: .csv",                 # the same field twice
 ])
 def test_any_other_cell_is_not_split(text):
@@ -65,9 +65,23 @@ def test_the_reader_takes_the_format_and_the_delimiter_from_their_lines(tmp_path
                    for a in contract.provenance.ambiguities)
 
 
-def test_a_cell_with_an_unknown_line_stays_refused(tmp_path, config):
+def test_an_unknown_line_is_skipped_and_flagged(tmp_path, config):
+    """post175 (Soham, option B): the known line is read, the line no field knows is
+    skipped - never guessed - and the review copy names it."""
     feed, contract = _feed(tmp_path, config, "File Format: .txt\nEncoding: UTF-8")
-    assert (feed.file_format, feed.delimiter) == (None, None)
+    assert (feed.file_format, feed.delimiter) == (".txt", None)
+    assert any(f.startswith("frd_cell_line_ignored:feeds[0].file_format") and "'Encoding'" in f
+               for f in contract.extraction_flags), contract.extraction_flags
+    assert "frd_cell_line_ignored:" in config.iig_review.review_flag_prefixes
+    from codegen.extract.frd_docx import split_labelled_lines
+
+    assert split_labelled_lines("File Format: .txt\nEncoding: UTF-8", LABELS) == (
+        [("file_format", "File Format", ".txt")], ["Encoding"])
+
+
+def test_a_prose_line_still_refuses_the_whole_cell(tmp_path, config):
+    feed, contract = _feed(tmp_path, config, "File Format: .txt\nfirst row is a header")
+    assert feed.file_format is None
     assert any("frd_multiline:feeds[0].file_format" in str(a)
                for a in contract.provenance.ambiguities)
 

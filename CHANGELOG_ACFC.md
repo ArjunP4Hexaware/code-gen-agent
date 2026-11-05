@@ -4,6 +4,16 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post175 — 2026-11-05 (a cell's known lines are read, unknown ones skipped and flagged)
+
+Soham, option B: a cell of "<label>: <value>" lines used to be read only when EVERY label
+was known (post168). Now the known lines are read and each line no field knows is skipped,
+never guessed - one `frd_cell_line_ignored:` flag names the skipped labels (with the cell's
+coordinates) and reaches the review copy's "check before approving" rows (prefix added, with
+`frd_cell_line_conflict:`). Still refused whole: a cell with any UNLABELLED line (prose), a
+field stated twice, no known line. `codegen.extract.frd_docx.split_labelled_lines`;
+`tests/test_frd_labelled_lines.py` (fails with only the reader reverted).
+
 ## 0.5.8.post174 — 2026-11-05 (parser self-extension step 2: proposed labels, approved once)
 
 When a person answers a question with a value a REFUSED FRD cell already states on a

@@ -165,6 +165,9 @@ class ResolvedFeedSpec(BaseModel):
     # post170: values the person left blank on purpose (answers.leave_blank) - their
     # cells are blank + flagged; an empty delimiter here is NOT a fixed-width file
     left_blank: list[str] = Field(default_factory=list)
+    # post171: the STTM's DQ rules sheet(s), verbatim (header -> cell per row) - the
+    # IIG writer reads its null-check rows for THIS feed's fields; never interpreted here
+    dq_sheet_rows: list[dict[str, str | None]] = Field(default_factory=list)
     # Multi-table rule 2 (codegen.resolve.files): one entry per file the feed
     # receives — a LOB-token pattern expanded per listed LOB, else one per
     # pattern. Empty on a spec built without the resolver (builders then

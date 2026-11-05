@@ -366,6 +366,14 @@ def _yes(value: str | None, disc: DiscoveryConfig) -> bool:
     return normalize(value) in {normalize(v) for v in disc.yes_values}
 
 
+def _dq_check(row: FieldRow, disc) -> bool | None:
+    """post171: the row's "Mandatory fields include in DQ check" cell (role
+    dq_mandatory, a trailing column of any band) as a yes / no; None = no cell."""
+    value = _first(row, "rules.dq_mandatory", "standard.dq_mandatory", "stage.dq_mandatory",
+                   "source.dq_mandatory")
+    return None if value is None else _yes(value, disc)
+
+
 def _first(row: FieldRow, *keys: str) -> str | None:
     for key in keys:
         value = row.values.get(key)
@@ -1298,6 +1306,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             standard_column=_first(row, "standard.column") if has_standard else None,
             standard_datatype=(standard_parts.type_text or None) if standard_parts else None,
             value_spec=value_spec,
+            dq_check=_dq_check(row, disc),
             source_length=_first(row, "source.length", "source.field_length"),
             source_start=_first(row, "source.start"),
             source_end=_first(row, "source.end"),

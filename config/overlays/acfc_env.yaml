@@ -609,6 +609,18 @@ metadata:
       # ReferentialCheckRule (Custom) only on a named lookup. Parameter formats: the
       # CAQH golden (split / AddCustomColumns / Referential) and the SFMC reference IIG.
       dq_rules: [header_trailer_split, add_custom_columns, null_check, dedup, referential_check, lr_trim, std_date_conversion, std_data_type_cast]
+      # post171 (Soham, 2026-11-05, "DQ option 1"): a DQ row only where a document states the
+      # rule (config.py MetadataTemplateConfig.dq_stated_only). The FRD template's DQ-section
+      # labels and the "no check" answers, and the STTM DQ rules sheet's null-check value, as
+      # the client documents write them (12-pair survey, 2026-11-04; counts in RESTART).
+      dq_stated_only: true
+      dq_frd_check_labels:
+        dedup: ["Uniqueness - Duplicate Record Check"]
+        null_check: ["Incomplete Record Rejection Process"]
+      dq_no_check_words: ["NA", "N/A", "None", "No", "TBD", "Not applicable"]
+      dq_sheet_null_values: ["Don't allow nulls"]
+      dq_sheet_field_headers: ["FieldName"]
+      dq_sheet_rule_headers: ["DQ Rules"]
       dq_rule_classes: {header_trailer_split: LoadHeaderAndTrailerToSeparateTablesRule, add_custom_columns: AddCustomColumnsRule, null_check: NullCheckRule, dedup: DeDuplicationRule, referential_check: ReferentialCheckRule, lr_trim: LRTrimRule, std_date_conversion: DateConversionRule, std_data_type_cast: DataTypeCastRule}
       dq_rule_types: {header_trailer_split: Predefined, add_custom_columns: Predefined, null_check: Predefined, dedup: Predefined, referential_check: Custom, lr_trim: STDDelta, std_date_conversion: STDDelta, std_data_type_cast: STDDelta}
       dq_params:

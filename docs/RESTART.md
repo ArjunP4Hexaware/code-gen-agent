@@ -4,7 +4,22 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-04 evening — post167-169 deployed to the dev App; start here)
+## State (2026-11-05 — post170 LIVE on both Apps; start here)
+
+- **Both Apps on post170** (Soham's word): dev `codegen-agent` from feature 4d1465d
+  (deployment 01f1d8b7f2161f93868ff10900a790f0); staging `codegen-agent-staging` from
+  `main` = 502a3b6, a merge commit whose tree is feature's (deployment
+  01f1d8b806a716719ed9286e5b3d1f5b; the post169 merge before it: f1bc603). Health post170
+  on both, smoke green on both; staging now uses `codegen/state|outputs/codegen-agent-staging`
+  (post167 live there). Both suites green on the pushed tree (`.venv` 2449, `.venv-d1` 2107).
+- **post170 - "Leave blank and continue"** for the file format / delimiter / frequency
+  (CHANGELOG). Soham: "a blank answer is still better than no answer". 12-pair check: outcomes
+  12/12, artefacts identical.
+- **The message to the data engineer** (staging changes post167-170) was drafted for Soham.
+- **Next:** (1) DQ option 1 (decisions below, in the 2026-11-04 evening block); (2) the
+  `codingapp` deploy (restarts this container - last in a session).
+
+## State (2026-11-04 evening — post167-169 deployed to the dev App)
 
 - **Live, dev App `codegen-agent`:** post169 (54ee423; deployment
   01f1d8a1a6ed1313b9ac8021979609a1). Health = post169 (every root readable, the original

@@ -4,6 +4,30 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post171 — 2026-11-05 (DQ option 1: a DQ row only where a document states the rule)
+
+Soham: "are these present in the STTM or FRD? ... if we're arguing about things in the prod
+IIG that's automatically wrong". A real pair_11 IIG carried 15 DATA_QUALITY_RULES rows; 11
+(DeDuplication, DataTypeCast, DateConversion) were stated by neither document - its FRD
+answers "NA" to the duplicate and incomplete-record checks. New template knob
+`dq_stated_only` (on in the ACFC overlay, with the FRD row labels / no-check answers / STTM
+DQ-sheet wording as the client documents write them):
+- DeDuplicationRule only when the FRD's "Uniqueness - Duplicate Record Check" row states a
+  check; columns = the STTM Primary Key (Soham, pair_03), blank + flagged without one;
+- NullCheckRule on the fields the STTM names for a DQ check - its "Mandatory fields include
+  in DQ check" Y cells (new `SttmField.dq_check`) and its DQ rules sheet's "Don't allow
+  nulls" rows naming a field of the feed; the STTM wins over an FRD "NA" (Soham); else an
+  FRD-stated incomplete-record rejection (the key / required columns);
+- no DataTypeCastRule; DateConversionRule only where a load rule states the formats;
+- each rule only derivable is an `iig_dq_not_generated:` suggestion in the review copy's
+  summary (never a row) - incl. "the STTM's DQ rules sheet names N null-check fields this
+  feed does not have" (pairs 05 / 11: their DQ sheet names 0 / 1 of the feed's fields).
+Real-pair check (12 pairs, mock, post170 vs this, before the review-summary wiring): outcomes
+12/12 identical, no DDL changed; 104 files changed, all DQ: the DQ rows (pair_03 88 -> 2 =
+header + the FRD-stated DeDuplicationRule on its 4 key columns; pair_11 16 -> 4), their
+review rows, inserts, config rows, LOG / FAIL reports, manifests. `tests/test_dq_stated_only.py`
+(fails with only the behaviour reverted).
+
 ## 0.5.8.post170 — 2026-11-05 (a blank answer lets the run through)
 
 Soham: "a blank answer is still better than no answer because there's still a partial

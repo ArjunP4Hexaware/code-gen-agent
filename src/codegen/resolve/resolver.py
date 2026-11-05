@@ -1371,6 +1371,9 @@ def _resolve_one(
             *key_flags, *delimiter_flags])),
         files=files,
         left_blank=sorted(left_blank),
+        dq_sheet_rows=[dict(zip(aux.headers, row, strict=False))
+                       for aux in sttm.auxiliary_sheets if aux.kind == "dq_rules"
+                       for row in aux.rows],
         frequency_mentions=list(frd_feed.frequency_mentions),
         lob_unkeyed=lob_unkeyed,
         lob_question_key=lob_key if lob_unkeyed else None,

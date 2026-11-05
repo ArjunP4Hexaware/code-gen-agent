@@ -973,10 +973,12 @@ def emit_framework(
     path_whitespace = getattr(profile, "path_whitespace", "keep")
     if path_whitespace == "keep":
         flags.extend(path_whitespace_flags(payload, config.gate.derivations))
-    from codegen.metadata_template import blank_flags, shape_flags
+    from codegen.metadata_template import blank_flags, dq_not_generated_flags, shape_flags
 
     if template_cfg is not None:
         flags.extend(blank_flags(payload))
+        # post171: the DQ rules the documents do not state - review-copy suggestions
+        flags.extend(dq_not_generated_flags(spec, template_cfg))
     # Path notes (iig_path_shape_on_uri / path_normalised) for every template.
     flags.extend(shape_flags(payload))
     # 2026-10-14 (framework owner's rule 3): an MFT-landed feed's FILE_ADLS sheet
@@ -1199,7 +1201,9 @@ def emit_framework(
     review_name = clean_name = ""
     from codegen.iig_review import review_flags
 
-    to_review = review_flags(list(spec.provenance_flags), config)
+    # post171: + the DQ rules the documents do not state (one summary row each)
+    to_review = review_flags([*spec.provenance_flags,
+                              *dq_not_generated_flags(spec, template_cfg)], config)
     if profile.emit_iig_review:
         from codegen.iig_review import write_iig_workbooks
 

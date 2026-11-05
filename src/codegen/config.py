@@ -1933,6 +1933,25 @@ class MetadataTemplateConfig(BaseModel):
                            "lr_trim", "std_date_conversion", "std_data_type_cast"]] = Field(
         default_factory=list)
     dq_rule_classes: dict[str, str] = Field(default_factory=dict)
+    # post171 (Soham, 2026-11-05, "DQ option 1"): a rule row only where a document states
+    # the rule - DeDuplicationRule when the FRD's duplicate-check row states a check (the
+    # STTM Primary Key as its columns, blank + flagged without one); NullCheckRule on the
+    # fields the STTM names for a DQ check (its "include in DQ check" Y cells, its DQ rules
+    # sheet's null-check rows - the STTM wins over an FRD "NA"), else when the FRD's
+    # incomplete-record row states a rejection (the STTM's key / required columns); a
+    # DateConversionRule only where a load rule states the formats; no DataTypeCastRule.
+    # Each rule only derivable lands in the review copy as a suggestion, never a row.
+    dq_stated_only: bool = False
+    # the FRD DQ-section row labels (as the FRD template writes them; contains-match after
+    # normalisation) per rule kind, and the values that state NO check (first words)
+    dq_frd_check_labels: dict[Literal["dedup", "null_check"], list[str]] = Field(
+        default_factory=dict)
+    dq_no_check_words: list[str] = Field(default_factory=list)
+    # the STTM DQ rules sheet's null-check values (as the client STTM writes them)
+    dq_sheet_null_values: list[str] = Field(default_factory=list)
+    # that sheet's field-name and rule column headers (as the client STTM writes them)
+    dq_sheet_field_headers: list[str] = Field(default_factory=list)
+    dq_sheet_rule_headers: list[str] = Field(default_factory=list)
     # rule kind -> RULE_TYPE (else the sheet's constant); kind -> {header: value}
     # constant cells (INPUT_PARAM / TARGET_COLUMN framework parameters); kind ->
     # citation (the golden rows the format comes from).

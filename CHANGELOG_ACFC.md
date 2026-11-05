@@ -4,6 +4,18 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post173 — 2026-11-05 (parser self-extension step 4: the unfamiliar-shapes report)
+
+`codegen shapes-report --runs <dir | storage URI> [--out shapes.md]` (`codegen.shapes_report`):
+the shapes the readers could not place - every FRD cell refused (several lines, a nested
+table, per-file blocks, a pointer, a label-prefixed value; the run FRD contract's
+`structured`) and every STTM role no header placed (`layout.unresolved`) - added up across
+the run folders, one row per (document, shape, field / role): runs, last run, the
+coordinates seen, most runs first. Coordinates and vocabulary only (the FRD row label, table
+/ row; an STTM role by layer + role) - never a cell's text, never an STTM sheet name. Reads
+through the storage backends, so the App's outputs role (`workspace:...`) works directly.
+`tests/test_shapes_report.py`.
+
 ## 0.5.8.post172 — 2026-11-05 (parser self-extension step 1: labelled lines for every single-value field)
 
 Soham: "I cannot viably manage a solution every single time I need to extend the parser".

@@ -969,6 +969,28 @@ def _answers_inputs(path: Path | None) -> dict[str, str]:
     return load_answers(path).inputs
 
 
+def _shapes_report(args, config) -> int:
+    """post173: ``codegen shapes-report --runs <dir | URI>``."""
+    from codegen import shapes_report
+    from codegen.storage import default_client_factory, open_backend, parse_uri
+
+    uri = args.runs if args.runs.partition(":")[0] in ("local", "workspace", "volume") \
+        else f"local:{Path(args.runs).resolve().as_posix()}"
+    parse_uri(uri)
+    backend = open_backend(uri, base_dir=_REPO_ROOT,
+                           client_factory=default_client_factory(config), create_root=False)
+    runs = [e.name for e in backend.list("")
+            if e.is_dir and shapes_report.RUN_FOLDER.fullmatch(e.name)]
+    text = shapes_report.render_markdown(
+        shapes_report.summarize(shapes_report.collect(backend)), len(runs))
+    if args.out:
+        Path(args.out).write_text(text, encoding="utf-8", newline="\n")
+        print(f"SHAPES REPORT   {args.out} — {len(runs)} run(s) scanned")
+    else:
+        print(text, end="")
+    return EXIT_OK
+
+
 def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
     from codegen.extract import (
         ExtractionError,
@@ -2501,6 +2523,14 @@ def _parser() -> argparse.ArgumentParser:
     layer2.add_argument("--feed", default=None, help="only this feed_id")
     layer2.add_argument("--dry-run", action="store_true",
                         help="force the mock Layer-2 provider (no network)")
+    shapes = subparsers.add_parser(
+        "shapes-report", help="post173: the shapes the readers could not place, added up "
+                              "across runs (coordinates and vocabulary only)")
+    shapes.add_argument("--config", default="config/config.yaml")
+    shapes.add_argument("--runs", required=True,
+                        help="the run folders' root: a directory or a storage URI "
+                             "(local: / workspace: / volume:) - e.g. the App's outputs role")
+    shapes.add_argument("--out", default=None, help="write the markdown here (else stdout)")
     doctor = subparsers.add_parser(
         "doctor", help="print which codegen runs (version, location, overlays, python, "
                        "sys.path) and whether it knows the config's sections")
@@ -2565,6 +2595,8 @@ def _main(argv: list[str] | None = None) -> int:
         return _extract_sttm(args, config)
     if args.command == "layer2":
         return _layer2_pending(args, config)
+    if args.command == "shapes-report":
+        return _shapes_report(args, config)
     if args.command == "extract-frd":
         return _extract_frd(args, config)
     if args.command == "extract-vdd":

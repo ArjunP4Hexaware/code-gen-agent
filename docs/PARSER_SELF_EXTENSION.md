@@ -30,4 +30,5 @@ Order: 1 -> 4 -> 2 -> 3 (3 only on Soham's word).
 ## Status
 
 - Step 1: built in post172 (`tests/test_frd_labelled_lines.py`).
-- Steps 2-4: not started.
+- Step 4: built in post173 (`codegen shapes-report`, `tests/test_shapes_report.py`).
+- Step 2: next. Step 3: waits on Soham's decision (the model seeing a refused cell).

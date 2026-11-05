@@ -4,7 +4,22 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-05 late — post174 on BOTH Apps; start here)
+## State (2026-11-05 night — post176 on BOTH Apps; start here)
+
+- **Both Apps on post176** (Soham's word): dev from feature 5e75cdc (deployment
+  01f1d940960a1a60ba7235e66297e5d8), staging from `main` = 001500c (identical tree;
+  deployment 01f1d940a1fd1408bfb0709f8fb6e522). Health + smoke green on both; suites
+  `.venv` 2501, `.venv-d1` 2154; 12-pair check post174 vs post176: outcomes 12/12, every
+  artefact identical.
+- **Parser self-extension complete (steps 1-4)** - `docs/PARSER_SELF_EXTENSION.md`:
+  post175 = option B (a cell's known lines read, unknown ones skipped + flagged
+  `frd_cell_line_ignored:`); post176 = step 3 (`layout/cell_locate.py`: for a refused FRD
+  cell no other document fills, the model names the LINE; code copies + validates; cached;
+  `frd_model_located:` in the review copy; AGENTS.md records the exception). The STTM's
+  refused cells could use the same locator - not wired.
+- **Next:** the `codingapp` deploy (restarts this container - last in a session).
+
+## State (2026-11-05 late — post174 on BOTH Apps)
 
 - **Staging on post174 too** (`main` 7e0a608, identical tree; deployment
   01f1d93523c0196180a448cabe7e7940; health + smoke green; `/api/vocabulary` there:

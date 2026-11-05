@@ -4,7 +4,12 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-05 late — post174 on the dev App, post173 on staging; start here)
+## State (2026-11-05 late — post174 on BOTH Apps; start here)
+
+- **Staging on post174 too** (`main` 7e0a608, identical tree; deployment
+  01f1d93523c0196180a448cabe7e7940; health + smoke green; `/api/vocabulary` there:
+  can_decide false = read-only, as designed). A docs push failed twice with GitHub's
+  "fatal error in commit_refs_rules" (status page green) and went through on a later try.
 
 - **Dev App on post174** (fcafbf5; deployment 01f1d9327a761c3fb1638fb51b6acb9a; health +
   smoke green, `/api/vocabulary` answers from the shared state root, can_decide true).

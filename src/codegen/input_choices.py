@@ -328,8 +328,12 @@ def _role_frequency(tokens: dict[str, str], tpl, flow: str, config) -> dict[str,
     from codegen.metadata_template import role_frequency
 
     frequency = role_frequency(tpl, flow)
-    if not frequency:
+    if frequency is None:
         return tokens
+    if not frequency:
+        # post177: a `run` role the run's feeds leave unresolved - no frequency
+        # in its name (never the feed's own: the master runs the whole run)
+        return {**tokens, "frequency": "", "frequency_code": ""}
     codes = ({k.casefold(): v for k, v in
               config.engineering_standards.frequency_abbreviations.items()}
              if config is not None else {})

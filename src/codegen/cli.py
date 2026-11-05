@@ -128,9 +128,11 @@ def generate_feed_result(
                    else Path(config.output.reports_dir))
     # post84: a landing no document states, written from the profile's
     # convention under landing_autoset (one NOTE flag; a stated landing wins)
-    from codegen.metadata_template import with_landing_default
+    from codegen.metadata_template import with_landing_default, with_run_frequency_config
     from codegen.owed_inputs import _template as _owed_template
 
+    # post177: the run-level masters' frequency, decided once from the run's feeds
+    config = with_run_frequency_config(config, frd_path)
     spec = with_landing_default(_owed_template(config, output_mode, iig_template), spec)
     feed_dir = out_root / spec.feed_slug
     stage = on_stage or (lambda _detail: None)
@@ -824,15 +826,18 @@ def _run_pairs(
 
 def _input_choices(spec, config: Config, inputs: dict[str, str], choices: dict, index,
                    output_mode, iig_template, conventions_profile, *,
-                   base: Path | None = None) -> list:
+                   base: Path | None = None, frd_path: Path | None = None) -> list:
     """post59: the feed's defaulted inputs resolved (codegen.input_choices) —
-    an IIG template that owes cells (post68: any output mode)."""
+    an IIG template that owes cells (post68: any output mode). post177: the
+    run-level masters' frequency from the run's feeds (``frd_path``)."""
     from codegen import input_choices as choices_mod
+    from codegen.metadata_template import with_run_frequency_from_frd
     from codegen.owed_inputs import _template
 
     tpl = _template(config, output_mode, iig_template)
     if tpl is None or not tpl.owed_cells:
         return []
+    tpl = with_run_frequency_from_frd(tpl, frd_path)
     return choices_mod.resolve_feed(
         spec, profile=config.conventions.get(conventions_profile), tpl=tpl, inputs=inputs,
         choices=choices, index=index, faq=faq_for_spec(spec, config, base_dir=base),

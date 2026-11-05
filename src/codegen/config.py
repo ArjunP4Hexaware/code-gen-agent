@@ -1681,7 +1681,12 @@ class PipelineRoleConfig(BaseModel):
     # own frequency (the pair_11 golden: one Daily grand master + master, the
     # children each on their feed's schedule) - the row's PIPELINE_FREQUENCY and
     # the {frequency} / {frequency_code} of its name. None = the feed's frequency.
+    # post177: "run" = the ONE frequency every feed of the run states (from the
+    # documents; codegen.metadata_template.with_run_frequency), else blank + flagged.
     frequency: str | None = None
+    # post177: set only by with_run_frequency (where a resolved `run` came from) -
+    # never configured
+    frequency_source: str | None = None
 
 
 D1_PLACEHOLDER_RE = re.compile(r"<<D1:[^>]*>>")

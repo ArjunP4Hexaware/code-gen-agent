@@ -43,7 +43,11 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
 - **A value not transcribed from an input is a bug, however plausible.** Every cell /
   column / DDL value comes from an input document, a cited config constant, or an answer
   the user gave; the rest stays blank AND flagged. Never synthesize a mapping to make a
-  diff close (the 2026-09 Genie episode: the documents answered it).
+  diff close (the 2026-09 Genie episode: the documents answered it). **A production
+  IIG is training and scoring material, never a value source** (Soham, 2026-11-05: users
+  bring an FRD + STTM, not a prod IIG): a convention may be LEARNED from the corpus and
+  proven on pairs it was not learned from; a constant copied from one pair's prod IIG is
+  this bug (post177 removed post102's Daily masters).
 - **Citation rule:** every conflict / assumption / confirm item and provenance note quotes
   the exact FRD field or STTM cell it rests on (models enforce non-empty citations; tests
   assert them). Layer scope comes from Load Strategy, never from which schemas a Target

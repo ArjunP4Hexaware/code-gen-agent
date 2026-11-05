@@ -1431,16 +1431,34 @@ def _pipeline_roles(tab, feed, faq, tpl, extra: dict | None = None) -> list[dict
                            f"{position[role.parent]} ({role.parent}) — the parent by position")
         parent["badge_entry"]["convention"] = True
         cells["PARENT_PIPELINE_ID"] = parent
-        cells["PIPELINE_FREQUENCY"] = (
-            _cell(role.frequency, "synthetic",
-                  f"template constant — {citation}: the {role.role} pipeline runs "
-                  f"{role.frequency} for the whole run; each child keeps its feed's schedule")
-            if role.frequency else _frequency(feed, faq, tpl))
+        if role.frequency == RUN_FREQUENCY:
+            # post177: `run` left unresolved = the run's feeds do not state ONE
+            # frequency (they differ, or one states none): blank + flagged, never a
+            # constant (Soham: values come from the FRD / STTM only)
+            cells["PIPELINE_FREQUENCY"] = _cell(
+                "", "needs_template",
+                f"the {role.role} pipeline runs the whole run: its frequency is the "
+                "run's feeds' one stated frequency, and they do not state one; left open")
+            cells["PIPELINE_FREQUENCY"]["badge_entry"]["note"] = (
+                f"{RUN_FREQUENCY_FLAG}:{role.role} — the run's feeds do not state one "
+                "frequency (they differ, or a feed states none): the "
+                f"{role.role}'s PIPELINE_FREQUENCY is left blank")
+        elif role.frequency:
+            cells["PIPELINE_FREQUENCY"] = _cell(
+                role.frequency, "synthetic" if role.frequency_source is None else "from_frd",
+                role.frequency_source or (
+                    f"template constant — {citation}: the {role.role} pipeline runs "
+                    f"{role.frequency} for the whole run; each child keeps its feed's "
+                    "schedule"))
+        else:
+            cells["PIPELINE_FREQUENCY"] = _frequency(feed, faq, tpl)
         process = _process_name(faq)
         if process is not None:
             cells["APPLICATION_NAME"] = process
         context = {**_row_context(feed, faq, cells, role.role), **(extra or {})}
-        if role.frequency:
+        if role.frequency == RUN_FREQUENCY:
+            context["freq"] = ""          # a derived description stays open too
+        elif role.frequency:
             context["freq"] = role.frequency[:1].upper() + role.frequency[1:].lower()
         _derive(tpl, tab, cells, context)
         rows.append(_with_constants(tpl, tab, cells, context, faq))
@@ -2096,11 +2114,92 @@ _ROLE_FLOWS = {"file_to_stage": "file_to_stg", "stage_to_standard": "stg_to_std"
 
 def role_frequency(tpl: MetadataTemplateConfig | None, role_or_flow: str) -> str | None:
     """post102: the run-level schedule of a pipeline role (``pipeline_roles[].
-    frequency``), by role or by its flow name; None = the feed's frequency."""
+    frequency``), by role or by its flow name; None = the feed's frequency.
+    post177: '' for a ``run`` role the run's feeds leave unresolved (no single
+    stated frequency) - the name then carries no frequency code."""
     for role in (tpl.pipeline_roles if tpl is not None else []):
         if role_or_flow in (role.role, _ROLE_FLOWS.get(role.role)) and role.frequency:
-            return role.frequency
+            return "" if role.frequency == RUN_FREQUENCY else role.frequency
     return None
+
+
+RUN_FREQUENCY = "run"
+RUN_FREQUENCY_FLAG = "iig_run_frequency_unstated"
+RUN_UNRESOLVED = "the run's feeds state no single frequency"
+
+
+def run_frequency(feeds: list[FrdFeed], faq_for=None,
+                  tpl: MetadataTemplateConfig | None = None) -> tuple[str, str] | None:
+    """post177: the ONE frequency token every feed of the run states (each
+    feed's FREQUENCY, ``_frequency``: from the FRD / STTM / the user's answers),
+    with where it came from; None when a feed states none or two feeds differ.
+    ``faq_for(feed)`` = that feed's load-pattern FAQ (None when absent)."""
+    tokens: dict[str, list[str]] = {}
+    for feed in feeds:
+        faq = faq_for(feed) if faq_for is not None else None
+        value = str(_frequency(feed, faq, tpl)["value"] or "").strip()
+        if not value:
+            return None
+        tokens.setdefault(value, []).append(feed.feed_name)
+    if len(tokens) != 1:
+        return None
+    token, names = next(iter(tokens.items()))
+    return token, (f"every feed of the run states {token!r} ({len(names)} feed(s): each "
+                   "feed's own FREQUENCY, from its documents)")
+
+
+def with_run_frequency(tpl: MetadataTemplateConfig | None, feeds: list[FrdFeed] | None,
+                       faq_for=None) -> MetadataTemplateConfig | None:
+    """post177: ``tpl`` with each ``frequency: run`` pipeline role resolved from
+    the run's feeds (``run_frequency``); left ``run`` (= blank + flagged) when
+    they state no single frequency or the feeds are unknown. Unchanged when no
+    role is ``run``."""
+    open_roles = [r for r in tpl.pipeline_roles if r.frequency == RUN_FREQUENCY
+                  and r.frequency_source is None] if tpl is not None else []
+    if not open_roles or not feeds:
+        return tpl
+    found = run_frequency(feeds, faq_for, tpl)
+    # decided either way: a resolved token, or `run` kept with RUN_UNRESOLVED as
+    # its source so a later, narrower view (one feed) never re-decides it
+    token, source = found if found is not None else (RUN_FREQUENCY, RUN_UNRESOLVED)
+    roles = [r.model_copy(update={"frequency": token, "frequency_source": source})
+             if r in open_roles else r for r in tpl.pipeline_roles]
+    return tpl.model_copy(update={"pipeline_roles": roles})
+
+
+def with_run_frequency_config(config: Config, frd_path) -> Config:
+    """post177: ``config`` with every IIG template's ``frequency: run`` roles
+    decided from the run's FRD contract (``with_run_frequency_from_frd``) - done
+    once per feed generation, so the IIG rows, the names and the questions all
+    see the RUN's feeds (the per-feed IIG itself sees one feed only)."""
+    templates = dict(config.metadata.templates)
+    changed = False
+    for name, tpl in templates.items():
+        resolved = with_run_frequency_from_frd(tpl, frd_path)
+        if resolved is not tpl:
+            templates[name], changed = resolved, True
+    if not changed:
+        return config
+    return config.model_copy(update={"metadata": config.metadata.model_copy(
+        update={"templates": templates})})
+
+
+def with_run_frequency_from_frd(tpl: MetadataTemplateConfig | None,
+                                frd_path) -> MetadataTemplateConfig | None:
+    """``with_run_frequency`` over the feeds of the FRD contract at ``frd_path``
+    (the run's feeds; no FAQ answers); unchanged when there is no contract."""
+    import json
+    from pathlib import Path
+
+    from codegen.contracts.frd import FrdContract
+
+    if tpl is None or not any(r.frequency == RUN_FREQUENCY and r.frequency_source is None
+                              for r in tpl.pipeline_roles):
+        return tpl
+    if frd_path is None or not Path(frd_path).is_file():
+        return tpl
+    contract = FrdContract.model_validate(json.loads(Path(frd_path).read_text(encoding="utf-8")))
+    return with_run_frequency(tpl, list(contract.feeds))
 
 
 def _notebook_kind(flow: str, feed: FrdFeed, spec: ResolvedFeedSpec | None,

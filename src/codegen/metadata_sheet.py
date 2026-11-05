@@ -865,6 +865,20 @@ def metadata_sheet_payload(
     for spec in specs or []:
         if spec.feed_id not in covered:
             feed_rows.append(_feed_from_spec(spec))
+    if template_cfg is not None:
+        # post177: a `frequency: run` pipeline role takes the frequency every feed
+        # of the run states (the contract's feeds), else it stays blank + flagged.
+        # A contract that covers none of the run's specs is not this run's (the demo
+        # fallback): then the specs' own feeds are the run.
+        from codegen.metadata_template import with_run_frequency
+
+        run_feeds = (list(contract.feeds)
+                     if not specs or any(s.feed_id in covered for s in specs)
+                     else [f for f in feed_rows if normalize_feed_name(f.feed_name)
+                           in {s.feed_id for s in specs}])
+        template_cfg = with_run_frequency(
+            template_cfg, run_feeds,
+            lambda f: faq_by_slug.get(normalize_feed_name(f.feed_name)))
 
     tabs: dict[str, dict] = {}
     for name, tab in sheet.tabs.items():

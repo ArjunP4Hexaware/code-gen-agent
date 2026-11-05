@@ -2943,6 +2943,27 @@ class DemoRunner:
                 ),
             }
 
+    def _propose_vocabulary(self, frd_contract: Path, run: str, config) -> None:
+        """post174: a value this run's answers give that a refused FRD cell states on a
+        labelled line proposes that label (codegen.vocabulary) - recorded in the shared
+        state root, applied only once approved; never stops the run."""
+        gaps = (self.last_answers or {}).get("gaps")
+        if not gaps:
+            return
+        from codegen import vocabulary
+
+        try:
+            proposals = vocabulary.propose(
+                _read_json(frd_contract), gaps, run=run,
+                known=config.extractor.frd.cell_line_labels)
+            new = vocabulary.record(vocabulary.state_backend(config), proposals) \
+                if proposals else []
+        except Exception as exc:  # noqa: BLE001 - a proposal never fails a run
+            self._stage("vocabulary", f"proposals not recorded ({type(exc).__name__})")
+            return
+        if new:
+            self._stage("vocabulary", f"{len(new)} label(s) proposed - approve on the dev App")
+
     def _stage(self, name: str, detail: str = "", *, feed: dict | None = None) -> None:
         # post146: a feed's own steps say which feed of how many (the progress bar)
         self.stages.append({"stage": name, "detail": detail, "at": time.time(),
@@ -3060,6 +3081,7 @@ class DemoRunner:
             encoding="utf-8", newline="\n",
         )
         frd_path = run_frd
+        self._propose_vocabulary(run_frd, label, config)
         layout_flags = list(resolution.flags)
         vdd_contract_path: Path | None = None
         if self.selected_vdd is not None and resolution.vdd is not None:

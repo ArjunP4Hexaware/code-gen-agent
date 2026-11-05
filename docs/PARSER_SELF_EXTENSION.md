@@ -31,4 +31,7 @@ Order: 1 -> 4 -> 2 -> 3 (3 only on Soham's word).
 
 - Step 1: built in post172 (`tests/test_frd_labelled_lines.py`).
 - Step 4: built in post173 (`codegen shapes-report`, `tests/test_shapes_report.py`).
-- Step 2: next. Step 3: waits on Soham's decision (the model seeing a refused cell).
+- Step 2: built in post174 (`codegen.vocabulary`, the Generate page's card; approve on the
+  dev App, shared by both Apps).
+- Step 3: Soham, 2026-11-05: allowed for a refused cell of the ingested FRD / STTM (the only
+  two inputs) - not built yet.

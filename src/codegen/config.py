@@ -2815,6 +2815,16 @@ def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> C
         if not isinstance(overlay, dict):
             raise ValueError(f"config overlay {overlay_path} is not a YAML mapping")
         raw = _deep_merge(raw, overlay)
+    # post174: the labels a person approved (codegen.vocabulary; the shared state root's
+    # vocabulary/approved.yaml) join the labelled-lines reader's - appended, never replacing
+    from codegen.vocabulary import approved_labels
+
+    approved = approved_labels(state_root())
+    if approved:
+        lines = raw.setdefault("extractor", {}).setdefault("frd", {}).setdefault(
+            "cell_line_labels", {})
+        for field_name, labels in approved.items():
+            lines[field_name] = list(dict.fromkeys([*(lines.get(field_name) or []), *labels]))
     unknown = set(raw) - _TOP_LEVEL_KEYS
     if unknown:
         raise ValueError(

@@ -4,6 +4,24 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post174 — 2026-11-05 (parser self-extension step 2: proposed labels, approved once)
+
+When a person answers a question with a value a REFUSED FRD cell already states on a
+"<label>: <value>" line (the label unknown to the reader), the run proposes that label for
+the field (`codegen.vocabulary.propose`: the label as written, the field, the cell's
+coordinates - never a cell value). Proposals live in the SHARED state root
+(`CODEGEN_STATE_DIR` / `vocabulary/proposals.json`, written through its storage backend);
+the Generate page shows them ("New labels the agent learned"). Approve / Reject only on the
+dev App (Soham: `CODEGEN_STORAGE_PRIMARY_APP`; staging lists them read-only, a decision there
+is 403). An approved label lands in `vocabulary/approved.yaml`, which `load_config` merges
+into `extractor.frd.cell_line_labels` (appended) - so from the next run, on both Apps (the
+mirror refreshes before every run), the reader reads it itself; no code change, no deploy.
+Proposed is never applied; a rejected label is never proposed again. API: `GET
+/api/vocabulary`, `POST /api/vocabulary/<id>/approve|reject`. `tests/test_vocabulary.py`
+(incl. the loop end to end through the FRD reader), `tests/test_vocabulary_app.py`,
+`VocabularyCard.test.tsx`; dist rebuilt. Generated artefacts unchanged (no approved file
+exists yet; proposals are recorded only on the App).
+
 ## 0.5.8.post173 — 2026-11-05 (parser self-extension step 4: the unfamiliar-shapes report)
 
 `codegen shapes-report --runs <dir | storage URI> [--out shapes.md]` (`codegen.shapes_report`):

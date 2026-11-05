@@ -23,6 +23,7 @@ import { EnvironmentSelector } from "../components/EnvironmentSelector";
 import { OUTPUT_COPY, OutputSelector } from "../components/OutputSelector";
 import { PairingLines, SelectionTrace } from "../components/SelectionTrace";
 import { StorageRoots } from "../components/StorageRoots";
+import { VocabularyCard } from "../components/VocabularyCard";
 import { fmtKb } from "../format";
 import { liveEstimate } from "../liveEstimate";
 import { runWillUse } from "../runLabels";
@@ -828,6 +829,8 @@ export function ModesPage({
           </span>
         </div>
       </section>
+
+      <VocabularyCard />
 
       <section className="card" aria-label="settings">
         <div className="card-head">

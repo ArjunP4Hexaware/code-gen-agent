@@ -954,8 +954,28 @@ export interface LiveAvailability {
 export const downloadHref = (slug: string, path: string) =>
   `/api/feeds/${slug}/download?path=${encodeURIComponent(path)}`;
 
+// post174: labels the runs proposed (the agent's answers prove them), approved once
+// on the dev App (docs/PARSER_SELF_EXTENSION.md step 2)
+export interface VocabularyProposal {
+  id: string;
+  field: string;
+  label: string;
+  cell: string;
+  run: string;
+}
+export interface VocabularyState {
+  proposals: VocabularyProposal[];
+  approved: Record<string, string[]>;
+  rejected: string[];
+  can_decide: boolean;
+}
+
 export const api = {
   health: () => request<HealthResponse>("/api/health"),
+  vocabulary: () => request<VocabularyState>("/api/vocabulary"),
+  decideVocabulary: (id: string, decision: "approve" | "reject") =>
+    request<VocabularyState>(`/api/vocabulary/${encodeURIComponent(id)}/${decision}`,
+                             { method: "POST" }),
   // The static half of /api/health (no storage probe) + the one-line form.
   healthFacts: () => request<{ health_line: string }>("/api/health/facts"),
   // post144: whether the state root carries the header logo (never in the repo)

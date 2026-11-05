@@ -4,7 +4,24 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-11-05 night — post176 on BOTH Apps; start here)
+## Start here (session ended 2026-11-05 on /clear - nothing pending)
+
+**First check:** `git fetch && git status -sb` should say up to date with
+`origin/feature/multi-table` (everything was pushed). Both Apps run post176 (dev from
+feature, staging from `main` 001500c = identical tree). Session log: CLAUDE_HISTORY §[H20].
+
+**Open, in order:**
+1. **`codingapp` deploy** - the bootstrap patch is IMPORTED (block "2026-11-04" below);
+   `databricks apps deploy codingapp` restarts this container: on Soham's word, last in a
+   session. After it: `gh auth login`, `~/bootstrap`, the checks in that block.
+2. **Step 3 for the STTM** - the same `layout/cell_locate.py` locator could read a refused
+   STTM cell (Soham allowed FRD + STTM); only FRD cells are wired.
+3. **Ask the BSA** about pairs 05 / 11's STTM "DQ rules" sheet (names fields those feeds do
+   not have - looks copied from another feed's template).
+4. Older items: the Apps stop / start schedule (spend), Venu's answer on GPT-6.1 Sol, the
+   11-pair layout cost measurement, Rama's answers (blocks below).
+
+## State (2026-11-05 night — post176 on BOTH Apps)
 
 - **Both Apps on post176** (Soham's word): dev from feature 5e75cdc (deployment
   01f1d940960a1a60ba7235e66297e5d8), staging from `main` = 001500c (identical tree;

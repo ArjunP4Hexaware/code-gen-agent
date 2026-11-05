@@ -3507,3 +3507,49 @@ README: `tools/model_eval/`):
 **Lessons:** a hidden test from the merged fix grades a design, not just behaviour - read
 the failure before scoring; price a weaker model per accepted result, not per run; anything
 this container should remember goes into the repo (HOME and auto-memory are wiped).
+
+## §[H20] Session 2026-11-04 → 05: per-App storage, the FRD reader, blank answers, DQ option 1, parser self-extension, post167–post176
+
+Started from RESTART's first check (2 unpushed docs commits pushed after both suites); the
+codingapp bootstrap patch was IMPORTED into `coding-agents-databricks-apps` (Workspace source
+checked byte-identical to the patch base first) but its deploy was held all session - it
+restarts this container.
+
+- **The data engineer's staging run** (a file-format question on an EDI 820 pair) led to
+  three fixes: post167 per-App state + outputs (the two Apps shared one `selection.json`; her
+  pick replaced the dev App's), post168 the FRD's "File Format: .txt / Delimiter: ..." cell
+  read line by line, post169 a plain question card (what is needed, where the agent looked,
+  what blank does). A pasted reply with markdown bold showed the asterisks in Teams: text
+  Soham pastes is plain.
+- **post170, "Leave blank and continue"** (Soham: a blank answer beats no answer): the
+  reserved `answers.leave_blank` token for file format / delimiter / frequency. Found while
+  building: the App's layout stage wrote every gap answer into the FRD feed, so the token
+  reached `metadata_inserts.sql`; an empty delimiter meant "fixed-width"
+  (`ResolvedFeedSpec.left_blank`).
+- **post171, DQ option 1** (Soham: "are these present in the STTM or FRD? ... if we're
+  arguing about things in the prod IIG that's automatically wrong"): pair_11's 15 DQ rows
+  shared 0 rows with its prod golden, every column traced to an STTM cell, but 11 rules
+  (DeDup / cast / date) were stated by neither document - its FRD said NA. Now a DQ row only
+  where a document states the rule; NullCheck: the STTM wins over an FRD NA; pair_03's dedup
+  on the STTM Primary Key. Pairs 05 / 11's STTM "DQ rules" sheet names fields the feed does
+  not have (0 / 1 of 22) - a review-copy line.
+- **Parser self-extension** (Soham: "I cannot viably manage a solution every single time I
+  need to extend the parser"), `docs/PARSER_SELF_EXTENSION.md`: post172 labelled lines for
+  every single-value field; post173 `codegen shapes-report`; post174 learned labels (a
+  run's answers propose a label, approved on the dev App, shared by both Apps via
+  `<state root>/vocabulary/`); post175 option B (known lines read, unknown skipped +
+  flagged); post176 step 3 (`layout/cell_locate.py`: the model names the LINE of a refused
+  FRD cell, the code copies + validates) - Soham allowed it for the ingested FRD / STTM only.
+- Every version: proved with its fix reverted, both suites green, the 12-pair check
+  (outcomes 12/12 each time; only post171 changed artefacts, all DQ), deployed to dev; to
+  `main` (identical-tree merge commits f1bc603, 502a3b6, 5bce029, b1615d4, 7e0a608, 001500c)
+  and staging on Soham's word each time. Two spiral-detector false triggers, logged. A
+  GitHub push failed twice with "fatal error in commit_refs_rules" (status page green) and
+  went through on a later try.
+
+**Lessons:** a symptom on one App can be another App's state (check the shared storage
+before the code); "where did this value come from" is answered by the documents, not by
+how closely the output matches a golden; a reserved answer must be traced through EVERY
+path that applies answers (CLI extract, App layout, resolver) before it is trusted not to
+leak; run the suites one after the other - in parallel they double the time and trip the
+timing tests.

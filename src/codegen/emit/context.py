@@ -313,7 +313,7 @@ def resolve_notebook_name(
 def is_fixed_width(spec: ResolvedFeedSpec, config: Config) -> bool:
     """No delimiter, or a fixed-width token in the file format (the reader the
     generated pipeline uses)."""
-    return spec.delimiter == "" or any(
+    return (spec.delimiter == "" and "delimiter" not in getattr(spec, "left_blank", ())) or any(
         token.lower() in (spec.file_format or "").lower()
         for token in config.extractor.vdd.fixed_width_tokens)
 

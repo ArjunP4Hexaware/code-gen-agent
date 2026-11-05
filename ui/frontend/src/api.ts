@@ -221,6 +221,9 @@ export interface LayoutQuestion {
   suggested_reason?: string;
   // post169: a typed value question's example answer (the input's placeholder)
   example?: string | null;
+  // post170: the answer that leaves this value blank on purpose (the feed is still
+  // generated, its cells blank + flagged); null when the value cannot be left blank
+  leave_blank?: string | null;
 }
 
 export type PairRule =

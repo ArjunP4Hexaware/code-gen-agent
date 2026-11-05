@@ -69,6 +69,26 @@ _ENTRY_KEYS = {"document", "workbook", "sheet", "layer", "role", "column", "valu
                "question", "candidates", "sheet_name"}
 
 
+def blank_answer(key: str, value, config) -> bool:
+    """post170: True when ``value`` is the deliberate blank (``answers.leave_blank``)
+    for a field that may be left blank (``answers.blankable_fields``); False for any
+    other value (an empty one included - that is still "not answered"). The token on
+    a field that may NOT be left blank (a table, a column) is refused loudly."""
+    settings = getattr(config, "answers", None)
+    token = getattr(settings, "leave_blank", None)
+    if not token or str(value or "").strip() != token:
+        return False
+    import re as _re
+
+    field_name = _re.sub(r"^feeds(\[\d+\]|\.[^.]+)\.", "", key)
+    if field_name not in settings.blankable_fields:
+        raise located(AnswersFileError(
+            f"answers gaps: {key} = {token!r} - only {list(settings.blankable_fields)} may be "
+            "left blank (a table, schema or column is needed for the DDL); type its value"),
+            Coord("answers"), "answers.file")
+    return True
+
+
 def _blank(value) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 

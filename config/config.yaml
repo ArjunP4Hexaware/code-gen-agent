@@ -1643,6 +1643,14 @@ playbook:
 # a mounted filesystem (docs/ACFC_DEPLOY.md). Env CODEGEN_STORAGE_INPUTS /
 # CODEGEN_STORAGE_STATE / CODEGEN_STORAGE_OUTPUTS win over these. Workspace-
 # specific URIs belong in an overlay or the App's env, not in this file.
+# post170 (Soham, 2026-11-05): a person may leave a value blank ON PURPOSE - the card's
+# "Leave blank and continue" (or this token under gaps: in an answers file). Only the
+# values that fill IIG / config cells alone; the feed is generated, those cells blank +
+# flagged, one non-blocking INPUT_NEEDED line. An empty answer is still no answer.
+answers:
+  leave_blank: "(leave blank)"
+  blankable_fields: [file_format, delimiter, frequency]
+
 storage:
   inputs: "local:./inputs"              # inboxes: sharepoint/ databricks/ uploads/
   state: "local:./ui/backend/state"     # decisions.json, layout_profiles/

@@ -3316,6 +3316,15 @@ class _FeedGapFiller:
             if not key.startswith(prefix):
                 continue
             dotted = key[len(prefix):]
+            from codegen.layout.answers import blank_answer
+
+            if blank_answer(key, choice["value"], self.config):
+                # post170: left blank on purpose - never written into the FRD feed (the
+                # token is no value); the extractor / resolver read the same answer
+                self.result.flags.append(f"answered_blank:{key} — no document states it; the "
+                                         "person left it blank on purpose")
+                self.result.handled.add(key)
+                continue
             statement = Statement(choice["value"], "user", f"chosen from {choice['source']}")
             if dotted == "load_strategy":
                 layers = (("stage", "standard") if choice.get("layer") in (None, "both")

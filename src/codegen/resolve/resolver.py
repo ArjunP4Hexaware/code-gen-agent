@@ -184,7 +184,7 @@ _UNSTATED_TARGET = {"file_patterns": "file_name_patterns", "src_adls_path": "lan
 
 
 def _answered_unstated(frd_feed: FrdFeed, gaps: dict[str, str] | None, feed_index: int,
-                       flags: list[str]) -> FrdFeed:
+                       flags: list[str], config: Config | None = None) -> FrdFeed:
     """A ``gaps:`` answer for a value the FRD leaves empty (the QUESTION of
     :class:`UnstatedValue`) fills it, flagged ``frd_unstated:<field>
     source_used:user``; a value the FRD states is never overwritten."""
@@ -197,6 +197,15 @@ def _answered_unstated(frd_feed: FrdFeed, gaps: dict[str, str] | None, feed_inde
                      or (gaps or {}).get(f"feeds.{feed_id}.{field}") or "").strip()
         target = _UNSTATED_TARGET.get(field, field)
         if not answer or _feed_get(frd_feed, target) not in (None, "", []):
+            continue
+        from codegen.layout.answers import blank_answer
+
+        if blank_answer(f"feeds[{feed_index}].{field}", answer, config):
+            # post170: left blank on purpose - never written as a value; the
+            # feed's unstated error on it is dropped below (_left_blank)
+            flags.append(f"answered_blank:feeds[{feed_index}].{field} — no document states "
+                         "it; the person left it blank on purpose (the cells it fills stay "
+                         "blank)")
             continue
         if kind == "list":
             value = [v.strip() for v in re.split(r"[,;\n]+", answer) if v.strip()]
@@ -218,6 +227,12 @@ def _answered_unstated(frd_feed: FrdFeed, gaps: dict[str, str] | None, feed_inde
         flags.append(fill_flag(target, Statement(answer, "user",
                                                  f"answers gaps: feeds[{feed_index}].{field}")))
     return frd_feed
+
+
+def _left_blank(flags: list[str]) -> set[str]:
+    """post170: the fields an ``answered_blank:feeds[i].<field>`` flag names."""
+    return {m.group(1) for f in flags
+            if (m := re.match(r"answered_blank:feeds\[\d+\]\.(\S+)", f))}
 
 
 class TableNameError(ValueError):
@@ -1042,7 +1057,7 @@ def _resolve_one(
     frd_feed, stated_flags = stated_values(frd_feed, feed_index, frd, config)
     answered_flags: list[str] = []
     stated_delimiter = frd_feed.delimiter
-    frd_feed = _answered_unstated(frd_feed, gaps, feed_index, answered_flags)
+    frd_feed = _answered_unstated(frd_feed, gaps, feed_index, answered_flags, config)
     answered_delimiter = not stated_delimiter and bool(frd_feed.delimiter)
     frd_feed, gap_flags, gap_errors = _fill_frd_gaps(frd_feed, sttm_feed, config, vdd,
                                                      feed_index=feed_index, frd=frd)
@@ -1266,6 +1281,13 @@ def _resolve_one(
                            for f in [*_frd_extraction_flags(frd, original_frd_feed), *gap_flags])
     set_aside = _set_aside_frd_tables(errors, stage_frd_only, config, provenance_flags,
                                       tables_from_sttm=tables_from_sttm)
+    left_blank = _left_blank([*sttm_feed.extraction_flags, *gap_flags])
+    if left_blank:
+        # post170: a value the person left blank on purpose is no question any more
+        errors[:] = [e for e in errors if not (getattr(e, "kind", None) == UNSTATED
+                                              and getattr(e, "field", None) in left_blank)]
+        if "file_format" in left_blank and frd_feed.file_format is None:
+            frd_feed = frd_feed.model_copy(update={"file_format": ""})
     if errors:
         # the ORIGINAL feed object: the gap chain above may have replaced frd_feed
         position = next((i for i, f in enumerate(frd.feeds, 1) if f is original_frd_feed),
@@ -1348,6 +1370,7 @@ def _resolve_one(
             *file_flags,
             *key_flags, *delimiter_flags])),
         files=files,
+        left_blank=sorted(left_blank),
         frequency_mentions=list(frd_feed.frequency_mentions),
         lob_unkeyed=lob_unkeyed,
         lob_question_key=lob_key if lob_unkeyed else None,

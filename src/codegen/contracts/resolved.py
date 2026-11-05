@@ -162,6 +162,9 @@ class ResolvedFeedSpec(BaseModel):
     # M4: facts the resolver took from the STTM because the FRD named none
     # (file pattern, record segments) — surfaced as gate flags, never silent.
     provenance_flags: list[str] = Field(default_factory=list)
+    # post170: values the person left blank on purpose (answers.leave_blank) - their
+    # cells are blank + flagged; an empty delimiter here is NOT a fixed-width file
+    left_blank: list[str] = Field(default_factory=list)
     # Multi-table rule 2 (codegen.resolve.files): one entry per file the feed
     # receives — a LOB-token pattern expanded per listed LOB, else one per
     # pattern. Empty on a spec built without the resolver (builders then

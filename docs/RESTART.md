@@ -34,10 +34,12 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
   "don't allow nulls" per field), pair_07 a "mandatory fields include in DQ check" Y/N
   column, pair_03 an empty "DQ rules (hard reject / soft check)" column. None of these is
   read today (layout roles `dq_rules` / `dq_mandatory` exist, no extractor uses them).
-  Three questions to Soham before building: (1) does the STTM "DQ rules" sheet count when
-  the FRD says NA; (2) DataTypeCast / DateConversion (no document states them; the
-  framework may need them to cast): review copy only, or keep flagged; (3) pair_03's
-  dedup columns: the STTM Primary Key, or blank + flagged.
+  Soham, 2026-11-05: "if we're arguing about things in the prod IIG that's automatically
+  wrong" - pair_11's DeDuplication / DataTypeCast / DateConversion rows (11 of 15) are stated
+  by neither document: they go. **NullCheck: the STTM wins** over an FRD "NA" (the STTM's
+  "DQ rules" sheet / "mandatory fields include in DQ check" column name the fields). Still
+  to settle when building: pair_03's dedup columns (the STTM Primary Key, or blank +
+  flagged) - ask. NOT built yet.
 - **Next:** (1) Soham: merge feature -> main + deploy staging (brings post167-169 to the
   data engineers); (2) the DQ questions above; (3) the `codingapp` deploy (below; restarts
   this container - last thing in a session).

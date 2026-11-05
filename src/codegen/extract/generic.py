@@ -46,6 +46,7 @@ from codegen.extract.audit_names import clean_audit_column
 from codegen.extract.audit_types import audit_datatype
 from codegen.extract.audit_types import expectation as audit_expectation
 from codegen.extract.type_format import split_type
+from codegen.layout.answers import blank_answer
 from codegen.layout.discover import Discovery, is_blank_placeholder, normalize, text
 from codegen.layout.profile import LayoutProfile, Role, SheetProfile
 from codegen.run_errors import Coord, located, sheet_number
@@ -1404,6 +1405,12 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         answer = (cell_answers or {}).get(prefix + field_name)
         if stated or not answer:
             return stated
+        if blank_answer(prefix + field_name, answer, config):
+            # post170: left blank on purpose - "" passes the contract (a missing value
+            # still asks), every artefact writes the cell blank, the run says it is open
+            flags.append(f"answered_blank:{prefix}{field_name} — no document states it; the "
+                         "person left it blank on purpose (the cells it fills stay blank)")
+            return ""
         flags.append(f"answered_value:{prefix}{field_name} — no document states it; the person "
                      f"answered {answer!r}")
         return answer

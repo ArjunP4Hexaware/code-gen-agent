@@ -301,6 +301,30 @@ describe("a typed question with a suggestion (post95 / post96)", () => {
     expect(host.textContent).not.toContain("Why it is asked");
   });
 
+  it("leaves a blankable value blank on purpose, and undoes it (post170)", () => {
+    const q = { ...typed([]), key: "feeds[0].file_format", role: "feeds[0].file_format",
+                title: "What format are the source files in?", leave_blank: "(leave blank)" };
+    render(<Dialog questions={[q]} initial={emptyPicks()} />);
+    const leave = [...host.querySelectorAll("button")]
+      .find((b) => b.textContent === "Leave blank and continue") as HTMLButtonElement;
+    act(() => leave.click());
+    expect(latest.gaps["feeds[0].file_format"]).toEqual({ value: "(leave blank)",
+                                                          source: "user" });
+    expect(host.querySelector("[data-testid=left-blank]")).not.toBeNull();
+    expect(host.querySelector("input[type=text]")).toBeNull();     // never shows the token
+    const undo = [...host.querySelectorAll("button")]
+      .find((b) => b.textContent === "Type a value instead") as HTMLButtonElement;
+    act(() => undo.click());
+    expect(latest.gaps["feeds[0].file_format"]).toBeUndefined();
+    expect(host.querySelector("input[type=text]")).not.toBeNull();
+  });
+
+  it("offers no blank choice for a value that cannot be left blank (post170)", () => {
+    render(<Dialog questions={[{ ...typed([]), leave_blank: null }]} initial={emptyPicks()} />);
+    expect([...host.querySelectorAll("button")].map((b) => b.textContent))
+      .not.toContain("Leave blank and continue");
+  });
+
   it("shows the field's example answer as the placeholder (post169)", () => {
     render(<Dialog questions={[{ ...typed([]), key: "feeds[0].file_format",
                                  role: "feeds[0].file_format",

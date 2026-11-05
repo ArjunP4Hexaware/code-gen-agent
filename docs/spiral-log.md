@@ -230,3 +230,18 @@
 - Approx. time lost: ~3 minutes
 - Proposed refinement (for a retro, not now): clear a failing command when a later run of the same
   test file without -k passes; ignore edits to files outside the failing command's paths.
+
+## 2026-11-05: hook signal (a) — tests/test_blank_answer.py -x "failed 2 times, same signature"
+- Actual cause: not a spiral. A new end-to-end test (post170, the blank-answer click-through)
+  written first, then the feature built layer by layer; each run failed further on: the
+  answers-file shape (test's own mistake), then the delimiter question, then a blank delimiter
+  read as fixed-width, then the missing INPUT_NEEDED line (not built yet). The signature keys
+  on the test name.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: compared the last two runs' failures - generate
+  exit 1 "fixed-width feed ... no start / byte width" vs exit 0 and no INPUT_NEEDED line)
+- Hook signal: a, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~3 minutes
+- Proposed refinement (for a retro, not now): include the failing assertion line / first E line
+  in signal (a)'s signature.

@@ -140,6 +140,7 @@ def owed_inputs(spec, config, *, index: int | str | None = None, faq, output_mod
     from codegen.metadata_template import landing_default, landing_key, owed_questions
 
     tpl = _template(config, output_mode, iig_template)
+    blank_items = left_blank_inputs(spec, index)
     # post84: the landing written from the convention — changeable, not open
     landing = landing_default(tpl, spec)
     landing_items = [OwedInput(
@@ -149,7 +150,7 @@ def owed_inputs(spec, config, *, index: int | str | None = None, faq, output_mod
         template=tpl.landing_proposal, kind="profile_default",
         applied=landing)] if landing else []
     if tpl is None or not tpl.owed_cells:
-        return landing_items
+        return blank_items + landing_items
     by_key = {r.key: r for r in resolved or []}
     out = []
     for name, question in owed_questions(tpl, faq, _default_tokens(spec), scope=FEED):
@@ -166,7 +167,22 @@ def owed_inputs(spec, config, *, index: int | str | None = None, faq, output_mod
     out += [_with_choice(OwedInput(feed_key(spec.feed_id, r.key), _PROFILE_QUESTIONS.get(
         r.key.split(".", 1)[0], r.key), spec.feed_id), r, spec, profile, tpl, faq, config)
         for r in resolved or [] if r.applied and not _is_run_key(r.key, tpl)]
-    return out + landing_items
+    return blank_items + out + landing_items
+
+
+LEFT_BLANK = "left_blank"
+_BLANK_WORDS = {"file_format": "the file format", "delimiter": "the field delimiter",
+                "frequency": "the file frequency"}
+
+
+def left_blank_inputs(spec, index: int | str | None) -> list[OwedInput]:
+    """post170: one open, non-blocking input per value the person left blank on
+    purpose (``spec.left_blank``) - keyed by its gaps: key, where an answer fills it."""
+    prefix = f"feeds[{index if index is not None else 0}]"
+    return [OwedInput(f"{prefix}.{field}",
+                      f"{_BLANK_WORDS.get(field, field)} — left blank on purpose; the cells it "
+                      "fills are blank", spec.feed_id, kind=LEFT_BLANK)
+            for field in getattr(spec, "left_blank", None) or []]
 
 
 LANDING_QUESTION = ("the landing (inbound) path, container-relative (SRC_ADLS_PATH; the "
@@ -329,6 +345,11 @@ def input_line(item: OwedInput) -> str:
         where = "inputs.run" if item.scope == RUN else f"inputs.feeds.{item.feed}"
         return answer_line("NOTE", item.key, f"{item.question} (profile default, not an open "
                                              f"input; to change it: {where})")
+    if item.kind == LEFT_BLANK:
+        return answer_line(INPUT_LABEL, item.key,
+                           f"{item.question} (feed {item.feed}; not blocking — the workbook is "
+                           f"written without it; give it under gaps: as {item.key} and rerun "
+                           "generate --answers)")
     if item.scope == RUN:
         return answer_line(INPUT_LABEL, item.key,
                            f"{item.question} (run-level, once for every feed; not blocking — "
@@ -357,7 +378,8 @@ def template_items(items: list[OwedInput]) -> list:
 
     return [TemplateItem(i.key, i.question if i.scope == RUN else f"{i.question} (feed {i.feed})",
                          [], INPUTS_SECTION, options=list(i.options), proposed=i.proposed,
-                         proposed_template=i.template, applied=i.applied) for i in items]
+                         proposed_template=i.template, applied=i.applied) for i in items
+            if i.kind != LEFT_BLANK]                # answered under gaps:, never inputs:
 
 
 def answers_owed(flags: list[str]) -> tuple[list[str], list[str]]:

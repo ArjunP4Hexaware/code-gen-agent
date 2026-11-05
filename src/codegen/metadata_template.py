@@ -1940,7 +1940,7 @@ def _segment_positions(segment: SegmentSpec) -> tuple[list[str], list[str], list
 
 def _is_fixed_width_file(spec: ResolvedFeedSpec, config: Config) -> bool:
     """No delimiter, or a fixed-width token in the file format."""
-    return spec.delimiter == "" or any(
+    return (spec.delimiter == "" and "delimiter" not in getattr(spec, "left_blank", ())) or any(
         token.lower() in (spec.file_format or "").lower()
         for token in config.extractor.vdd.fixed_width_tokens)
 

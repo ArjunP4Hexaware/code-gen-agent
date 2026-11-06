@@ -45,9 +45,11 @@ Results 200, 0 console errors) green on both. Block "2026-11-06 — post178 / po
   unchanged; SQL / TXT / 20 xlsx banner-sha only (two pairs' FRD contracts changed); real
   changes only from the nested-cell fix - two pairs' FRD contracts drop the junk tables and
   a bogus "frd_tables_set_aside: ['Vendor', 'Target Table', ...]" review item is gone.
-- The delegation workbook (Soham's Workspace folder) was overwritten: rows 3, 4, 12, 13 out
-  of scope, row 7 RFC dropped, ADDITION.md folded into LOG.md; projected saving now
-  26.5 h of 69 (38%).
+- The delegation workbook (Soham's Workspace folder) was overwritten: rows 12, 13 out of
+  scope, row 7 RFC dropped, ADDITION.md folded into LOG.md; projected saving 29 h of 69
+  (42%). Rows 3 / 4 (check an existing pipeline / IIG config, check the tables in Unity
+  Catalog) STAY IN SCOPE (Soham, 2026-11-06) - not built; building them needs read-only
+  queries beyond the EXPLAIN-only rule in AGENTS.md, so that rule changes first (his call).
 - AGENTS.md trimmed (repo layout to 4 facts; UI rules moved to `ui/AGENTS.md`, loaded by
   `ui/CLAUDE.md` under `ui/`). /doctor: 43 unused `~/.claude/skills` + debug-everything
   off, deepwiki MCP off for this project, defaultMode auto - all in HOME, gone on restart.

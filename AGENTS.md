@@ -252,42 +252,12 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
 
 ## Repo layout
 
-```
-src/codegen/   cli.py (all commands; `codegen --help`), config.py (models + load_config),
-               contracts/ (pydantic: FRD, STTM, VDD, gold), extract/ (STTM workbooks incl.
-               generic.py, frd_docx.py, vdd.py, segmented.py), layout/ (the layout
-               recognizer + answers), resolve/ (FRD ⋈ STTM → ResolvedFeedSpec, gap fill),
-               rules/ (rule classifier), reasoning/ (Layer 2 + the provider switch),
-               emit/ (Jinja2: framework.py, metadata_inserts.py, dml.py, notebook_v2.py,
-               rfc.py — unreachable, kept with its tests), gate/ (checks + verdict),
-               metadata_template.py (IIG templates), run_artefacts.py (the per-run
-               combined set), generate_run.py / run_stages.py / run_errors.py (outcomes,
-               manifest, error lines), environments.py, input_choices.py, owed_inputs.py,
-               leakgate.py, state_mirror.py, storage/ (local | workspace | volume — an
-               EDGE), sharepoint.py + databricks.py (edge seams), templates/
-ui/            the App: FastAPI backend (ui/backend, port 8571) + React frontend
-               (ui/frontend, dist tracked); ui/README.md
-config/        config.yaml (every knob) + overlays/acfc_env.yaml (ACFC values, always
-               applied first)
-fixtures/      synthetic / scrubbed only, each path re-included deliberately in .gitignore:
-               faq/, reference/ (scrubbed SFMC artefacts), acfc_shapes/ (the synthetic
-               ACFC universe; pair 1 = the aliased client golden), layout_profiles/,
-               workbooks/synthetic_segmented_golden.xlsx
-tests/         offline, no Spark; fixture-driven tests SKIP with a reason when files are
-               absent (conftest `require_fixture_files`)
-tools/ scripts/  iig_diff.py, iig_fill_rate.py, notebook_parity.py, ddl_shape.py
-               (+ `codegen shapes-report --runs <dir|URI>`: unfamiliar shapes across runs);
-               container_harness.py, scrub_check.py, bump_version.py,
-               build_acfc_shapes.py, dev_bootstrap.sh, git-hooks/
-docs/          RESTART.md, DESIGN.md, WORKFLOW.md (verdict semantics), LAYOUT_RECOGNITION.md,
-               SEGMENTED_MODE_DESIGN.md, EDO_STANDARDS_ALIGNMENT.md, ACFC_DEPLOY.md
-               (incl. CLI exit codes), ACFC_APP_ENV.md, acfc/ (SHAPES_FOR_PORT.md,
-               ENVIRONMENT_ACFC.md, OPEN_QUESTIONS.md, OVERLAY_FIELDS.md, LEAK_LEDGER.md,
-               METADATA_DB_SEMANTICS.md, iig_goldens/ — prod goldens exist only on D1)
-acfc_run.py    Databricks notebook source: the one-pair fallback run where the App is
-               not usable
-app.yaml       the App manifest (env: CODEGEN_PROVIDER, storage roles, CODEGEN_STATE_DIR)
-```
+`ls` / `codegen --help` show the tree. Not derivable from it:
+- `emit/rfc.py` is unreachable, kept with its tests.
+- `fixtures/` is synthetic / scrubbed only, each path re-included deliberately in
+  `.gitignore`; `acfc_shapes/` pair 1 = the aliased client golden.
+- prod IIG goldens exist only on D1 (never in `docs/acfc/iig_goldens/`); `acfc_run.py`
+  = the one-pair fallback run where the App is not usable.
 
 ## Setup / run / test
 
@@ -564,45 +534,8 @@ offline — **do not call Graph or Databricks from inside the extractors or the 
   subfolder (`codegen/state/<app>/`, `codegen/outputs/<app>/`, made by the App) -
   inputs, the pairs and `CODEGEN_STATE_DIR` stay shared. Before post167 (still on an App
   whose tree lacks it) they shared runs, selection and "Clear past runs".
-- The App opens on the guided run page, "Generate a pipeline" (`/`; the old `/modes`
-  redirects there; Results is `/results`): a step strip (Choose
-  documents → Check the settings → Answer questions → Get the results), a Documents
-  card (drop zone + "Choose documents…", STTM / FRD / VDD rows), a Settings card
-  (Advanced folded), the run card with the questions asked BEFORE generating, then
-  "View results" (Results). The App's API wants an OAuth token, not a PAT.
-- Deprecated, no UI consumer (kept for API compatibility; nothing new may depend on
-  them): `/api/replay/*`, `/api/demo/live-runs`, `/api/demo/input-documents`.
-- **Look:** ACFC's own design tokens (its public style guide: Brand / Text and Accents /
-  UI colours, Open Sans bundled via `@fontsource`) in the guided style of the STTM
-  agent's App (Soham, 2026-10-29: white header, light sidebar, white ROUNDED cards with
-  a soft shadow, plain words, technical detail folded), defined ONCE in
-  `ui/frontend/src/styles.css` `:root`. No hard-coded colour anywhere else (tints are
-  `color-mix` of a token); status colours are reserved for verdicts / checks; every
-  text pair WCAG AA. **Two themes, DARK the default** (post162, Raj via Soham,
-  2026-11-02): `:root` = light, `:root[data-theme="dark"]` = dark (ACFC navy surfaces,
-  ACFC light-blue accent, ACFC status colours lifted), set before first paint by
-  `public/theme-init.js` (a same-origin blocking script - never inline: the CSP), switched
-  by the header toggle (`src/theme.ts`, key `codegen.theme.v1`). A new colour token needs
-  a value in BOTH blocks; a filled token needs its `--on-*` text token;
-  `src/themeContrast.test.ts` checks every pair in both themes. No ACFC logo or name in the repo: the header's top-left logo is
-  read at runtime from the state root, `branding/logo.<png|svg|jpg|webp>` (`GET
-  /api/branding`, post144); without one the header is the wordmark alone.
-  The spec: the UX skill Part 1 "Design pillars" and §4.1. Every page (post157): a
-  loading card until its first answer (never "0 chosen" / "No results yet" before the
-  App knows), no sideways scroll at 390 px, targets of at least 24 px (WCAG 2.2 2.5.8),
-  ONE `h1` (rendered report headings are demoted), the logo is decoration (no tab
-  stop). Check with Playwright against a local mock App before claiming a UI fix.
-- **What the App says about providers:** the header badge = the provider the NEXT run
-  uses (`/api/feeds` `provider`); a banner's LIVE / MOCK RUN word = the provider that
-  answered the served run (`run_provider`). The served `mode` drives behaviour only —
-  never show it as the provider (it read MOCK after every deploy of a live App).
-- Choose documents: a pick applies at once (download, classify, pair); Cancel restores
-  the selection the dialog opened on (`/api/demo/choosing*`), Done keeps it.
-- **Cancel run is a choice, not a failure** (post164, Soham): `POST /api/demo/cancel`
-  stops a run paused on its questions (layout / pairing / before-generate dialog) or drops
-  the questions a stopped run left (needs_answers, a done run with blocking lines); the
-  page goes back to idle with no error card (`RunCancelled`), nothing recorded, the run's
-  folder kept. "Clear past runs" resets the run card in EVERY finished state too.
+- The App's UI rules (guided page, look and themes, provider wording, Choose
+  documents, Cancel run) live in `ui/AGENTS.md`, loaded when working under `ui/`.
 - **Model cost** (`reasoning.dbu_rates`, source: databricks.com/product/pricing/
   proprietary-foundation-model-serving): Claude Opus 5.5 = 57.143 input / 285.714 output
   DBU per 1M tokens (+10% with regional processing); $ = the contract's $/DBU x rate

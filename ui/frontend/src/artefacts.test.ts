@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { APPROVAL_NOTE, blankIdColumns, layer2Line, presentedArtefacts } from "./artefacts";
 
 describe("presentedArtefacts", () => {
-  it("shows exactly the DDL, the IIG, the IIG review copy and ADDITION.md", () => {
+  it("shows exactly the DDL, the IIG and the IIG review copy (post178: no ADDITION.md)", () => {
     const written = [
       "ADDITION.md",
       "config_inserts.xlsx",
@@ -16,18 +16,16 @@ describe("presentedArtefacts", () => {
       "CV_RISK_DDL.txt",
       "cv_risk_IIG.xlsx",
       "cv_risk_IIG_REVIEW.xlsx",
-      "ADDITION.md",
     ]);
   });
 
   it("lists only the kinds output.app_files names (post98: the review copy hidden)", () => {
-    const written = ["ADDITION.md", "CV_RISK_DDL.txt", "cv_risk_IIG_REVIEW.xlsx", "cv_risk_IIG.xlsx"];
-    expect(presentedArtefacts(written, ["ddl", "iig", "addition", "log"])).toEqual([
+    const written = ["CV_RISK_DDL.txt", "cv_risk_IIG_REVIEW.xlsx", "cv_risk_IIG.xlsx"];
+    expect(presentedArtefacts(written, ["ddl", "iig", "log"])).toEqual([
       "CV_RISK_DDL.txt",
       "cv_risk_IIG.xlsx",
-      "ADDITION.md",
     ]);
-    expect(presentedArtefacts(written, ["ddl", "iig", "iig_review", "addition"])).toContain(
+    expect(presentedArtefacts(written, ["ddl", "iig", "iig_review"])).toContain(
       "cv_risk_IIG_REVIEW.xlsx",
     );
   });
@@ -43,7 +41,7 @@ describe("presentedArtefacts", () => {
   });
 
   it("lists what exists, never a file that was not written", () => {
-    expect(presentedArtefacts(["ADDITION.md", "config_rows.xlsx"])).toEqual(["ADDITION.md"]);
+    expect(presentedArtefacts(["CV_RISK_DDL.txt", "config_rows.xlsx"])).toEqual(["CV_RISK_DDL.txt"]);
   });
 });
 

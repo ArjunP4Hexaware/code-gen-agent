@@ -11,6 +11,7 @@ vocabulary is pointed at its stated file format by an overlay.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from codegen import run_stages
 from test_iig_corpus_cells import _generate
@@ -34,6 +35,13 @@ def _held_run(tmp_path, capsys):
     return config, spec, tmp_path / "held" / "out", exit_code, capsys.readouterr().out
 
 
+def _log(out):
+    """The run's combined <STTM>_LOG.md."""
+    (block,) = run_stages.read_stage_manifest(out)["combined"]
+    return (out / block.get("dir", "combined") / block["files"]["log"]).read_text(
+        encoding="utf-8")
+
+
 def test_a_table_source_writes_its_ddl_and_holds_the_iig(tmp_path, capsys):
     _config, spec, out, exit_code, printed = _held_run(tmp_path, capsys)
     framework = out / spec.feed_slug / "framework"
@@ -41,8 +49,11 @@ def test_a_table_source_writes_its_ddl_and_holds_the_iig(tmp_path, capsys):
     assert any(n.endswith("_DDL.txt") for n in names)
     assert any(n.endswith("_DDL_TestCases.txt") for n in names)
     assert not [n for n in names if n.endswith(IIG_SIDE)], names
-    addition = (framework / "ADDITION.md").read_text(encoding="utf-8")
-    assert "**HELD BACK**" in addition and "table ingestion (the RDMS sheet)" in addition
+    # post178: no ADDITION.md - the run's LOG.md says the feed is held
+    assert "ADDITION.md" not in names
+    log = _log(out)
+    assert f"- `{spec.feed_slug}` — **HELD BACK**: " in log
+    assert "table ingestion (the RDMS sheet)" in log
     # the run says it once, and it is open - exit 0, never a clean PASS
     assert exit_code == 0
     assert "iig_held" in printed and "NOTE" in printed
@@ -69,10 +80,13 @@ def test_the_combined_set_carries_no_iig_for_a_held_feed(tmp_path, capsys):
 
 
 def test_the_hold_names_the_stated_format(tmp_path, capsys):
-    """ADDITION.md says WHY - the FRD's own file format, as stated."""
-    _config, spec, out, _exit, printed = _held_run(tmp_path, capsys)
-    addition = (out / spec.feed_slug / "framework" / "ADDITION.md").read_text(encoding="utf-8")
-    assert f"(file format {spec.file_format!r})" in addition
+    """The run's LOG.md (post178; was ADDITION.md) and the feed's report say WHY -
+    the FRD's own file format, as stated."""
+    config, spec, out, _exit, printed = _held_run(tmp_path, capsys)
+    assert f"(file format {spec.file_format!r})" in _log(out)
+    report = (Path(config.output.reports_dir) / f"{spec.feed_slug}.md").read_text(
+        encoding="utf-8")
+    assert "| **HELD BACK** |" in report and f"(file format {spec.file_format!r})" in report
     assert f"(file format {spec.file_format!r})" in printed
 
 

@@ -592,7 +592,7 @@ def test_pair1_default_profile_writes_two_files_and_no_combined_ddl(pair1_config
                               output_mode="framework")
     framework_dir = tmp_path / "out" / pair1_spec.feed_slug / "framework"
     names = sorted(p.name for p in framework_dir.iterdir())
-    assert names == ["ADDITION.md", "config_inserts.xlsx", "config_rows.xlsx",
+    assert names == ["config_inserts.xlsx", "config_rows.xlsx",   # post178: no ADDITION.md
                      "metadata_inserts.sql",       # always, framework mode (2026-10-08)
                      "vnd_p_accum_client_stage_table_creation.txt",
                      "vnd_p_accum_client_standard_table_creation.txt"]   # no notebook (M7)

@@ -73,7 +73,8 @@ def test_the_shipped_app_hides_the_iig_review_workbook():
     every kind, so a config without the line changes nothing."""
     config = load_config(REPO / "config" / "config.yaml")
     # post128: the DDL test cases (a separate file next to the DDL) are listed
-    assert config.output.app_files == ["ddl", "ddl_tests", "iig", "addition", "log"]
+    # post178: no `addition` kind - the per-feed ADDITION.md is retired
+    assert config.output.app_files == ["ddl", "ddl_tests", "iig", "log"]
     assert "iig_review" in type(config.output).model_fields["app_files"].default
 
 

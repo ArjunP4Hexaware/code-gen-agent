@@ -53,8 +53,9 @@ output:
   # post98 (Soham, 2026-10-22): the framework files the App lists - the IIG review
   # workbook (<STTM>_IIG_REVIEW.xlsx / <feed>_IIG_REVIEW.xlsx) is HIDDEN; it is still
   # written. To show it again:
-  #   app_files: [ddl, ddl_tests, iig, iig_review, addition, log]
-  app_files: [ddl, ddl_tests, iig, addition, log]
+  #   app_files: [ddl, ddl_tests, iig, iig_review, log]
+  # post178: the per-feed ADDITION.md is retired - the run's _LOG.md replaces it.
+  app_files: [ddl, ddl_tests, iig, log]
   # post101 (Soham, 2026-10-22): the artefacts panel names only the IDs the data
   # engineer assigns (METADATA_DB_SEMANTICS.md §1-2); the rest (load timestamps,
   # the Databricks workspace / cluster settings, columns of empty sheets, OBJECT_ID

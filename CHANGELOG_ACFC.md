@@ -4,6 +4,33 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post178 — 2026-11-06 (the per-feed ADDITION.md is retired; the run's LOG.md replaces it)
+
+Soham: ADDITION.md and LOG.md are one thing - the run's `<STTM>_LOG.md` already said
+everything ADDITION.md said, once for the run. Framework mode no longer writes
+`<feed>/framework/ADDITION.md` (either path: the emitted feed or a table-sourced feed
+whose IIG is held).
+
+- The run's LOG.md gains a "Held back and provenance" section: each kept feed's
+  HELD BACK line (a table-sourced feed: why its IIG is held, the FRD's stated file
+  format) and PROVENANCE notes (a segmented file's record identification) - the two
+  things only ADDITION.md carried. The feed's report (`reports/<feed>.md`, "Framework
+  artefacts") keeps both too, so a `--feed` run (no combined set) loses nothing.
+- `output.app_files` drops the `addition` kind (config + model); the App's artefacts
+  panel no longer lists ADDITION.md. An overlay that still names `addition` now fails
+  loudly at load (none in the repo or app.yaml does).
+- `presented_files` (the report's framework section) no longer lists it; the "Notes"
+  artefact group is empty for a framework run.
+- `_review_flow` loses its no-IIG branch (only the retired ADDITION.md used it; LOG.md
+  writes the flow only when the combined IIG is written).
+- Checked on the 12 real pairs (container harness, mock, framework mode, post177 vs
+  this tree): outcomes unchanged (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL,
+  2 FAIL); the 13 per-feed ADDITION.md files are gone; every DDL, IIG, review copy,
+  insert, config-rows and test-case file is byte-identical. What else moved: each
+  feed's report loses its two ADDITION.md lines (a GATE_FAIL note counts one file
+  fewer), one run LOG.md gains the new section (4 PROVENANCE lines, the segmented
+  pair), and CODEGEN_BUILD.json names the new version.
+
 ## 0.5.8.post177 — 2026-11-05 (the masters' frequency from the documents, not a prod IIG)
 
 post102 pinned the grand master / master PIPELINE_FREQUENCY to `Daily` - a constant copied

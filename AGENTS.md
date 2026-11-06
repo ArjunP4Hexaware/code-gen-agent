@@ -424,15 +424,18 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   inserts; a flag, a HELD BACK line, one non-blocking NOTE) - never file-ingestion rows
   for a table (post155). Per feed: the deployment DDL (per conventions profile),
   the IIG workbook + its BSA review copy, `framework/metadata_inserts.sql` (one INSERT
-  per IIG row; an open cell = unquoted `<<COLUMN#n>>`), `config_rows.xlsx`,
-  `ADDITION.md`, and (acfc_prx) the DDL test cases `<ABBREV>_DDL_TestCases.txt` — a
+  per IIG row; an open cell = unquoted `<<COLUMN#n>>`), `config_rows.xlsx`, and
+  (acfc_prx) the DDL test cases `<ABBREV>_DDL_TestCases.txt` — a
   SEPARATE file, never inside the DDL (Venu): read-only SQL the engineer runs after the
   DDL, gate `ddl_tests_read_only`; the same cases as `<ABBREV>_DDL_TestCases.xlsx` in the
   client's test-record layout (post154; the tester fills the result columns). Per run and
   STTM, `<out>/combined/<STTM>_{IIG.xlsx, IIG_REVIEW.xlsx, DDL.txt, DDL_TestCases.txt,
   DDL_TestCases.xlsx (one sheet per feed), LOG.md}` (`codegen.run_artefacts`; the STTM token is dropped from the name;
-  run-level rows written once, children never merged). Framework mode still renders the
-  full pipeline in a scratch tree so gate verdicts match across modes. The master
+  run-level rows written once, children never merged). The LOG.md replaced the per-feed
+  `ADDITION.md` (post178): it carries each feed's HELD BACK / PROVENANCE notes; a
+  `--feed` run writes no combined set, so its feed's report is the record. Framework
+  mode still renders the full pipeline in a scratch tree so gate verdicts match across
+  modes. The master
   notebook is ACFC's own — the agent never generates, edits or ships it.
 - **Notebook mode** (Option A, ~10% case): a standalone PySpark pipeline; `acfc_prx` uses
   notebook v2 (`emit/notebook_v2.py` + `templates/notebook_v2/`, rendered from the IIG

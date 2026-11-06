@@ -91,8 +91,10 @@ class OutputConfig(BaseModel):
     # post98: the framework files the App LISTS (its artefacts panel and combined
     # set); every file is still written and the CLI is not affected. Drop a kind to
     # hide it, add it back to show it again.
-    app_files: list[Literal["ddl", "ddl_tests", "iig", "iig_review", "addition", "log"]] = [
-        "ddl", "ddl_tests", "iig", "iig_review", "addition", "log"]
+    # post178: the per-feed ADDITION.md is retired (the run's LOG.md replaces it),
+    # so its `addition` kind is gone.
+    app_files: list[Literal["ddl", "ddl_tests", "iig", "iig_review", "log"]] = [
+        "ddl", "ddl_tests", "iig", "iig_review", "log"]
     # post101: the blank IDs the App's artefacts panel tells the engineer to assign,
     # each with a short hint (column -> hint), shown only when a feed leaves it
     # blank. Empty = every framework-assigned blank column (the old long line). The

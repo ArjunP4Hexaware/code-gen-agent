@@ -3614,3 +3614,34 @@ below is live on both. Session log: CLAUDE_HISTORY §[H21].
    18 files).
 5. Older items: the Apps stop / start schedule (spend), Venu's answer on GPT-6.1 Sol, the
    11-pair layout cost measurement, Rama's answers (blocks below).
+
+### Retired RESTART.md block (2026-11-06 evening, replaced at the post181 hand-off)
+
+## Start here (session ended 2026-11-06 - nothing running)
+
+**First check:** `git fetch && git status -sb` should say up to date with
+`origin/feature/multi-table`. BOTH Apps on post179: dev from feature 597c848 (deployment
+of 2026-11-06 18:40 UTC), staging from `main` 7a7c245 (identical-tree merge of feature
+597c848; deployment 01f1da113da91d899b859c750a9ed99e); health post179 + smoke (Generate +
+Results 200, 0 console errors) green on both. Block "2026-11-06 — post178 / post179" below.
+
+**Open, in order:**
+1. **Tell the tester (via Soham)** both staging failures are fixed in post179; her 820 pair
+   now runs to the gate and lands in GATE_FAIL for item 2 (files written, quarantined).
+2. **Repeated source names in a header-row file** (`source_names_repeated`, "not covered -
+   review"): an H/D/T file read flat numbers each record's fields 1..N, so the generated
+   test fixture dict repeats keys and the `ruff` gate check fails (F601) - the 820 pair
+   (mock: both feeds GATE_FAIL on ruff only). Framework mode renders the pipeline only for
+   the gate. Needs Soham's call: positional names in the generated tests, or read the
+   file as segmented.
+3. **Non-split sheets with several standard tables** still keep the dominant one with a
+   NOTE only (`extract/generic._band_constant`); post179 blanks + flags the other rows only
+   inside a list-cell split.
+4. **The HBL pair** (Rx claims history) now reaches NEEDS_ANSWERS under mock (delimiters +
+   mock layout questions); not run live.
+5. NO_OF_CYCLE_PER_DAY "1" on pairs 11 / 12 - Soham's call.
+6. **`codingapp` deploy** - the bootstrap patch is IMPORTED (block "2026-11-04" below);
+   restarts this container: on Soham's word, last in a session.
+7. Step 3 for the STTM cell locator; ask the BSA about pairs 05 / 11's DQ rules sheet and
+   pair_12's recycle days / stage load option; the Apps stop / start schedule, Venu's GPT-6.1
+   Sol answer, the 11-pair layout cost, Rama's answers.

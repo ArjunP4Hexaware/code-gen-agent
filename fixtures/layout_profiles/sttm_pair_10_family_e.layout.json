@@ -10,6 +10,7 @@
       "meta_rows": [],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [
         "Date",
         "Version",
@@ -85,6 +86,7 @@
       ],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [],
       "notes": [
         "band row 4, header row 5"
@@ -159,6 +161,7 @@
       ],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [],
       "notes": [
         "band row 4, header row 5"
@@ -232,6 +235,7 @@
       ],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [],
       "notes": [
         "band row 4, header row 5"
@@ -305,6 +309,7 @@
       ],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [],
       "notes": [
         "band row 4, header row 5"
@@ -319,6 +324,7 @@
       "meta_rows": [],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [],
       "notes": []
     }

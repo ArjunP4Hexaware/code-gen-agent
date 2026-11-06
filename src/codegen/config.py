@@ -401,6 +401,9 @@ class DiscoveryConfig(BaseModel):
     # Kept out of segment_synonyms: those spellings also mark banner rows and
     # segment-named sheets, which 'NA' must never do.
     unsegmented_markers: list[str] = Field(default_factory=list)
+    # post182: segment-column headers that only MAY name segments ("Record Type");
+    # such a column holding no Header / Detail / Trailer word is an ordinary one
+    weak_segment_headers: list[str] = Field(default_factory=list)
     # sheet kind -> alternatives, each a list of header tokens that must ALL
     # appear (normalized substring) on one of the first rows.
     auxiliary_sheets: dict[str, list[list[str]]] = Field(default_factory=dict)
@@ -518,6 +521,8 @@ class FrdExtractorConfig(BaseModel):
     lob_table_region_headers: list[str] = Field(default_factory=list)
     # M7: words that mark the first row of a nested table as a header row.
     nested_table_header_words: list[str] = Field(default_factory=list)
+    # post182: header row search depth of a nested target-table cell
+    nested_table_header_rows: int = 3
     # M7: how much of a refused cell's text the contract keeps (logged only).
     structured_text_max_chars: int = Field(default=200, gt=0)
     # M9.3: an inline LAYER BLOCK inside a target cell — a heading line

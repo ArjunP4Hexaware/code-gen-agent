@@ -10,6 +10,7 @@
       "meta_rows": [],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [
         "Version",
         "Date",
@@ -27,6 +28,7 @@
       "meta_rows": [],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [
         "Vendor",
         "FileName",
@@ -47,6 +49,7 @@
       "meta_rows": [],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [
         "S.No",
         "SchemaName",
@@ -185,6 +188,7 @@
       ],
       "segment_strategy": "column",
       "segment_column": 9,
+      "segment_header": "Segment",
       "headers": [],
       "notes": [
         "band row 10, header row 11"
@@ -199,6 +203,7 @@
       "meta_rows": [],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [],
       "notes": []
     },
@@ -211,6 +216,7 @@
       "meta_rows": [],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [],
       "notes": []
     },
@@ -223,6 +229,7 @@
       "meta_rows": [],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [
         "FieldName",
         "DQ Rules",

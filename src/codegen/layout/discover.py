@@ -869,7 +869,11 @@ def _discover_mapping_sheet(ws, disc: DiscoveryConfig, config: ExtractorConfig,
     return SheetProfile(name=ws.title, kind="mapping", header_row=header_index + 1,
                         band_row=None if band_index is None else band_index + 1,
                         bands=resolved_bands, meta_rows=meta_rows,
-                        segment_strategy=strategy, segment_column=segment_column, notes=notes)
+                        segment_strategy=strategy, segment_column=segment_column,
+                        segment_header=(text(header[segment_column - 1])
+                                        if segment_column is not None
+                                        and segment_column - 1 < len(header) else None),
+                        notes=notes)
 
 
 def _bands_from_band_row(ws, band_row: list, band_row_number: int, last_col: int,
@@ -1624,7 +1628,11 @@ def _discover_candidate_sheet(ws, disc: DiscoveryConfig, confidence: dict[str, f
     return SheetProfile(name=ws.title, kind="mapping", header_row=header_index + 1,
                         band_row=None if band_index is None else band_index + 1,
                         bands=resolved, meta_rows=meta_rows, segment_strategy=strategy,
-                        segment_column=segment_column, notes=notes)
+                        segment_column=segment_column,
+                        segment_header=(text(header[segment_column - 1])
+                                        if segment_column is not None
+                                        and segment_column - 1 < len(header) else None),
+                        notes=notes)
 
 
 def stale_value_evidence(profile: LayoutProfile, workbook, config: ExtractorConfig

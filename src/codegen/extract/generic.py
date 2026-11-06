@@ -729,12 +729,19 @@ def _match_feed(sheet: SheetData, stage_table: str | None, frd: FrdContract,
             # name layout.resolve.sheet_feed_label gave it.
             from codegen.layout.resolve import sheet_feed_label
 
-            # The sheet name first: the layout falls back to it when two sheets'
-            # own file cells give the same name.
-            own_files = [(p, "") for p in _sheet_file_patterns(sheet, None)]
-            label, _where = sheet_feed_label({"sheet": sheet.profile.name, "own_files": own_files})
-            for name in dict.fromkeys((blank_sheet_feed_name(sheet.profile.name).lower(),
-                                       label.lower())):
+            # post182: the sheet name first only when two sheets' own file
+            # cells give the same name (the layout names the later one by its
+            # sheet then); else the own-file label first - a sheet NAMED like
+            # another sheet's file paired crosswise.
+            def own_label(s: SheetData) -> str:
+                files = [(p, "") for p in _sheet_file_patterns(s, None)]
+                return sheet_feed_label({"sheet": s.profile.name, "own_files": files})[0]
+
+            label = own_label(sheet)
+            shared = sum(own_label(s).lower() == label.lower() for s in ir.sheets) > 1
+            by_sheet = blank_sheet_feed_name(sheet.profile.name).lower()
+            order = (by_sheet, label.lower()) if shared else (label.lower(), by_sheet)
+            for name in dict.fromkeys(order):
                 named = [f for f in matches if f.feed_name.lower() == name]
                 if len(named) == 1:
                     notes.append(f"sheet {sheet.profile.name!r} paired to FRD feed "
@@ -921,14 +928,16 @@ def _split_by_list(sheets: list[SheetData]) -> list[SheetData]:
     stage table (a header / trailer summary table) are handled after the split,
     on every sheet (``_one_standard_table_per_stage``). A sheet without the file
     evidence is left as it is."""
-    from codegen.extract.list_cells import pick, split_count
+    from codegen.extract.list_cells import nth_name, pick, split_count
 
     out: list[SheetData] = []
     for sheet in sheets:
-        stage = _dominant([r.values.get("stage.table") for r in sheet.fields])
-        files = [f.strip() for f in re.split(r"[\n;,]+", sheet.meta.get("file_names") or "")
+        stage = _dominant([*(r.values.get("stage.table") for r in sheet.fields),
+                           *(a.table for a in sheet.audit)])
+        files = [f.strip() for f in re.split(r"[\n;]+", sheet.meta.get("file_names") or "")
                  if f.strip()]
-        count = split_count(stage, files)
+        count = split_count(stage, files,
+                            [r.values.get("standard.table") for r in sheet.fields])
         if count is None:
             out.append(sheet)
             continue
@@ -952,7 +961,7 @@ def _split_by_list(sheets: list[SheetData]) -> list[SheetData]:
                 audit.append(replace(entry, table=table))
             flags = [f"sttm_list_cells_split:{name} — the stage TableName cells list "
                      f"{count} tables and the File Names cell {count} files: feed "
-                     f"{index + 1} of {count} takes table {stage.split()[index]!r} and file "
+                     f"{index + 1} of {count} takes table {nth_name(stage, index)!r} and file "
                      f"{files[index]!r} (the order the document states; check the pairing)"]
             if mismatched:
                 rows_said = sorted(set(mismatched))
@@ -978,20 +987,47 @@ def _one_standard_table_per_stage(sheet: SheetData) -> SheetData:
     segment's table)."""
     current: str | None = None
     stage_of: dict[int, str | None] = {}
+    std_of: dict[int, str | None] = {}
+    std_current: str | None = None
     for row in sorted(sheet.fields, key=lambda r: r.row):
-        current = row.values.get("stage.table") or current
-        stage_of[row.row] = current
+        stage = row.values.get("stage.table") or current
+        if stage != current:
+            std_current = None              # a new stage block: nothing carries over
+        current = stage
+        stage_of[row.row] = stage
+        # post182: openpyxl reads a merged cell's non-anchor rows as None - a
+        # mapped row with a blank standard TableName cell carries the cell above
+        # within its stage block (as the stage cell does)
+        stated = row.values.get("standard.table")
+        if stated is not None:
+            std_current = stated
+        std_of[row.row] = stated if stated is not None else (
+            std_current if row.values.get("standard.column") is not None else None)
     main: dict[str | None, str | None] = {}
+    ambiguous: dict[str | None, list[str]] = {}
     for stage in dict.fromkeys(stage_of.values()):
-        named = [r.values.get("standard.table") for r in sheet.fields
-                 if stage_of[r.row] == stage]
-        main[stage] = _dominant(named)
+        named = [std_of[r.row] for r in sheet.fields
+                 if stage_of[r.row] == stage and std_of[r.row] is not None]
+        tables = list(dict.fromkeys(named))
+        if len(tables) < 2:
+            main[stage] = tables[0] if tables else None
+            continue
+        namesake = [t for t in tables if stage is not None and t.lower() == stage.lower()]
+        counts = sorted(((named.count(t), t) for t in tables), reverse=True)
+        if namesake:
+            main[stage] = namesake[0]
+        elif counts[0][0] > counts[1][0]:
+            main[stage] = counts[0][1]
+        else:
+            main[stage] = None              # a tie names no main table
+            ambiguous[stage] = tables
     other: dict[tuple[str | None, str], list[int]] = {}
     rows: list[FieldRow] = []
     for row in sheet.fields:
-        table = row.values.get("standard.table")
-        stage = stage_of[row.row]
-        if table is not None and main[stage] is not None and table != main[stage]:
+        table, stage = std_of[row.row], stage_of[row.row]
+        blank = table is not None and (stage in ambiguous or (
+            main[stage] is not None and table != main[stage]))
+        if blank:
             other.setdefault((stage, table), []).append(row.row)
             row = replace(row, values={k: (None if k.startswith("standard.") else v)
                                        for k, v in row.values.items()})
@@ -1002,7 +1038,12 @@ def _one_standard_table_per_stage(sheet: SheetData) -> SheetData:
              f"standard table {table!r}, not this feed's {main[stage]!r} (stage table "
              f"{stage!r}; rows {at[0]}-{at[-1]}); their standard mapping is left blank - the "
              "agent builds one standard table per stage table"
-             for (stage, table), at in other.items()]
+             for (stage, table), at in other.items() if stage not in ambiguous]
+    flags += [f"sttm_standard_table_ambiguous:{sheet.profile.name} — stage table {stage!r} "
+              f"maps to standard tables {tables} equally often and none is named like it; no "
+              "standard table is built for it and every standard mapping of it is left blank "
+              "- answer which one it builds by correcting the STTM"
+              for stage, tables in ambiguous.items()]
     return replace(sheet, fields=rows, list_split_flags=[*sheet.list_split_flags, *flags])
 
 
@@ -1273,6 +1314,17 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
     segmented = any(r.segment is not None for r in sheet.fields) or any(
         r.segment_raw is not None and normalize(r.segment_raw) not in no_segment
         for r in sheet.fields)
+    weak = {normalize(h) for h in config.extractor.discovery.weak_segment_headers}
+    if (segmented and sp.segment_header is not None and normalize(sp.segment_header) in weak
+            and not any(r.segment is not None for r in sheet.fields)):
+        # post182: "Record Type" holding no Header / Detail / Trailer word at all
+        # is an ordinary column, not a segment column (post180 made the header a
+        # segment synonym; its other uses must not stop the run)
+        values = sorted({r.segment_raw for r in sheet.fields} - {None})
+        flags.append(f"segment_column_not_segments:{name} — the {sp.segment_header!r} column "
+                     f"holds {values[:5]}, no Header / Detail / Trailer word; read as "
+                     "unsegmented")
+        segmented = False
     if not segmented and any(r.segment_raw is not None for r in sheet.fields):
         notes.append(f"sheet {name!r}: Segment cells read only "
                      f"{sorted({r.segment_raw for r in sheet.fields} - {None})} "

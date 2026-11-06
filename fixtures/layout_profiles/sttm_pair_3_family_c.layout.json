@@ -10,6 +10,7 @@
       "meta_rows": [],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [
         "Version",
         "Date",
@@ -27,6 +28,7 @@
       "meta_rows": [],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [
         "Field #",
         "Field Name",
@@ -127,6 +129,7 @@
       ],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [],
       "notes": [
         "band row 4, header row 5"
@@ -141,6 +144,7 @@
       "meta_rows": [],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [
         "LOB",
         "Carrier",

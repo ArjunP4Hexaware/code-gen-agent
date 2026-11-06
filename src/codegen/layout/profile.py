@@ -267,6 +267,10 @@ class SheetProfile(BaseModel):
     meta_rows: list[MetaRow] = Field(default_factory=list)
     segment_strategy: SegmentStrategy = "none"
     segment_column: int | None = None
+    # post182: the segment column's header as written (None: an older cached
+    # profile, or no column) - a weak header ("Record Type") holding no segment
+    # word reads as an ordinary column
+    segment_header: str | None = None
     # Auxiliary sheets: the header row the signature matched.
     headers: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)

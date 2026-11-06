@@ -97,6 +97,7 @@
       ],
       "segment_strategy": "banner",
       "segment_column": null,
+      "segment_header": null,
       "headers": [],
       "notes": [
         "band row 7, header row 8",

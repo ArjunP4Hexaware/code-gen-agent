@@ -193,6 +193,27 @@ def test_a_run_writes_one_set_for_its_sttm(tmp_path):
         .count("CREATE") for f in feeds) - block["ddl_blocks_merged"]
 
 
+def test_the_log_says_what_the_per_feed_addition_md_said(pair1_config):
+    """post178: the per-feed ADDITION.md is retired; each kept feed's HELD BACK and
+    PROVENANCE notes reach the run's LOG.md, feed by feed."""
+    from types import SimpleNamespace
+
+    from codegen.run_artefacts import KeptFeed, _log_text
+
+    kept = [KeptFeed("feed_a", "PASS_WITH_FLAGS",
+                     SimpleNamespace(held_back=["held: synthetic reason"], assumed_notes=[])),
+            KeptFeed("feed_b", "PASS",
+                     SimpleNamespace(held_back=[], assumed_notes=["record identification x"]))]
+    log = _log_text("syn", kept, [], {"log": "syn_LOG.md"}, {}, None, 0, [], [], [],
+                    pair1_config)
+    section = log.split("## Held back and provenance\n\n", 1)[1].split("\n\n", 1)[0]
+    assert section.splitlines() == ["- `feed_a` — **HELD BACK**: held: synthetic reason",
+                                    "- `feed_b` — **PROVENANCE**: record identification x"]
+    bare = [KeptFeed("feed_c", "PASS", SimpleNamespace(held_back=[], assumed_notes=[]))]
+    assert "## Held back" not in _log_text("syn", bare, [], {"log": "syn_LOG.md"}, {}, None,
+                                           0, [], [], [], pair1_config)
+
+
 def test_the_same_run_writes_the_same_bytes(tmp_path):
     config, _spec, pair = _pair(tmp_path)
     folder = tmp_path / "out" / config.combined.dir

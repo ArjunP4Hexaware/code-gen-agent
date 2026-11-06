@@ -61,36 +61,6 @@ from codegen.metadata_sheet import (
     metadata_sheet_payload,
 )
 
-_ADDITION_TEMPLATE = """\
-# Framework addition — {slug}
-
-{banner}
-
-An **addition to the existing ingestion framework**, not a standalone
-pipeline. The agent writes the files below; it never edits a notebook,
-never creates a table and never applies anything itself.
-
-| File | What it is |
-| --- | --- |
-{ddl_row}{iig_rows}
-| `ADDITION.md` | This manifest. |
-
-## Review flow
-
-{review_flow}
-
-## Framework-assigned IDs left blank
-
-The framework assigns these; the agent never invents them. Each is left as
-`{id_placeholder}`:
-
-{blank_columns}
-{segmented_block}
-Layout note: the tab names and column headers are the client IIG template
-(anonymized reference — `fixtures/reference/SFMC_IIG.xlsx`).
-"""
-
-
 # M7 §4: artefacts labelled by the system they run against.
 TARGET_DDL = "DDL — Databricks (Unity Catalog)"
 TARGET_DML = "DML — SQL Server metadata DB (run from notebook)"
@@ -1128,9 +1098,8 @@ def emit_framework(
             checks.append(GateCheck(name="qualified_names", passed=False,
                                     details="; ".join(unqualified)))
         checks.extend(ddl_checks)
-        return _held_iig_artefacts(spec, config, files, framework_dir, banner, ddl_names,
-                                   flags, checks, held, dml_disabled_reason, empty_by_rule,
-                                   conventions_profile)
+        return _held_iig_artefacts(files, flags, checks, held, dml_disabled_reason,
+                                   empty_by_rule)
     # Multi-table step 6 (2026-10-08: on EVERY framework run): the metadata
     # INSERT rows that define the tables — the client's "DDL", rule 8 — from
     # the same payload as the IIG. The table index reuses the CREATE text's
@@ -1197,8 +1166,6 @@ def emit_framework(
     flagged = sorted(set(always_blank))
     # IIG-first M3: the BSA's review copy and the clean copy CI/CD loads —
     # behind the profile's emit_iig_review switch (off: output as before).
-    iig_rows = ""
-    review_name = clean_name = ""
     from codegen.iig_review import review_flags
 
     # post171: + the DQ rules the documents do not state (one summary row each)
@@ -1211,8 +1178,6 @@ def emit_framework(
             payload, blank_list, config, framework_dir, spec.feed_slug, template_name,
             empty_by_rule, to_review)
         files.extend([review_path, clean_path])
-        review_name, clean_name = review_path.name, clean_path.name
-        iig_rows = _iig_addition_rows(review_name, clean_name, config)
     # A line break that slipped past the boundary FAILS with its cell address.
     checks.append(check_iig_workbooks_single_line(
         [rows_path] + ([clean_path] if profile.emit_iig_review else [])))
@@ -1222,17 +1187,9 @@ def emit_framework(
         config.gate.derivations))
     # P0-5: no emitted workbook holds a formula cell (document text is data)
     checks.append(check_xlsx_no_formulas([p for p in files if p.suffix == ".xlsx"]))
-    # 2026-10-16: ADDITION.md describes what is presented — the DDL, the IIG
-    # and its review copy — and the review flow (IIG -> BSA review -> CI/CD
-    # applies the DDL); the other framework files are written, not described.
-    ddl_list = " / ".join(f"`{name}`" for name in ddl_names) or "the DDL"
-    ddl_row = (
-        f"| {ddl_list} | The Databricks (Unity Catalog) table DDL, in the client's "
-        "reference format. **Applied by the CI/CD pipeline after the IIG is approved** — "
-        "the agent never creates target tables. |"
-    )
-    review_flow = _review_flow(ddl_list, review_name, clean_name, profile.emit_iig_review,
-                               conventions_profile or config.conventions.profile)
+    # post178: the per-feed ADDITION.md is retired - the run's <STTM>_LOG.md
+    # (codegen.run_artefacts) carries the files, the review flow, the
+    # blank IDs and these notes; the feed's report keeps them too.
     assumed_notes: list[str] = []
     held_back: list[str] = []
     seg = spec.segmented_extraction
@@ -1247,25 +1204,6 @@ def emit_framework(
             for entry in seg.provenance_notes
         ]
 
-    segmented_lines = [f"- **PROVENANCE**: {note}" for note in assumed_notes]
-    segmented_lines += [f"- **HELD BACK**: {held}" for held in held_back]
-    segmented_block = ("\n" + "\n".join(segmented_lines) + "\n"
-                       if segmented_lines else "")
-    addition_path = framework_dir / "ADDITION.md"
-    addition_path.write_text(
-        _ADDITION_TEMPLATE.format(
-            slug=spec.feed_slug,
-            banner="\n".join(f"- {k}: {v}" for k, v in banner),
-            ddl_row=ddl_row,
-            iig_rows=iig_rows,
-            review_flow=review_flow,
-            id_placeholder=config.framework.id_placeholder,
-            blank_columns="\n".join(f"- `{c}`" for c in flagged) or "- none",
-            segmented_block=segmented_block,
-        ),
-        encoding="utf-8", newline="\n",
-    )
-    files.append(addition_path)
 
     return FrameworkArtefacts(
         files=files,
@@ -1284,38 +1222,17 @@ def emit_framework(
     )
 
 
-def _held_iig_artefacts(spec, config, files, framework_dir, banner, ddl_names, flags,
-                        checks, held, dml_disabled_reason, empty_by_rule,
-                        conventions_profile) -> FrameworkArtefacts:
+def _held_iig_artefacts(files, flags, checks, held, dml_disabled_reason,
+                        empty_by_rule) -> FrameworkArtefacts:
     """post155: a table-sourced feed's framework output - the DDL and its test
-    cases (already written), and ADDITION.md saying the IIG is held and why. No
-    payload travels on, so the combined IIG never carries the feed."""
-    ddl_list = " / ".join(f"`{name}`" for name in ddl_names) or "the DDL"
-    ddl_row = (
-        f"| {ddl_list} | The Databricks (Unity Catalog) table DDL, in the client's "
-        "reference format. **Applied by the CI/CD pipeline after the IIG is approved** — "
-        "the agent never creates target tables. |"
-    )
+    cases (already written); the hold and why travel as ``held_back`` (the run's
+    LOG.md and the feed's report say it; post178: no ADDITION.md). No payload
+    travels on, so the combined IIG never carries the feed."""
     held_back = [held]
     # P0-5: the held feed's workbooks (the DDL test record) hold no formula either
     workbooks = [p for p in files if p.suffix == ".xlsx"]
     if workbooks:
         checks = [*checks, check_xlsx_no_formulas(workbooks)]
-    addition_path = framework_dir / "ADDITION.md"
-    addition_path.write_text(
-        _ADDITION_TEMPLATE.format(
-            slug=spec.feed_slug,
-            banner="\n".join(f"- {k}: {v}" for k, v in banner),
-            ddl_row=ddl_row,
-            iig_rows="",
-            review_flow=f"- **HELD BACK**: {held}.",
-            id_placeholder=config.framework.id_placeholder,
-            blank_columns="- none (no IIG written)",
-            segmented_block="\n" + "\n".join(f"- **HELD BACK**: {h}" for h in held_back) + "\n",
-        ),
-        encoding="utf-8", newline="\n",
-    )
-    files.append(addition_path)
     return FrameworkArtefacts(
         files=files, row_counts={}, coverage={}, flagged_blank_columns=[],
         assumed_notes=[], held_back=held_back, flags=flags, checks=checks, payload=None,
@@ -1324,35 +1241,16 @@ def _held_iig_artefacts(spec, config, files, framework_dir, banner, ddl_names, f
     )
 
 
-def _iig_addition_rows(review_name: str, clean_name: str, config: Config) -> str:
-    """IIG-first: the ADDITION.md rows for the two IIG workbooks (only when
-    the profile emits them)."""
-    return (
-        f"\n| `{clean_name}` | The IIG: the template's sheets and columns, values "
-        "only — the file the BSA certifies and the CI/CD pipeline loads. |"
-        f"\n| `{review_name}` | The BSA's review copy of the IIG: sheet "
-        f"`{config.iig_review.summary_sheet}` first (one row per sheet / column / "
-        "reason / owner group, and one row per sheet left empty by rule saying why), "
-        "then the template sheets with every open cell "
-        "highlighted by owner and commented with its reason, citation and owner. |"
-    )
-
-
-def _review_flow(ddl_list: str, review_name: str, clean_name: str, emits_iig: bool,
-                 profile_name: str) -> str:
-    """ADDITION.md's review flow: IIG -> BSA review -> CI/CD applies the DDL."""
-    if emits_iig:
-        first = (f"1. **IIG** — the agent writes `{clean_name}` and the BSA's review copy "
-                 f"`{review_name}`: every cell it could not fill is open, highlighted and "
-                 "commented with its reason and owner.")
-        second = (f"2. **BSA review** — the BSA fills or corrects the open cells in "
-                  f"`{review_name}` and certifies `{clean_name}`. The BSA-annotated IIG is "
-                  "the approval artefact.")
-    else:
-        first = ("1. **IIG** — this profile writes no IIG workbook "
-                 f"(`conventions.profiles.{profile_name}.emit_iig_review` is off).")
-        second = ("2. **BSA review** — the BSA reviews and certifies the IIG; the "
-                  "BSA-annotated IIG is the approval artefact.")
+def _review_flow(ddl_list: str, review_name: str, clean_name: str) -> str:
+    """The run LOG.md's review flow: IIG -> BSA review -> CI/CD applies the DDL
+    (written only when the combined IIG is; post178: the no-IIG wording went
+    with the per-feed ADDITION.md)."""
+    first = (f"1. **IIG** — the agent writes `{clean_name}` and the BSA's review copy "
+             f"`{review_name}`: every cell it could not fill is open, highlighted and "
+             "commented with its reason and owner.")
+    second = (f"2. **BSA review** — the BSA fills or corrects the open cells in "
+              f"`{review_name}` and certifies `{clean_name}`. The BSA-annotated IIG is "
+              "the approval artefact.")
     third = (f"3. **CI/CD applies the DDL** — after approval, the CI/CD pipeline applies "
              f"{ddl_list} and loads the approved IIG. Nothing is applied before approval.")
     return "\n".join([first, second, third])
@@ -1371,14 +1269,14 @@ def _dml_disabled_reason(config: Config, profile, profile_name: str | None) -> s
 
 def presented_files(files: list[Path]) -> list[Path]:
     """The framework files the App and the report present, in that order: the
-    DDL, the IIG, its review copy and ADDITION.md (2026-10-16). The other
-    framework files are still written; they are not listed."""
+    DDL, its test cases, the IIG and its review copy (2026-10-16; post178: the
+    per-feed ADDITION.md is retired). The other framework files are still
+    written; they are not listed."""
     tests = (
         lambda name: name.endswith(("_DDL.txt", "_table_creation.txt")),
         is_ddl_test_cases,
         lambda name: name.endswith("_IIG.xlsx"),
         lambda name: name.endswith("_IIG_REVIEW.xlsx"),
-        lambda name: name == "ADDITION.md",
     )
     return [path for test in tests for path in files if test(path.name)]
 

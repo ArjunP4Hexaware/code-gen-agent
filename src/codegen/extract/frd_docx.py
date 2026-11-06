@@ -833,6 +833,23 @@ def parse_object_name_block(value: str, nested: list[list[str]] | None,
 _FEED_NAME_MAX = 80
 
 
+def nested_table_names(rows: list[list[str]], config: FrdExtractorConfig
+                       ) -> tuple[list[str], str | None]:
+    """post179: (table names, header) of a target-table cell that holds a nested
+    table: the values of the column whose header row cell is a
+    ``layer_block_labels.table`` spelling ("Target Table"), in row order, each
+    once; ([], None) when no header cell names a table column."""
+    labels = {normalize_label(s) for s in config.layer_block_labels.get("table", [])}
+    if not rows:
+        return [], None
+    column = next((i for i, cell in enumerate(rows[0]) if normalize_label(cell) in labels), None)
+    if column is None:
+        return [], None
+    names = [row[column].strip() for row in rows[1:]
+             if column < len(row) and row[column].strip()]
+    return list(dict.fromkeys(names)), rows[0][column].strip()
+
+
 def parse_layer_blocks(value: str, config: FrdExtractorConfig) -> dict[str, dict[str, str]] | None:
     """``{"stage": {"table": …, "schema": …}, "standard": {…}}`` for a cell
     holding inline layer blocks (module docstring of the config knob); None
@@ -1291,10 +1308,27 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             schema_text = ""
         (stage_catalog, stage_schema), (std_catalog, std_schema) = _parse_target_schema(
             schema_text, frd_config)
+        tables_source = profile.fields.get(f"{prefix}.stage_target.tables")
+        nested_tables = (content.nested.get((tables_source.table, tables_source.row,
+                                             tables_source.value_col or tables_source.col))
+                         if tables_source is not None else None)
         if parse_layer_blocks(tables_text, frd_config):
             tables = [blocks["stage"]["table"]] if blocks.get("stage", {}).get("table") else []
             standard_tables = ([blocks["standard"]["table"]]
                                if blocks.get("standard", {}).get("table") else [])
+        elif nested_tables:
+            # post179 (a staging run): a "Vendor | Target Table" table inside the
+            # cell - the names are its table column's values; a nested table
+            # whose header names no table column states none (blank + flagged,
+            # the STTM fills them), never its header words or vendor cells.
+            tables, header = nested_table_names(nested_tables, frd_config)
+            stated = (f"its {header!r} column names {tables}" if tables else
+                      f"no column header names a table ({[c.strip() for c in nested_tables[0]]}"
+                      "); the tables are unstated")
+            flags.append(f"frd_nested_tables:{prefix}.stage_target.tables — the "
+                         f"{cell_of(f'{prefix}.stage_target.tables')} cell is a nested "
+                         f"table; {stated}")
+            standard_tables = list(tables) if std_schema or std_catalog else []
         else:
             tables = _split(tables_text, frd_config.list_separators)
             standard_tables = list(tables) if std_schema or std_catalog else []

@@ -31,7 +31,7 @@ def client(monkeypatch, tmp_path):
                             label="demo_x", model_usage=[], load_decisions=lambda: {},
                             config=SimpleNamespace(output=SimpleNamespace(
                                 app_options=["framework"],
-                                app_files=["ddl", "iig", "iig_review", "addition", "log"],
+                                app_files=["ddl", "iig", "iig_review", "log"],
                                 app_assign_ids={})))
     monkeypatch.setattr(main, "store", store)
     return TestClient(main.app)
@@ -66,9 +66,9 @@ def test_a_run_without_a_combined_set_lists_none(client, tmp_path):
 def test_a_kind_left_out_of_app_files_is_not_listed_but_still_downloads(client):
     """post98: output.app_files narrows what the App LISTS; the file is still
     written and still served by name."""
-    main.store.config.output.app_files = ["ddl", "iig", "addition", "log"]
+    main.store.config.output.app_files = ["ddl", "iig", "log"]
     reply = client.get("/api/feeds").json()
     assert reply["combined"] == [{"sttm": "STTM_Syn", "files": [
         FILES["ddl"], FILES["iig"], FILES["log"]]}]
-    assert reply["app_files"] == ["ddl", "iig", "addition", "log"]
+    assert reply["app_files"] == ["ddl", "iig", "log"]
     assert client.get(f"/api/combined/{FILES['review']}").status_code == 200

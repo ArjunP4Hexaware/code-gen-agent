@@ -53,8 +53,9 @@ output:
   # post98 (Soham, 2026-10-22): the framework files the App lists - the IIG review
   # workbook (<STTM>_IIG_REVIEW.xlsx / <feed>_IIG_REVIEW.xlsx) is HIDDEN; it is still
   # written. To show it again:
-  #   app_files: [ddl, ddl_tests, iig, iig_review, addition, log]
-  app_files: [ddl, ddl_tests, iig, addition, log]
+  #   app_files: [ddl, ddl_tests, iig, iig_review, log]
+  # post178: the per-feed ADDITION.md is retired - the run's _LOG.md replaces it.
+  app_files: [ddl, ddl_tests, iig, log]
   # post101 (Soham, 2026-10-22): the artefacts panel names only the IDs the data
   # engineer assigns (METADATA_DB_SEMANTICS.md §1-2); the rest (load timestamps,
   # the Databricks workspace / cluster settings, columns of empty sheets, OBJECT_ID
@@ -1172,8 +1173,11 @@ conventions:
       ddl_test_ordinal_base: 0
       # D1 post51 pair_06: audit datatypes extract-sttm accepts; a column ending
       # in an audit_flag_suffix (DELETE_FLAG) may also carry audit_flag_datatypes.
-      # Widen in an overlay (conventions.profiles.acfc_prx.*) — no code change.
-      audit_datatypes: [string, timestamp]
+      # post179 (a staging run: LINE_NUMBER stated `integer`): the STTM's stated
+      # type is written as stated - every type the contract can spell, for every
+      # audit column; only a type word it cannot spell still stops the run.
+      audit_datatypes: [string, timestamp, tinyint, smallint, int, integer, bigint,
+                        boolean]
       audit_flag_datatypes: [tinyint, int, smallint, boolean]
       audit_flag_suffixes: [_flag, _ind]
       # post57: whitespace in a path the documents state - keep (written byte for

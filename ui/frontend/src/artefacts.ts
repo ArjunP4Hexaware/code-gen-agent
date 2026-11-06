@@ -1,8 +1,9 @@
 import type { Layer2State } from "./api";
 
 /* The framework artefacts the App presents per feed (2026-10-16 demo cleanup):
-   exactly <FEED>_DDL.txt, <feed>_IIG.xlsx, <feed>_IIG_REVIEW.xlsx and
-   ADDITION.md, in that order. The generator still writes metadata_inserts.sql,
+   exactly <FEED>_DDL.txt, its test cases, <feed>_IIG.xlsx and
+   <feed>_IIG_REVIEW.xlsx, in that order (post178: ADDITION.md is retired - the
+   run's LOG.md replaces it). The generator still writes metadata_inserts.sql,
    config_rows.xlsx and config_inserts.xlsx (the CLI, the harness and the DML
    stage use them); the App just does not list them.
    post98: `shown` = the backend's output.app_files (the kinds the App lists; the
@@ -14,7 +15,6 @@ const PRESENTED: [string, (name: string) => boolean][] = [
   ["ddl_tests", (name) => name.endsWith("_TestCases.txt")],
   ["iig", (name) => name.endsWith("_IIG.xlsx")],
   ["iig_review", (name) => name.endsWith("_IIG_REVIEW.xlsx")],
-  ["addition", (name) => name === "ADDITION.md"],
 ];
 
 export function presentedArtefacts(files: string[], shown?: string[]): string[] {

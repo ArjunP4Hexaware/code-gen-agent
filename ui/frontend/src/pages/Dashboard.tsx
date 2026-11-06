@@ -302,8 +302,8 @@ export function Dashboard({
           {(combined.length ? [] : framed).map((f, i) => (
             <div key={f.feed_slug}>
               <div className="file-set-title"><code>{f.feed_slug}</code></div>
-              {/* 2026-10-16: exactly the DDL, the IIG, its BSA review copy and
-                  ADDITION.md — the other files are still written, not listed;
+              {/* 2026-10-16: exactly the DDL, the IIG and its BSA review copy
+                  (post178: no ADDITION.md) — the other files are still written, not listed;
                   post98: narrowed to output.app_files (review copy hidden) */}
               <ul className="file-rows">
                 {presentedArtefacts(f.framework!.files, data?.app_files).map((name) =>

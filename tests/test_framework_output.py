@@ -104,7 +104,7 @@ def test_framework_mode_tree_and_verdicts(config, framework_run, tmp_path):
         assert not (feed_dir / "pipeline").exists()
         assert (feed_dir / "ddl").is_dir()
         names = sorted(p.name for p in (feed_dir / "framework").iterdir())
-        assert names == ["ADDITION.md", "config_inserts.xlsx",
+        assert names == ["config_inserts.xlsx",   # post178: no ADDITION.md
                          "config_rows.xlsx",
                          f"{spec.feed_slug}_stage_table_creation.txt",
                          f"{spec.feed_slug}_standard_table_creation.txt",
@@ -337,14 +337,14 @@ def test_both_mode_is_the_union(config, tmp_path):
 
 def test_the_report_section_matches_the_artefacts_panel():
     """2026-10-16 (post63): the report's framework section lists the files the
-    App presents (DDL, IIG, IIG review copy, ADDITION.md) under the panel's
+    App presents (DDL, IIG, IIG review copy; post178: no ADDITION.md) under the panel's
     heading and approval sentence — never inserts, config rows or Option B."""
     from pathlib import Path
 
     from codegen.emit.framework import FrameworkArtefacts, report_section
 
     written = ["SYN_DDL.txt", "config_rows.xlsx", "config_inserts.xlsx",
-               "metadata_inserts.sql", "syn_IIG_REVIEW.xlsx", "syn_IIG.xlsx", "ADDITION.md"]
+               "metadata_inserts.sql", "syn_IIG_REVIEW.xlsx", "syn_IIG.xlsx", "notes.md"]
     section = report_section(FrameworkArtefacts(
         files=[Path("framework") / name for name in written],
         row_counts={"ADLS_DELTA_INGESTION_DETAILS": 2},
@@ -355,7 +355,7 @@ def test_the_report_section_matches_the_artefacts_panel():
             "applies the DDL after approval.") in section
     listed = [line.split("`")[1] for line in section.splitlines()
               if line.startswith("| `")]
-    assert listed == ["SYN_DDL.txt", "syn_IIG.xlsx", "syn_IIG_REVIEW.xlsx", "ADDITION.md"]
+    assert listed == ["SYN_DDL.txt", "syn_IIG.xlsx", "syn_IIG_REVIEW.xlsx"]
     assert "| IIG rows: ADLS_DELTA_INGESTION_DETAILS | 2 |" in section
     lowered = section.lower()
     for word in ("insert", "config row", "config_rows", "option b"):

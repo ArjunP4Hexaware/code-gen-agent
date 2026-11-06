@@ -135,7 +135,8 @@ out/<feed_id>/
                   provenance-badged), config_inserts.xlsx (one sheet per
                   populated tab + INSERT statement column, sqlserver|lakebase
                   per framework.sql_dialect; framework-assigned IDs as
-                  placeholders), ADDITION.md
+                  placeholders); (post178: no ADDITION.md - the run's
+                  <STTM>_LOG.md replaces it)
 ```
 
 `[bracketed]` modules are emitted only when the spec requires them

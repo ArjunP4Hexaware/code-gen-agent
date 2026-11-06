@@ -17,9 +17,10 @@ Beside the per-feed files (``<out>/<feed>/framework/``, which the harness,
   different text are both kept under a ``-- CONFLICT`` line (never chosen).
 - ``<STTM>_DDL_TestCases.txt`` (post128) - every kept feed's DDL test cases,
   feed by feed (the file is read-only SQL + comments; nothing is merged).
-- ``<STTM>_LOG.md`` - what ADDITION.md said, once for the run: the inputs, the
-  files, the feeds (and those left out, with why), the rows per feed, what was
-  merged, the conflicts, the blank framework IDs, the review flow.
+- ``<STTM>_LOG.md`` - once for the run (post178: it replaces the per-feed
+  ADDITION.md): the inputs, the files, the feeds (and those left out, with why),
+  each feed's HELD BACK / PROVENANCE notes, the rows per feed, what was merged,
+  the conflicts, the blank framework IDs, the review flow.
 
 The IIG gate checks of a feed run again on the combined workbooks. Only kept
 feeds are merged (a GATE_FAIL feed's files are review-only, a CRASHED feed has
@@ -498,6 +499,13 @@ def _log_text(sttm, kept, excluded, names, written, merge, ddl_skipped, conflict
     if excluded:
         lines += ["", "Not in these files:", ""]
         lines += [f"- `{slug}` — {reason}" for slug, reason in excluded]
+    # post178: what the per-feed ADDITION.md said beside its file table
+    notes = [f"- `{k.slug}` — **HELD BACK**: {held}" for k in kept
+             for held in getattr(k.artefacts, "held_back", [])]
+    notes += [f"- `{k.slug}` — **PROVENANCE**: {note}" for k in kept
+              for note in getattr(k.artefacts, "assumed_notes", [])]
+    if notes:
+        lines += ["", "## Held back and provenance", ""] + notes
     if merge is not None:
         lines += ["", "## Rows per feed", "", "| Sheet | Feed | Sheet rows |", "|---|---|---|"]
         for sheet, spans in merge.ranges.items():
@@ -536,6 +544,6 @@ def _log_text(sttm, kept, excluded, names, written, merge, ddl_skipped, conflict
                   ", ".join(blank) + " — the agent never invents them."]
     if "iig" in written:
         flow = _review_flow(f"`{written.get('ddl', 'the DDL')}`", written["review"],
-                            written["iig"], True, config.conventions.profile)
+                            written["iig"])
         lines += ["", "## Review flow", "", flow.strip()]
     return "\n".join(lines).rstrip() + "\n"

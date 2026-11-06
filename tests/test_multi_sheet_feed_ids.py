@@ -151,3 +151,32 @@ def test_an_unsplit_frd_is_split_by_extract_sttm(env, capsys):
     assert "frd_feeds_split_at_extract:" in out and "duplicate feed_id(s)" not in out
     feeds = json.loads((env / "sttm.json").read_text(encoding="utf-8"))["feeds"]
     assert len({f["feed_id"] for f in feeds}) == 5
+
+
+SHARED = "NB_CM_SHARED_YYYYMMDD.txt"
+
+
+def test_two_sheets_stating_one_file_each_pair_to_their_own_feed(env, capsys):
+    """post179 (a staging run): two sheets map the one table and state the SAME
+    file. The layout names the first feed after that file and the second (a
+    clash) after its sheet; extract-sttm stopped with "matches 2 FRD feeds"
+    because it only knew the sheet-name rule. Each sheet now pairs to the feed
+    the layout named after IT: the sheet name first, then its own file cell."""
+    sheets = {"CM_NORTH": SHARED, "CM_SOUTH": SHARED}
+    sttm, frd = env / "STTM_shared.xlsx", env / "FRD_shared.docx"
+    fm.build_sttm(sheets).save(sttm)
+    frd.write_bytes(fm.build_frd([SHARED]))
+    frd_out, sttm_out = env / "frd_shared.json", env / "sttm_shared.json"
+    capsys.readouterr()
+    assert cli.main(["layout", "--workbook", str(sttm), "--frd", str(frd), "--dry-run",
+                     "--no-cache", "--frd-contract-out", str(frd_out)]) == 0
+    capsys.readouterr()
+    code = cli.main(["extract-sttm", "--workbook", str(sttm), "--frd-contract", str(frd_out),
+                     "--out", str(sttm_out), "--generated-date", DATE])
+    printed = capsys.readouterr().out
+    assert code == 0, printed
+    contract = SttmContract.model_validate_json(sttm_out.read_text(encoding="utf-8"))
+    by_sheet = {f.mapping_sheet: f.feed_id for f in contract.feeds}
+    assert set(by_sheet) == {"CM_NORTH", "CM_SOUTH"}
+    assert len(set(by_sheet.values())) == 2
+    assert "named after it by the layout stage" in " ".join(contract.notes)

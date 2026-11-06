@@ -1429,6 +1429,41 @@ def _dominant(values: list[str | None]) -> str | None:
     return max(counts, key=counts.get) if counts else None
 
 
+def _split_list_entry(entry: dict) -> list[dict]:
+    """post179 (a staging run): a sheet entry whose stage TableName cells LIST
+    tables and whose own File Names cell states as many files is one entry per
+    table, in the order the document states (``codegen.extract.list_cells``):
+    entry ``i`` takes the ``i``-th name of every list cell and the ``i``-th file.
+    Each is labelled ``<sheet> [i of n]`` (the split's dicts key on the label);
+    ``sheet_name`` keeps the sheet. Any other entry is returned as it is."""
+    from codegen.extract.list_cells import pick, split_count
+
+    if entry.get("segmented"):
+        return [entry]
+    count = split_count(entry["stage_table"], [n for n, _c in entry["own_files"]])
+    if count is None:
+        return [entry]
+    names = entry["stage_table"].split()
+    out = []
+    for index in range(count):
+        def one(value, index=index):
+            return pick(value, index, count)[0]
+
+        # The feed's ONE standard table (the dominant at this position): rows
+        # naming another one (a summary table) are left blank by extract-sttm.
+        standard = one(entry["standard_table"])
+        out.append({**entry,
+                    "sheet": f"{entry['sheet']} [{index + 1} of {count}]",
+                    "sheet_name": entry["sheet"],
+                    "stage_table": names[index], "stage_tables": [names[index]],
+                    "standard_table": standard,
+                    "standard_tables": [standard] if standard else [],
+                    "own_files": [entry["own_files"][index]],
+                    "list_position": (index, count),
+                    "table_rows": [(one(a), one(b), one(c)) for a, b, c in entry["table_rows"]]})
+    return out
+
+
 def _own_sheet_files(sp, ws, config: Config) -> list[tuple[str, str]]:
     """The file(s) a mapping sheet's own ``File Name`` meta row states."""
     blanks = config.extractor.discovery.meta_blank_values
@@ -1529,7 +1564,7 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
                                     _cell_at(r, source_col))
                                    for r in rows if _cell_at(r, stage_col)]
         if entry["stage_table"]:
-            facts["sheet_tables"].append(entry)
+            facts["sheet_tables"].extend(_split_list_entry(entry))
         else:
             facts["blank_table_sheets"].append(entry)
     for sp in profile.mapping_sheets:
@@ -2613,6 +2648,14 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
             patterns = [cached]
             flags.append(f"frd_unstated:{key} source_used:the BSA's earlier answer (cached in "
                          f"the layout profile): {cached!r}")
+        elif chosen is None and entry.get("list_position") is not None:
+            # post179: a list-cell split - the file at this table's position
+            name, cell = entry["own_files"][0]
+            index, count = entry["list_position"]
+            patterns = [name]
+            flags.append(f"frd_unstated:{key} source_used:{cell}: {name!r} (file {index + 1} "
+                         f"of {count} in the cell, the position of table "
+                         f"{entry['stage_table']!r} in the TableName list cells)")
         elif chosen is None and entry["sheet"] in own_file_sheets:
             # The sheet states its own file: that file is this feed's.
             name, cell = entry["own_files"][0]

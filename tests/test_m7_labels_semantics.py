@@ -35,7 +35,7 @@ def test_artefact_groups_by_target_system():
     # tables); the DML group is the runner notebooks only (2026-10-08).
     names = ["ACCUM_DDL.txt", "x_stage_table_creation.txt", "metadata_inserts.sql",
              "Insert_scripts_config_table_q1.py", "config_rows.xlsx", "config_inserts.xlsx",
-             "ADDITION.md"]
+             "notes.md"]
     assert [artefact_group(n) for n in names] == [
         TARGET_DDL, TARGET_DDL, TARGET_DDL, TARGET_DML, TARGET_REVIEW, TARGET_REVIEW, "Notes"]
     groups = artefact_groups([Path(n) for n in names])
@@ -45,17 +45,15 @@ def test_artefact_groups_by_target_system():
     assert groups[TARGET_DML] == ["Insert_scripts_config_table_q1.py"]
 
 
-def test_framework_labels_groups_readme_and_addition_block(pair1_config, pair1_spec, tmp_path):
+def test_framework_labels_groups_and_readme(pair1_config, pair1_spec, tmp_path):
     framework = emit_framework(pair1_spec, FAQ, [], with_dml(pair1_config), tmp_path,
                                conventions_profile="acfc_prx", iig_template="iig_v2")
-    assert set(framework.groups) == {TARGET_DDL, TARGET_DML, TARGET_REVIEW, "Notes"}
+    # post178: no "Notes" group - its one file, ADDITION.md, is retired
+    assert set(framework.groups) == {TARGET_DDL, TARGET_DML, TARGET_REVIEW}
     assert len(framework.groups[TARGET_DML]) == 3          # one runner notebook per env
     assert "metadata_inserts.sql" in framework.groups[TARGET_DDL]
     framework_dir = tmp_path / pair1_spec.feed_slug / "framework"
-    # 2026-10-16: ADDITION.md no longer carries the by-target block (it named
-    # the insert script and the DML runners); the groups stay on the artefacts
-    addition = (framework_dir / "ADDITION.md").read_text(encoding="utf-8")
-    assert "## By target system" not in addition and "## Review flow" in addition
+    assert not (framework_dir / "ADDITION.md").exists()
     wb = load_workbook(framework_dir / "config_inserts.xlsx")
     assert wb.sheetnames[0] == "README"
     assert wb["README"]["A1"].value.startswith(
@@ -80,7 +78,7 @@ def test_reference_profile_output_carries_no_labels(pair1_config, pair1_spec, tm
     framework = emit_framework(pair1_spec, LoadPatternFaq(), [], pair1_config, tmp_path,
                                conventions_profile="edo_sfmc", iig_template="iig_v1")
     framework_dir = tmp_path / pair1_spec.feed_slug / "framework"
-    assert "## By target system" not in (framework_dir / "ADDITION.md").read_text(encoding="utf-8")
+    assert not (framework_dir / "ADDITION.md").exists()
     assert load_workbook(framework_dir / "config_inserts.xlsx").sheetnames[0] != "README"
     assert TARGET_DML not in framework.groups
 

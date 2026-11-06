@@ -1435,11 +1435,10 @@ def _split_list_entry(entry: dict) -> list[dict]:
     table, in the order the document states (``codegen.extract.list_cells``):
     entry ``i`` takes the ``i``-th name of every list cell and the ``i``-th file.
     Each is labelled ``<sheet> [i of n]`` (the split's dicts key on the label);
-    ``sheet_name`` keeps the sheet. Any other entry is returned as it is."""
+    ``sheet_name`` keeps the sheet. Any other entry is returned as it is. post180: a
+    segmented sheet splits too, under the same one-standard-table rule."""
     from codegen.extract.list_cells import pick, split_count
 
-    if entry.get("segmented"):
-        return [entry]
     count = split_count(entry["stage_table"], [n for n, _c in entry["own_files"]])
     if count is None:
         return [entry]

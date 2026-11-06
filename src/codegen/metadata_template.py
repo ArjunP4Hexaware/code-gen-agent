@@ -509,14 +509,21 @@ class _TableGroup:
 
     @property
     def fields(self) -> list[SttmField]:
-        """The table's columns, STTM order, a column shared by its segments once."""
-        seen: set[str] = set()
+        """The table's columns, STTM order, a column shared by its segments once.
+        post180: the field standing for a shared column is the first that carries
+        a Standard band - a header row whose standard mapping is blank (a summary
+        table not built) no longer hides the detail rows' mapping of the same
+        column (the DDL and the IIG lost that standard column)."""
+        at: dict[str, int] = {}
         out: list[SttmField] = []
         for segment in self.segments:
             for f in segment.fields:
-                if f.stage_column not in seen:
-                    seen.add(f.stage_column)
+                index = at.get(f.stage_column)
+                if index is None:
+                    at[f.stage_column] = len(out)
                     out.append(f)
+                elif out[index].standard_column is None and f.standard_column is not None:
+                    out[index] = f
         return out
 
     @property

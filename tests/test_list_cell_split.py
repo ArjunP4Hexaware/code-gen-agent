@@ -35,26 +35,40 @@ MAIN = "nb_a_remit nb_b_remit"
 SUMRY = "nb_a_remit_sumry\nnb_b_remit_sumry"
 
 
-def _sttm(path: Path, files: list[str] = FILES, stage: str = STAGE) -> Path:
+def _sttm(path: Path, files: list[str] = FILES, stage: str = STAGE, *,
+          segmented: bool = False) -> Path:
+    """``segmented`` (post180): a leading "Record Type" column (HR / DR / TR, the
+    staging STTM's spelling) and a column (REC_SEQ) the header AND the detail
+    record both carry - the header's into the summary table, the detail's into
+    the main one."""
     wb = new_workbook()
     titles = ["Source File Layout", None, None, None, "Stage Layer", None, None, None,
               "Standard Layer", None, None, None, None]
     header = ["Field Name", "Description", "Data Type", "Mandatory Field",
               "Schema", "TableName", "ColumnName", "DataType",
               "Schema", "TableName", "ColumnName", "DataType", "Recycle Flag"]
-    rows = [  # (field, stage column, standard table cell)
-        ("batch_id", "BATCH_ID", SUMRY), ("batch_date", "BATCH_DATE", SUMRY),
-        ("member_id", "MEMBER_ID", MAIN), ("paid_amount", "PAID_AMOUNT", MAIN),
-        ("claim_ref", "CLAIM_REF", MAIN),
+    rows = [  # (record type, field, stage column, standard table cell)
+        ("HR", "batch_id", "BATCH_ID", SUMRY), ("HR", "batch_date", "BATCH_DATE", SUMRY),
+        ("DR", "member_id", "MEMBER_ID", MAIN), ("DR", "paid_amount", "PAID_AMOUNT", MAIN),
+        ("DR", "claim_ref", "CLAIM_REF", MAIN),
     ]
+    if segmented:
+        rows = [("HR", "rec_seq", "REC_SEQ", SUMRY), *rows, ("DR", "rec_seq", "REC_SEQ", MAIN),
+                ("DR", "service_date", "SERVICE_DATE", MAIN), ("DR", "payee_id", "PAYEE_ID", MAIN),
+                ("TR", "rec_count", "REC_COUNT", SUMRY)]
     body = [[name, f"{name} of the remit", "varchar", "N", "stg_nb_rm", stage, column,
-             "String", "nb_rm", std, column, "String", None] for name, column, std in rows]
+             "String", "nb_rm", std, column, "String", None] for _rt, name, column, std in rows]
     for column, datatype in (("SRC_FILE_NAME", "String"), ("REC_CREATION_TIME", "Timestamp")):
         body.append(["NA", None, None, None, "stg_nb_rm", stage, column, datatype,
                      "nb_rm", MAIN, column, datatype, None])
+    if segmented:
+        titles, header = ["Source File Layout", None, *titles[1:]], ["Record Type", *header]
+        record_types = [rt for rt, *_ in rows] + ["DR", "DR"]
+        body = [[rt, *line] for rt, line in zip(record_types, body, strict=True)]
     ws = _sheet(wb, "REMIT", [["Project Name", "Northwind Remittance Data"],
                               ["File Name", "\n".join(files)], [], titles, header, *body])
-    for first, last in ((1, 4), (5, 8), (9, 12)):
+    merges = ((1, 5), (6, 9), (10, 13)) if segmented else ((1, 4), (5, 8), (9, 12))
+    for first, last in merges:
         _merge(ws, 4, first, last)
     wb.save(path)
     return path
@@ -161,3 +175,58 @@ def test_without_the_file_evidence_nothing_is_split(env, capsys):
     frd, sttm = _chain(env, capsys, _sttm(env / "STTM_one.xlsx", files=FILES[:1]))
     assert len(sttm.feeds) == 1 and sttm.feeds[0].stage.table == STAGE
     assert not [f for f in sttm.feeds[0].extraction_flags if f.startswith("sttm_list")]
+
+
+# --- post180: the Header / Detail / Trailer shape -----------------------------------
+
+def test_a_record_type_column_makes_the_sheet_segmented_and_it_still_splits(env, capsys):
+    """The staging STTM's "Record Type" column (HR / DR / TR) is the segment
+    column: its fields 1..N per record no longer read as one flat list (the
+    repeated source names broke the generated tests - ruff F601)."""
+    _frd, sttm = _chain(env, capsys, _sttm(env / "STTM_seg.xlsx", segmented=True))
+    assert [f.feed_id for f in sttm.feeds] == ["nb_a_remit", "nb_b_remit"]
+    for feed in sttm.feeds:
+        segments = {f.record_segment for f in feed.fields}
+        assert segments == {"Header", "Detail", "Trailer"}
+        assert any(f.startswith("sttm_list_cells_split:") for f in feed.extraction_flags)
+        (flag,) = [f for f in feed.extraction_flags
+                   if f.startswith("sttm_standard_table_not_built:")]
+        assert f"{feed.stage.table}_sumry" in flag
+
+
+def test_a_column_the_header_and_detail_share_keeps_its_standard_mapping(env, capsys):
+    """One stage table feeds ONE standard table (DDL / IIG model): the header's
+    summary-table rows are blank there, and the column the header shares with
+    the detail record (REC_SEQ) still reaches the standard table - the first
+    field standing for it used to be the header's, without a standard band."""
+    from codegen.emit.framework import table_definitions
+
+    frd, sttm = _chain(env, capsys, _sttm(env / "STTM_seg.xlsx", segmented=True))
+    config = load_config(REPO / "config" / "config.yaml")
+    specs = resolve_feeds(frd, sttm, config, frd_sha256="0" * 64, sttm_sha256="0" * 64)
+    spec = next(s for s in specs if s.feed_id == "nb_a_remit")
+    (definition,) = table_definitions(spec, config.conventions.get("acfc_prx"), config=config)
+    stage = [c for c, _t in definition.stage.business]
+    standard = [c for c, _t in definition.standard.business]
+    assert definition.standard.table.table == "nb_a_remit"
+    assert {"BATCH_ID", "REC_COUNT", "REC_SEQ", "MEMBER_ID"} <= set(stage)
+    assert "REC_SEQ" in standard and "MEMBER_ID" in standard
+    assert "BATCH_ID" not in standard and "REC_COUNT" not in standard
+
+
+def test_the_shared_column_prefers_the_field_with_a_standard_band():
+    from types import SimpleNamespace
+
+    from codegen.metadata_template import _TableGroup
+
+    header = SimpleNamespace(stage_column="REC_SEQ", standard_column=None)
+    detail = SimpleNamespace(stage_column="REC_SEQ", standard_column="REC_SEQ")
+    other = SimpleNamespace(stage_column="MEMBER_ID", standard_column="MEMBER_ID")
+    group = _TableGroup(stage=None, standard=None,
+                        segments=[SimpleNamespace(fields=[header]),
+                                  SimpleNamespace(fields=[detail, other])])
+    assert group.fields == [detail, other]
+    both = SimpleNamespace(stage_column="REC_SEQ", standard_column="SEQ_STD")
+    group = _TableGroup(stage=None, standard=None,
+                        segments=[SimpleNamespace(fields=[both, detail])])
+    assert group.fields == [both]                          # the first mapped one stays

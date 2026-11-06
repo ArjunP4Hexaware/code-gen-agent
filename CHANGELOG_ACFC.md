@@ -4,6 +4,31 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post180 — 2026-11-06 (a header / detail / trailer STTM read by record type)
+
+The staging 820 pair (post179: split by position) still landed in GATE_FAIL: its sheet
+was read FLAT, so each record type's fields 1..N repeated and the generated test fixture
+held duplicate dict keys (ruff F601). Soham: read H/D/T files as segmented.
+
+- **"Record Type" is a segment column header** (config: `extractor.discovery.roles
+  .source.segment` + `record type`; a header seen in the staging STTM, its values HR / DR /
+  TR already segment synonyms). The sheet reads as Header / Detail / Trailer; repeated
+  names within a record get the positional source names a segmented file already uses.
+- **The list-cell split runs on segmented sheets too**, with the same rule: a row naming
+  another standard table than its feed's (the header / trailer `_sumry` tables) keeps its
+  stage mapping and leaves the standard one blank + flagged
+  (`sttm_standard_table_not_built:`). A stage table feeds ONE standard table in the DDL /
+  IIG model (`metadata_template._table_groups` takes the first segment's): letting the
+  summary table through would have DROPPED the main standard table silently (seen in the
+  mock run before this rule held).
+- **A column the header and the detail record share** (`_TableGroup.fields`): the field
+  standing for it is now the first that carries a Standard band - a header row with a
+  blank standard mapping hid the detail rows' mapping of the same column, so the standard
+  DDL / IIG lost it (one column on the 820 pair).
+- 820 pair, mock: both feeds PASS_WITH_FLAGS (run PASS_WITH_OPEN_INPUTS, the one open line
+  the notification e-mail): stage table 50 columns (47 + 3 audit), main standard table 31
+  (28 detail + 3 audit); the summary tables are flagged, not built.
+
 ## 0.5.8.post179 — 2026-11-06 (three staging-run fixes: list cells, nested FRD tables, audit types)
 
 Two runs on the staging App failed on real pairs. Soham's rule for the fixes:

@@ -919,7 +919,11 @@ def _split_by_list(sheets: list[SheetData]) -> list[SheetData]:
     number of names is blank for it. A row whose standard table is not the
     copy's main one (a summary table no feed builds) keeps its stage mapping and
     loses its standard one - blank and flagged, never moved into the main table.
-    A segmented sheet, or one without the file evidence, is left as it is."""
+    post180: a SEGMENTED sheet (Header / Detail / Trailer) splits the same way and
+    keeps the same rule - a stage table feeds ONE standard table in the DDL / IIG
+    model (``metadata_template._table_groups``), so a header / trailer summary
+    table is blank + flagged there too, never silently dropped. A sheet without
+    the file evidence is left as it is."""
     from codegen.extract.list_cells import pick, split_count
 
     out: list[SheetData] = []
@@ -927,8 +931,7 @@ def _split_by_list(sheets: list[SheetData]) -> list[SheetData]:
         stage = _dominant([r.values.get("stage.table") for r in sheet.fields])
         files = [f.strip() for f in re.split(r"[\n;,]+", sheet.meta.get("file_names") or "")
                  if f.strip()]
-        count = (split_count(stage, files)
-                 if sheet.profile.segment_strategy == "none" else None)
+        count = split_count(stage, files)
         if count is None:
             out.append(sheet)
             continue

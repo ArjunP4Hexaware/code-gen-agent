@@ -3554,7 +3554,7 @@ path that applies answers (CLI extract, App layout, resolver) before it is trust
 leak; run the suites one after the other - in parallel they double the time and trip the
 timing tests.
 
-## §[H21] Session 2026-11-05 late: the delegation workbook, "don't cheat", post177
+## §[H21] Session 2026-11-05 → 06: the delegation workbook, "don't cheat", post177
 
 - **Delegation workbook** (Workspace `STTM_to_Artefacts_Agent_Delegation (1).xlsx`, the
   original saved beside it): columns I-K "built today" + a "Measured 2026-11-05" sheet
@@ -3570,7 +3570,23 @@ timing tests.
 - **Held-out audit:** header / footer / schema-drift flags, the notebook prefix and
   ACTIVE_END_DATE hold on pairs they were not learned from; NO_OF_CYCLE_PER_DAY "1" (corpus
   98.2%) fails on pairs 11 and 12 - open. The 199-IIG corpus is not reachable here.
+- **post177 shipped:** proved with each part reverted (overlay, payload wiring, name
+  tokens), both suites green (2507 / 2160), 12-pair check outcomes 12/12; deployed to dev
+  (01f1d96994e91a3f81a5becd5f8caed0) and, on Soham's word, merged to `main` 5527eff and
+  deployed to staging (01f1d9711f041d8b84eed96acaf56ead). A first version decided the
+  masters per FEED - the per-feed IIG is rendered from the demo contract + the feed (its
+  FRD path is not found under `contracts.dir` in the harness / App), so pair_11 got two
+  master pairs; the 12-pair check caught it (combined rows 11 -> 13) and the decision moved
+  to `generate_feed_result` (once per run, from the run's FRD contract).
+- **The state overlay lives in two copies:** the Apps read the Workspace
+  `codegen/state/codegen-state/` (mirrored on every generate request); the harness reads
+  the volume `d1_dlk/codegen/state/`. The override removal went to both (byte-checked),
+  backups beside each. AGENTS.md gotcha.
+- The delegation workbook's figures were updated to the honest scores (69 h -> 49 h per
+  feed; IIG 85% / 37%).
 
 **Lessons:** a close match to a golden is no evidence of a correct reader - check where each
 value came from; a "line A" text match needs the field's own cell, not any occurrence (short
-values match by accident); score on pairs a value was NOT learned from.
+values match by accident); score on pairs a value was NOT learned from; a run-level value
+must be decided where the run's documents are in view (the per-feed IIG sees one feed);
+openpyxl `insert_rows` does not move merged cells - re-merge after inserting.

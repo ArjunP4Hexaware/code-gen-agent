@@ -421,11 +421,18 @@ def table_definitions(spec: ResolvedFeedSpec, profile, flags: list[str] | None =
         # A table NONE of whose rows carries a Standard band (the standard
         # table named by the FRD only) keeps the standard_from_stage
         # convention as it was: the stage list, typed per column.
-        no_band = not any(f.standard_column is not None for f in group.fields)
+        no_band = not any(f.standard_column is not None for f in group.standard_fields)
         for f in group.fields:
             stage_type = f.stage_datatype if profile.typed_stage else "STRING"
             stage_columns.append((f.stage_column, stage_type))
             _note_comment(f, "stage", f.stage_column, profile, stage_comments, stage_blank)
+        for column, types in group.stage_type_conflicts():
+            flags.append(f"stage_type_conflict:{group.stage.table} — column {column!r} is "
+                         f"stated as {types} by the records that share it; the first "
+                         f"({types[0]!r}) is written - check the STTM")
+        stage_types = dict(stage_columns)
+        for f in group.standard_fields:
+            stage_type = stage_types[f.stage_column]
             if group.standard is None:
                 continue    # Chunk B: a stage-only table (no standard flags for it)
             if no_band and profile.standard_from_stage:

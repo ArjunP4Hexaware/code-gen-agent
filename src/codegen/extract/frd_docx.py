@@ -840,14 +840,28 @@ def nested_table_names(rows: list[list[str]], config: FrdExtractorConfig
     ``layer_block_labels.table`` spelling ("Target Table"), in row order, each
     once; ([], None) when no header cell names a table column."""
     labels = {normalize_label(s) for s in config.layer_block_labels.get("table", [])}
-    if not rows:
+    # post182: the header is the first of the top rows that names a table column
+    # AND is no merged title (a title row repeats one text across its cells);
+    # values split on the list separators; a second header row (another nested
+    # table pooled into the cell) ends the column
+    def table_column(cells: list[str]) -> int | None:
+        cells = [c.strip() for c in cells]
+        column = next((i for i, c in enumerate(cells) if normalize_label(c) in labels), None)
+        return column if column is not None and len({c for c in cells if c}) > 1 else None
+
+    found = next(((n, col) for n, row in enumerate(rows[:config.nested_table_header_rows])
+                  if (col := table_column(row)) is not None), None)
+    if found is None:
         return [], None
-    column = next((i for i, cell in enumerate(rows[0]) if normalize_label(cell) in labels), None)
-    if column is None:
-        return [], None
-    names = [row[column].strip() for row in rows[1:]
-             if column < len(row) and row[column].strip()]
-    return list(dict.fromkeys(names)), rows[0][column].strip()
+    start, column = found
+    header = rows[start]
+    names: list[str] = []
+    for row in rows[start + 1:]:
+        cell = row[column].strip() if column < len(row) else ""
+        if normalize_label(cell) in labels:
+            break
+        names += _split(cell, config.list_separators)
+    return list(dict.fromkeys(names)), header[column].strip()
 
 
 def parse_layer_blocks(value: str, config: FrdExtractorConfig) -> dict[str, dict[str, str]] | None:

@@ -245,3 +245,18 @@
 - Approx. time lost: ~3 minutes
 - Proposed refinement (for a retro, not now): include the failing assertion line / first E line
   in signal (a)'s signature.
+
+## 2026-11-06: Databricks App deploys of every commit after 597c848 failed ("failed to extract source code from Git")
+- Actual cause: a transient Databricks-side fault in the App build's Git download / extract
+  step. Nothing in the repo: the same post180 / post181 commits deployed fine about an hour
+  later; the docs-only 4b066b1 (never deployed before) succeeded first, ruling out a cached
+  archive; GitHub served every commit as a valid archive throughout.
+- Pattern: A (wrong layer - the Databricks build layer, not the code)
+- Caught by skill: yes (stopped after the branch x2 + sha x1 failures; one owner-approved
+  diagnostic deploy, then the target)
+- Earliest signal that would have revealed it: the old commit 597c848 deploying by sha while
+  the new ones failed, with GitHub's zipball of both valid - pointed away from the content.
+- Approx. time lost: ~45 minutes, and the dev App was DOWN (502) twice: a failed deploy
+  replaces the running one.
+- Permanent fix: RESTART.md records the restore-by-sha command; a mistyped (invented) sha
+  cost one deploy - look the sha up (`git rev-parse`) before pasting it.

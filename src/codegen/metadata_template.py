@@ -509,11 +509,24 @@ class _TableGroup:
 
     @property
     def fields(self) -> list[SttmField]:
-        """The table's columns, STTM order, a column shared by its segments once.
-        post180: the field standing for a shared column is the first that carries
-        a Standard band - a header row whose standard mapping is blank (a summary
-        table not built) no longer hides the detail rows' mapping of the same
-        column (the DDL and the IIG lost that standard column)."""
+        """The table's columns, STTM order, a column shared by its segments once
+        (the first field states the STAGE column - its type, comment, citation)."""
+        seen: set[str] = set()
+        out: list[SttmField] = []
+        for segment in self.segments:
+            for f in segment.fields:
+                if f.stage_column not in seen:
+                    seen.add(f.stage_column)
+                    out.append(f)
+        return out
+
+    @property
+    def standard_fields(self) -> list[SttmField]:
+        """post180 / post182: the fields the STANDARD table reads, same order: a
+        shared column's first field that carries a Standard band - a header row
+        with a blank standard mapping (a summary table not built) no longer hides
+        the detail rows' mapping of the same column. The stage side keeps the
+        first field (``fields``)."""
         at: dict[str, int] = {}
         out: list[SttmField] = []
         for segment in self.segments:
@@ -525,6 +538,18 @@ class _TableGroup:
                 elif out[index].standard_column is None and f.standard_column is not None:
                     out[index] = f
         return out
+
+    def stage_type_conflicts(self) -> list[tuple[str, list[str]]]:
+        """post182: shared stage columns whose fields state different stage types
+        (the first field's is written)."""
+        types: dict[str, list[str]] = {}
+        for segment in self.segments:
+            for f in segment.fields:
+                stated = (f.stage_datatype or "").strip()
+                seen = types.setdefault(f.stage_column, [])
+                if stated and stated not in seen:
+                    seen.append(stated)
+        return [(c, t) for c, t in types.items() if len(t) > 1]
 
     @property
     def is_detail(self) -> bool:
@@ -1874,7 +1899,7 @@ def _stg_object_name(tpl: MetadataTemplateConfig, table: str, generalized: str) 
 
 def _stg_std_row(tab, feed, config, spec, faq, tpl, profile, group: _TableGroup,
                  lobs: list[str], generalized: str) -> dict:
-    fields = [f for f in group.fields if f.standard_column]
+    fields = [f for f in group.standard_fields if f.standard_column]
     audit = _group_audit(group, spec, tpl)
     stage = group.stage
     standard = group.standard
@@ -2688,7 +2713,7 @@ def _std_dq_rules(kind: str, tpl: MetadataTemplateConfig, group: _TableGroup) ->
     """A STDDelta rule kind's rows for one standard table (D1 post44: the SFMC
     reference rows' shapes — SOURCE_COLUMN = TARGET_COLUMN the columns)."""
     standard = group.standard
-    fields = [f for f in group.fields if f.standard_column]
+    fields = [f for f in group.standard_fields if f.standard_column]
     if standard is None or not fields:
         return []
     if kind == "lr_trim":

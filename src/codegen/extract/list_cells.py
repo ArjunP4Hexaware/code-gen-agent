@@ -30,13 +30,36 @@ def listed_tables(value: str | None) -> list[str] | None:
     return names
 
 
-def split_count(stage_table: str | None, own_files: list[str]) -> int | None:
-    """How many feeds a sheet splits into: the stage list cell's length when the
-    sheet's own file cell states exactly that many files; else None (no split)."""
+def split_count(stage_table: str | None, own_files: list[str],
+                standard_tables: list[str | None] | None = None) -> int | None:
+    """How many feeds a sheet splits into, else None (no split). post182 (an
+    adversarial review): the evidence must be stated twice and agree -
+    * the sheet's own File Names cell states exactly as many files;
+    * a STANDARD TableName cell lists as many names too (one stage cell with two
+      words and a file + its control file was a typo split into two feeds);
+    * the order agrees: a table's distinctive word (one no other listed table
+      has) that names a DIFFERENT position's file, and not its own, refuses the
+      split (the files listed in the other order would pair crosswise)."""
     names = listed_tables(stage_table)
     if names is None or len(own_files) != len(names):
         return None
-    return len(names)
+    count = len(names)
+    if not any(len(listed_tables(s) or []) == count for s in standard_tables or []):
+        return None
+    words = [set(n.lower().split("_")) for n in names]
+    for i, own in enumerate(words):
+        distinctive = own - set().union(*(w for j, w in enumerate(words) if j != i))
+        hits = {j for j, f in enumerate(own_files)
+                for w in distinctive if len(w) > 1 and w in f.lower()}
+        if hits and i not in hits:
+            return None
+    return count
+
+
+def nth_name(value: str | None, index: int) -> str | None:
+    """The ``index``-th name of a list cell (the split's flag / label text)."""
+    names = listed_tables(value) or []
+    return names[index] if index < len(names) else None
 
 
 def pick(value: str | None, index: int, count: int) -> tuple[str | None, bool]:

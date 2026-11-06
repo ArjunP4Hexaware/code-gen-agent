@@ -114,10 +114,17 @@ def test_a_cell_lists_tables_only_when_every_word_is_an_identifier():
 def test_the_split_needs_as_many_files_as_tables():
     """Evidence, never a guess: 'claims history' with ONE file is a mistyped
     name (the resolver's TableNameError says so), not two feeds."""
-    assert split_count(STAGE, FILES) == 2
-    assert split_count("claims history", ["claims.txt"]) is None
-    assert split_count(STAGE, FILES[:1]) is None
-    assert split_count("nb_a_remit", ["a.txt"]) is None
+    assert split_count(STAGE, FILES, [MAIN]) == 2
+    assert split_count("claims history", ["claims.txt"], [MAIN]) is None
+    assert split_count(STAGE, FILES[:1], [MAIN]) is None
+    assert split_count("nb_a_remit", ["a.txt"], [MAIN]) is None
+    # post182: the standard cells must list as many names too (a typo + its control
+    # file is no list), and the files must not contradict the order
+    assert split_count(STAGE, FILES, ["nb_rm_one"]) is None
+    assert split_count("nb_inex_rm nb_ohex_rm", ["OHEX_A.txt", "INEX_B.txt"],
+                       ["nb_inex nb_ohex"]) is None
+    assert split_count("nb_inex_rm nb_ohex_rm", ["INEX_A.txt", "OHEX_B.txt"],
+                       ["nb_inex nb_ohex"]) == 2
 
 
 def test_a_cell_gives_each_feed_its_position_or_nothing():
@@ -225,11 +232,12 @@ def test_the_shared_column_prefers_the_field_with_a_standard_band():
     group = _TableGroup(stage=None, standard=None,
                         segments=[SimpleNamespace(fields=[header]),
                                   SimpleNamespace(fields=[detail, other])])
-    assert group.fields == [detail, other]
+    assert group.standard_fields == [detail, other]
+    assert group.fields == [header, other]      # post182: the stage side keeps the first
     both = SimpleNamespace(stage_column="REC_SEQ", standard_column="SEQ_STD")
     group = _TableGroup(stage=None, standard=None,
                         segments=[SimpleNamespace(fields=[both, detail])])
-    assert group.fields == [both]                          # the first mapped one stays
+    assert group.standard_fields == [both]                 # the first mapped one stays
 
 
 # --- post181: one standard table per stage table, on every sheet --------------------

@@ -4,6 +4,42 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post182 — 2026-11-06 (an adversarial review of post178-181: nine fixes)
+
+An independent review fed unusual but plausible synthetic workbooks to post178-181;
+each finding below was reproduced, and has a test in `tests/test_adversarial_post182.py`
+that fails on post181.
+
+1. **The main standard table of a stage table** (`generic._one_standard_table_per_stage`):
+   the table named like the stage table, else a STRICT majority; a tie names none - every
+   standard mapping of that stage table blank + `sttm_standard_table_ambiguous:` (a 2 / 2
+   tie kept the summary table and blanked the detail record).
+2. **A vertical merged standard TableName cell** carries down within its stage block (as
+   the stage cell does): its non-anchor rows read None and went into the main table.
+3. **Two sheets named like each other's files** (`_match_feed`): the own-file label first,
+   the sheet name first only when two sheets' own files give the same label - they paired
+   crosswise (each file joined to the other's layout).
+4. **A list split needs the evidence twice** (`list_cells.split_count`): a standard
+   TableName cell listing as many names too, and no table's distinctive word naming
+   another position's file - a two-word typo + a file and its control file became two
+   invented feeds.
+5. **A comma-separated list** splits the same in layout and extract-sttm (`listed_tables`
+   on both sides; the layout used `str.split()` and failed the join).
+6. **The split decision from the same evidence on both sides**: the layout's File Names
+   only (not File Name Example), extract-sttm's stage dominant counts the audit rows too.
+7. **A shared stage column keeps the FIRST record's type** (`_TableGroup.fields`); the
+   standard side reads `standard_fields` (post180's rule); differing stated types are
+   flagged `stage_type_conflict:` in the DDL.
+8. **Split flags cite the real sheet and the right feed**: the `<sheet> [i of n]` label is
+   internal (`split_frd_feeds_by_sttm` maps it back); a shadowed loop index wrote
+   `feeds[0]` for the split feed.
+9. **A nested FRD target-table cell**: the header row may sit under a merged title row
+   (`frd.nested_table_header_rows`), a cell may list several tables (`list_separators`),
+   a second nested header row ends the column.
+- **post180 regression**: a "Record Type" column holding no Header / Detail / Trailer word
+  reads as unsegmented (`extractor.discovery.weak_segment_headers`; the layout records the
+  segment column's header, `SheetProfile.segment_header`) - it stopped the run.
+
 ## 0.5.8.post181 — 2026-11-06 (one standard table per stage table, on every sheet)
 
 post180 blanked + flagged the rows of a second standard table only inside a list-cell

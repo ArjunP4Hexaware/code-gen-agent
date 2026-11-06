@@ -155,3 +155,15 @@ Entry format:
 - Pattern: A (wrong layer - timing of a background worker, not the code under test)
 - Seen: 2026-10-23
 - Permanent fix: list, then `_index_idle()` before selecting (the chooser's order).
+
+## A Databricks App deploy fails in its Git download / extract step
+- Signature: `databricks apps deploy` FAILED with "Error downloading source code ...
+  Unexpected error" or "failed to extract source code from Git"; the App then answers 502.
+- Usual cause: a transient fault in the Databricks build layer (2026-11-06: cleared within
+  the hour), not the repo content.
+- Check: GitHub's zipball of the commit opens and `testzip()`s clean; an older commit
+  deploys by sha; a never-deployed docs-only commit deploys - all yes = Databricks side.
+- Pattern: A (wrong layer)
+- Seen: 2026-11-06
+- Permanent fix: restore the App by deploying the last good commit by sha; retry later, not
+  in a loop (each failure takes the App down).

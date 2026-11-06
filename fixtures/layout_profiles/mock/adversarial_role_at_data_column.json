@@ -10,6 +10,7 @@
       "meta_rows": [],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [
         "Date",
         "Version",
@@ -27,6 +28,7 @@
       "meta_rows": [],
       "segment_strategy": "none",
       "segment_column": null,
+      "segment_header": null,
       "headers": [
         "Source LOB Code",
         "Source LOB Name",
@@ -190,6 +192,7 @@
       ],
       "segment_strategy": "column",
       "segment_column": 2,
+      "segment_header": "Segment",
       "headers": [],
       "notes": [
         "band row 14, header row 15"

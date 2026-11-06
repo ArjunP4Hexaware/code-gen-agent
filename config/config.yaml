@@ -289,6 +289,9 @@ extractor:
     # A Segment cell that says "no segment" (D1 post51 pair_05). Only these (or
     # blank) in a sheet = unsegmented; never a banner / sheet-name spelling.
     unsegmented_markers: ["na", "n/a", "-", "none", "null"]
+    # post182: a segment-column header that only MAY name segments - a column under
+    # it holding no Header / Detail / Trailer word reads as unsegmented (flagged)
+    weak_segment_headers: ["record type"]
     auxiliary_sheets:
       file_details: [["vendor", "filename"], ["vendor", "file name"], ["inbound file name"]]
       table_details: [["table name", "table description"], ["name", "table description", "load strategy"]]
@@ -481,6 +484,8 @@ extractor:
     # First-row words that mark a nested table's header row.
     nested_table_header_words: ["file_name", "file name", "filename", "path", "mftlanding path",
                                 "vendor", "inb/oub", "location", "description"]
+    # post182: a nested target-table cell's header is looked for in its first rows
+    nested_table_header_rows: 3
     structured_text_max_chars: 200
     # M9.3 (docs/acfc/HANDOVER_GENIE.md §4 error 6): a target cell may hold
     # an inline layer block —

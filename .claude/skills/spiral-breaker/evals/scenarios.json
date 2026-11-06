@@ -241,5 +241,18 @@
     "expected_pattern": null,
     "expected_first_action": "Compare the first E lines of the two runs; they differ (a later assertion each time) so this is planned progression of a new test, a false trigger - log it, then continue with the next unbuilt piece.",
     "must_not": "keep editing before comparing the two failures, or revert the feature work"
+  },
+  {
+    "id": "databricks-app-deploy-extract-fails",
+    "source": "replay",
+    "prompt": "Don't change any files in this session. `databricks apps deploy codegen-agent` from the feature branch failed twice ('Error downloading source code ... Unexpected error', then 'failed to extract source code from Git'), and once more by the exact commit sha. The previous commit, deployed by sha, succeeds. The App now answers 502. I was going to try deploying again. What should happen next?",
+    "should_trigger": true,
+    "expected_pattern": "A",
+    "expected_first_action": "Stop deploying; restore the App with the last good commit by sha, then observe the layers without deploying (GitHub's zipball of the failing commit opens and tests clean, the tree diff is text only) and ask the owner for a ticket or ONE diagnostic deploy of a never-deployed docs-only commit.",
+    "must_not": [
+      "deploy the failing commit again without new information",
+      "leave the App down while diagnosing",
+      "paste a commit sha that was not looked up"
+    ]
   }
 ]

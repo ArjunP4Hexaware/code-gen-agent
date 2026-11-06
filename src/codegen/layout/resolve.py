@@ -1437,12 +1437,14 @@ def _split_list_entry(entry: dict) -> list[dict]:
     Each is labelled ``<sheet> [i of n]`` (the split's dicts key on the label);
     ``sheet_name`` keeps the sheet. Any other entry is returned as it is. post180: a
     segmented sheet splits too, under the same one-standard-table rule."""
-    from codegen.extract.list_cells import pick, split_count
+    from codegen.extract.list_cells import listed_tables, pick, split_count
 
-    count = split_count(entry["stage_table"], [n for n, _c in entry["own_files"]])
+    listed = entry.get("listed_files") or []
+    count = split_count(entry["stage_table"], [n for n, _c in listed],
+                        list(entry.get("standard_tables") or []))
     if count is None:
         return [entry]
-    names = entry["stage_table"].split()
+    names = listed_tables(entry["stage_table"]) or []
     out = []
     for index in range(count):
         def one(value, index=index):
@@ -1457,18 +1459,20 @@ def _split_list_entry(entry: dict) -> list[dict]:
                     "stage_table": names[index], "stage_tables": [names[index]],
                     "standard_table": standard,
                     "standard_tables": [standard] if standard else [],
-                    "own_files": [entry["own_files"][index]],
+                    "own_files": [listed[index]],
                     "list_position": (index, count),
                     "table_rows": [(one(a), one(b), one(c)) for a, b, c in entry["table_rows"]]})
     return out
 
 
-def _own_sheet_files(sp, ws, config: Config) -> list[tuple[str, str]]:
+def _own_sheet_files(sp, ws, config: Config,
+                     keys: tuple[str, ...] = ("file_names", "file_name_example")
+                     ) -> list[tuple[str, str]]:
     """The file(s) a mapping sheet's own ``File Name`` meta row states."""
     blanks = config.extractor.discovery.meta_blank_values
     found: list[tuple[str, str]] = []
     for entry in sp.meta_rows:
-        if entry.key not in ("file_names", "file_name_example") or entry.value_col is None:
+        if entry.key not in keys or entry.value_col is None:
             continue
         value = text(ws.cell(row=entry.row, column=entry.value_col).value)
         if not value or is_blank_placeholder(value, blanks):
@@ -1532,6 +1536,9 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
                  # 2026-10-13: the file THIS sheet maps, from its own meta row
                  # (family E: one mapping sheet per source file) — (name, cell).
                  "own_files": _own_sheet_files(sp, ws, config),
+                 # post182: the File Names row only - the list split's evidence is
+                 # the cell extract-sttm reads (a File Name Example row is not)
+                 "listed_files": _own_sheet_files(sp, ws, config, keys=("file_names",)),
                  # post156: row by row, which stage table goes with which standard /
                  # source table (the per-table split pairs by these, never by names)
                  "table_rows": [],
@@ -2428,6 +2435,32 @@ def break_file_tie(tied: list[str], kinds: dict[str, set[str]], profile,
 def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, config: Config,
                             *, force: bool = False, remember: dict | None = None
                             ) -> tuple[FrdContract, list[str], list[LayoutQuestion]]:
+    """post182: the per-sheet split below keys its entries on ``sheet``, which
+    a list-cell split labels ``<sheet> [i of n]`` (unique per entry). That label
+    is internal: every flag and question names the sheet as written."""
+    split, flags, questions = _split_frd_feeds_by_sttm(contract, facts, gaps, config,
+                                                       force=force, remember=remember)
+    labels = {e["sheet"]: e["sheet_name"] for e in facts.get("sheet_tables") or []
+              if e.get("sheet_name")}
+    if not labels:
+        return split, flags, questions
+
+    def plain(text: str) -> str:
+        for label, sheet in labels.items():
+            text = text.replace(repr(label), repr(sheet)).replace(label, sheet)
+        return text
+
+    from dataclasses import replace as _replace
+
+    return split, [plain(f) for f in flags], [
+        _replace(q, reason=plain(q.reason), title=plain(q.title),
+                 sheet=labels.get(q.sheet, q.sheet) if q.sheet is not None else None)
+        for q in questions]
+
+
+def _split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, config: Config,
+                             *, force: bool = False, remember: dict | None = None
+                             ) -> tuple[FrdContract, list[str], list[LayoutQuestion]]:
     """A single FRD metadata block that describes several files (its
     'Target Table Name' row lists FILE names, none of them an STTM stage
     table) becomes one FRD feed per STTM mapping sheet: feed name and stage
@@ -2650,9 +2683,9 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
         elif chosen is None and entry.get("list_position") is not None:
             # post179: a list-cell split - the file at this table's position
             name, cell = entry["own_files"][0]
-            index, count = entry["list_position"]
+            position, count = entry["list_position"]
             patterns = [name]
-            flags.append(f"frd_unstated:{key} source_used:{cell}: {name!r} (file {index + 1} "
+            flags.append(f"frd_unstated:{key} source_used:{cell}: {name!r} (file {position + 1} "
                          f"of {count} in the cell, the position of table "
                          f"{entry['stage_table']!r} in the TableName list cells)")
         elif chosen is None and entry["sheet"] in own_file_sheets:

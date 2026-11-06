@@ -4,12 +4,16 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-06 evening - post181 on BOTH Apps)
+## Start here (2026-11-06 night - post182 on BOTH Apps)
 
 **First check:** `git fetch && git status -sb` - up to date with `origin/feature/multi-table`.
-BOTH Apps on post181: dev from commit 6b34bc1 (deployed BY SHA - the next deploy can go back
-to `git_source.branch`), staging from `main` f2a1634 (identical-tree merge of feature
-6b34bc1); health post181 + smoke (Generate + Results 200, 0 console errors) green on both.
+BOTH Apps on post182: dev from feature 857470f (branch deploy), staging from `main` 0582e8c
+(identical-tree merge of feature 857470f); health post182 + smoke (Generate + Results 200,
+0 console errors) green on both. post182 = nine fixes from an adversarial review of
+post178-181 (CHANGELOG_ACFC.md; `tests/test_adversarial_post182.py` fails on post181);
+both suites green, 12-pair check outcomes unchanged and no artefact change (the layout
+profiles gain `segment_header`, the reports their version line). The tracked layout
+profiles were regenerated (`scripts/build_layout_profiles.py`: `segment_header` added only).
 
 **The deploy failures (resolved, transient):** for about an hour every new commit failed in
 the Databricks build's Git download / extract step and each failure took the dev App DOWN

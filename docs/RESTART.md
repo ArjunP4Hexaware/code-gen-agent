@@ -4,41 +4,30 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-06 evening - post181 pushed, NOT deployed)
+## Start here (2026-11-06 evening - post181 on BOTH Apps)
 
-**First check:** `git fetch && git status -sb` - up to date with `origin/feature/multi-table`
-at post181 (8874764). **Both Apps are on post179**: dev from commit 597c848 (redeployed by
-sha after the failures below; health post179 + smoke green), staging from `main` 7a7c245.
-`main` was NOT moved for post180 / post181.
+**First check:** `git fetch && git status -sb` - up to date with `origin/feature/multi-table`.
+BOTH Apps on post181: dev from commit 6b34bc1 (deployed BY SHA - the next deploy can go back
+to `git_source.branch`), staging from `main` f2a1634 (identical-tree merge of feature
+6b34bc1); health post181 + smoke (Generate + Results 200, 0 console errors) green on both.
 
-**Blocker - any commit after 597c848 fails to deploy** (Databricks build layer): branch
-deploys failed "Error downloading source code ... Unexpected error" then "failed to extract
-source code from Git"; the exact sha cd154c3 failed the same; 597c848 by sha SUCCEEDED twice.
-GitHub serves both commits as valid archives (zipball 9.26 MB, 973 entries, testzip clean;
-the tree diff is text only - no new file, no mode change, no odd bytes). Request ID
-a0015f2b-de4e-41b4-a101-43005e93c83a; deployments 01f1da1d20721f7bb0bf54dbaa83a293,
-01f1da1d4a90164482483141fc6ca9f0. **A failed deploy takes the App DOWN (502)** - restore with
-`databricks apps deploy codegen-agent -p codegen-oaut --json '{"mode":"SNAPSHOT",
-"git_source":{"commit":"597c8487273eef933ff8fdaf7e79c30bf1adb5f0"}}'`. Spiral check done
-(pattern A, Databricks layer); NO more deploy attempts without Soham: a Databricks ticket,
-or his go for ONE diagnostic deploy of the docs-only commit 4b066b1 (fails = not our
-content). Log the cause in docs/spiral-log.md once known.
+**The deploy failures (resolved, transient):** for about an hour every new commit failed in
+the Databricks build's Git download / extract step and each failure took the dev App DOWN
+(502); the docs-only 4b066b1 then deployed, and so did the post181 tip. Spiral log
+2026-11-06; restore command if it recurs: deploy the last good commit by sha
+(`databricks apps deploy codegen-agent -p codegen-oaut --json '{"mode":"SNAPSHOT",
+"git_source":{"commit":"<full sha from git rev-parse>"}}'`).
 
-**Ready to ship once deploys work** (each: both suites green, its tests fail with only it
-reverted, 12-pair check outcomes unchanged + no artefact change beyond the report's
-version line):
-- post180: "Record Type" is a segment column (H/D/T read by record type - the 820 pair's
-  ruff F601 gone), the list split on segmented sheets, `_TableGroup.fields` keeps a shared
-  column's standard mapping. 820 pair mock: PASS_WITH_OPEN_INPUTS, both feeds PASS_WITH_FLAGS.
-- post181: one standard table per stage table on EVERY sheet (`generic
-  ._one_standard_table_per_stage`) - rows naming a second one blank + flagged, never dropped.
-Then: dev deploy + smoke, `main` merge (`git commit-tree feature^{tree} -p origin/main -p
-feature`), staging deploy + smoke (the tester's bug - Soham's word given for this fix line).
+**Shipped this evening:** post180 (H/D/T read by record type, the list split on segmented
+sheets, a shared column keeps its standard mapping) and post181 (one standard table per
+stage table on every sheet). Each: both suites green, its tests fail with only it reverted,
+12-pair check outcomes unchanged and no artefact change beyond the report's version line.
+820 pair (mock): PASS_WITH_OPEN_INPUTS, both feeds PASS_WITH_FLAGS.
 
 **Open, in order:**
-1. The deploy blocker above.
-2. Tell the tester (via Soham) once staging has post180/181: the 820 pair runs through
-   (its `_sumry` tables are flagged, not built); the HBL pair reaches the normal questions.
+1. Tell the tester (via Soham): staging has post181 - the 820 pair runs through (its
+   `_sumry` tables are flagged, not built); the HBL pair reaches the normal questions.
+2. (spare slot)
 3. A second standard table per stage table (summary tables by record type) - a model
    change in `metadata_template._table_groups` + the IIG's stage-to-standard rows (which
    records go where is not an IIG value any document states) - Soham's call.

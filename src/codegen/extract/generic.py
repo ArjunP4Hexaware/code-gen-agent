@@ -21,7 +21,7 @@ Two stages:
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from openpyxl.utils import get_column_letter
@@ -88,6 +88,9 @@ class SheetData:
     fields: list[FieldRow] = field(default_factory=list)
     audit: list[AuditRow] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    # post179: the flags of a list-cell split (_split_by_list) - this copy is
+    # one of the parallel feeds; the feed carries them as extraction flags.
+    list_split_flags: list[str] = field(default_factory=list)
 
     def rows_per_segment(self) -> dict[str, int]:
         counts: dict[str, int] = {}
@@ -721,13 +724,22 @@ def _match_feed(sheet: SheetData, stage_table: str | None, frd: FrdContract,
             return matches[0]
         if len(matches) > 1:
             # Several FRD feeds land in this table (family E: a file per
-            # sheet): the feed the layout stage named after THIS sheet.
-            named = [f for f in matches if f.feed_name.lower()
-                     == blank_sheet_feed_name(sheet.profile.name).lower()]
-            if len(named) == 1:
-                notes.append(f"sheet {sheet.profile.name!r} paired to FRD feed "
-                             f"{named[0].feed_name!r}, named after it by the layout stage")
-                return named[0]
+            # sheet): the feed the layout stage named after THIS sheet - its
+            # sheet name, or (post179, a staging run) its own file cell, the
+            # name layout.resolve.sheet_feed_label gave it.
+            from codegen.layout.resolve import sheet_feed_label
+
+            # The sheet name first: the layout falls back to it when two sheets'
+            # own file cells give the same name.
+            own_files = [(p, "") for p in _sheet_file_patterns(sheet, None)]
+            label, _where = sheet_feed_label({"sheet": sheet.profile.name, "own_files": own_files})
+            for name in dict.fromkeys((blank_sheet_feed_name(sheet.profile.name).lower(),
+                                       label.lower())):
+                named = [f for f in matches if f.feed_name.lower() == name]
+                if len(named) == 1:
+                    notes.append(f"sheet {sheet.profile.name!r} paired to FRD feed "
+                                 f"{named[0].feed_name!r}, named after it by the layout stage")
+                    return named[0]
     # 2026-10-13 (family E, a file per sheet): the sheet's OWN file row first —
     # the workbook's File Details lists every sheet's file, so pooled with it
     # each sheet matched every per-file feed. Only ever adds a match: a sheet
@@ -896,6 +908,78 @@ def parse_audit_answers(gaps: dict | None) -> dict[int, list[tuple[str, str]]]:
     return out
 
 
+_TABLE_KEYS = ("stage.table", "standard.table", "source.source_table")
+
+
+def _split_by_list(sheets: list[SheetData]) -> list[SheetData]:
+    """post179 (a staging run): a sheet whose stage TableName cells LIST tables
+    and whose own File Names cell states as many files is one mapping for that
+    many parallel feeds (``codegen.extract.list_cells``). Copy ``i`` takes the
+    ``i``-th name of every list cell and the ``i``-th file; a cell listing another
+    number of names is blank for it. A row whose standard table is not the
+    copy's main one (a summary table no feed builds) keeps its stage mapping and
+    loses its standard one - blank and flagged, never moved into the main table.
+    A segmented sheet, or one without the file evidence, is left as it is."""
+    from codegen.extract.list_cells import pick, split_count
+
+    out: list[SheetData] = []
+    for sheet in sheets:
+        stage = _dominant([r.values.get("stage.table") for r in sheet.fields])
+        files = [f.strip() for f in re.split(r"[\n;,]+", sheet.meta.get("file_names") or "")
+                 if f.strip()]
+        count = (split_count(stage, files)
+                 if sheet.profile.segment_strategy == "none" else None)
+        if count is None:
+            out.append(sheet)
+            continue
+        name = sheet.profile.name
+        for index in range(count):
+            mismatched: list[int] = []
+            rows: list[FieldRow] = []
+            for row in sheet.fields:
+                values = dict(row.values)
+                for key in _TABLE_KEYS:
+                    if key in values:
+                        values[key], other = pick(values[key], index, count)
+                        if other:
+                            mismatched.append(row.row)
+                rows.append(replace(row, values=values))
+            main = _dominant([r.values.get("standard.table") for r in rows])
+            other_std: dict[str, list[int]] = {}
+            for j, row in enumerate(rows):
+                table = row.values.get("standard.table")
+                if table is not None and main is not None and table != main:
+                    other_std.setdefault(table, []).append(row.row)
+                    rows[j] = replace(row, values={k: (None if k.startswith("standard.") else v)
+                                                   for k, v in row.values.items()})
+            audit = []
+            for entry in sheet.audit:
+                table, other = pick(entry.table, index, count)
+                if other:
+                    mismatched.append(entry.row)
+                audit.append(replace(entry, table=table))
+            flags = [f"sttm_list_cells_split:{name} — the stage TableName cells list "
+                     f"{count} tables and the File Names cell {count} files: feed "
+                     f"{index + 1} of {count} takes table {stage.split()[index]!r} and file "
+                     f"{files[index]!r} (the order the document states; check the pairing)"]
+            if mismatched:
+                rows_said = sorted(set(mismatched))
+                flags.append(f"sttm_list_cell_count:{name} — {len(rows_said)} row(s) list "
+                             f"another number of tables than {count} (rows {rows_said}); "
+                             "those cells are left blank for this feed")
+            for table, at in other_std.items():
+                flags.append(f"sttm_standard_table_not_built:{name} — {len(at)} row(s) map "
+                             f"to standard table {table!r}, not this feed's {main!r} (rows "
+                             f"{at[0]}-{at[-1]}); their standard mapping is left blank - the "
+                             "agent builds one standard table per feed")
+            out.append(SheetData(profile=sheet.profile,
+                                 meta={**sheet.meta, "file_names": files[index]},
+                                 meta_raw=sheet.meta_raw, fields=rows, audit=audit,
+                                 skipped=sheet.skipped if index == 0 else [],
+                                 list_split_flags=flags))
+    return out
+
+
 def _split_by_table(sheets: list[SheetData], frd: FrdContract) -> list[SheetData]:
     """post156: a mapping sheet whose stage TableName column names several tables,
     each of them ONE FRD feed's only stage table (the layout stage split the FRD
@@ -947,7 +1031,7 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
     feeds: list[SttmFeed] = []
     pending: list[PendingAnswer] = []
     questions: list[PendingAnswer] = []
-    for sheet in _split_by_table(ir.sheets, frd):
+    for sheet in _split_by_table(_split_by_list(ir.sheets), frd):
         try:
             open_bands = _open_band_layers(sheet, ir)
             if open_bands:
@@ -1097,7 +1181,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             f"sheet {name!r}: the stage band has no values for {missing} (roles unresolved or "
             "empty) — a contract needs stage column and data type per field"),
             _at(ir, name, sp.header_row), "sttm.missing", role=missing[0])
-    flags: list[str] = []
+    flags: list[str] = list(sheet.list_split_flags)
     band_table, table_provenance = _band_constant(sheet, "stage.table")
     stage_catalog, _ = _band_constant(sheet, "stage.catalog")
     if band_table is not None:

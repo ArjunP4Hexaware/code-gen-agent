@@ -4,6 +4,41 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post179 — 2026-11-06 (three staging-run fixes: list cells, nested FRD tables, audit types)
+
+Two runs on the staging App failed on real pairs. Soham's rule for the fixes:
+the documents fill what they state, the rest is blank and flagged - never a guess.
+
+- **A TableName cell that lists tables** (`codegen.extract.list_cells`). One STTM
+  mapping for two parallel feeds (a table per line of business) put both names in
+  every stage cell and both files in the File Names cell; the whole cell reached the
+  resolver as one table name (`TableNameError`). The sheet is now split by POSITION:
+  feed i takes the i-th name of every list cell and the i-th file line - only when the
+  File Names cell states as many files as the cells list tables (`claims history` with
+  one file is still a mistyped name, as before). Layout (`_split_list_entry`) and
+  extraction (`_split_by_list`) split the same way; flags `sttm_list_cells_split:`
+  (one per feed, "check the pairing"), `sttm_list_cell_count:` (a cell listing another
+  number of names - blank for the feed). Rows whose standard table is not the feed's
+  main one (header / trailer rows into a `_sumry` table) keep their stage mapping and
+  leave the standard one blank: `sttm_standard_table_not_built:` - they were moved
+  into the main table silently before. Non-split sheets keep the old dominant-table
+  rule (a known gap, RESTART.md).
+- **An FRD target-table cell holding a nested table** (`frd_docx.nested_table_names`):
+  a "Vendor | Target Table" table inside the cell gave four table names (both header
+  words, the vendor, the table), so the layout split one FRD feed into four. The
+  names are now the values of the column whose header is a `layer_block_labels.table`
+  spelling; a nested table with no such column states no table (blank + flagged
+  `frd_nested_tables:`, the STTM fills it).
+- **Two sheets mapping one table with the same file**: the layout names the first
+  feed after the file and the second (a clash) after its sheet; extract-sttm only knew
+  the sheet-name rule and stopped ("matches 2 FRD feeds"). `_match_feed` now tries the
+  sheet name, then the sheet's own file cell (`sheet_feed_label`, the layout's rule).
+- **Audit column types as stated** (config): `acfc_prx.audit_datatypes` is every type
+  the contract can spell (`integer` -> INT, bigint, smallint, tinyint, boolean, string,
+  timestamp) for every audit column; a staging STTM's `LINE_NUMBER integer` stopped
+  the run. A type word the contract cannot spell still stops it. The reference profile
+  (`edo_sfmc`) keeps string / timestamp.
+
 ## 0.5.8.post178 — 2026-11-06 (the per-feed ADDITION.md is retired; the run's LOG.md replaces it)
 
 Soham: ADDITION.md and LOG.md are one thing - the run's `<STTM>_LOG.md` already said

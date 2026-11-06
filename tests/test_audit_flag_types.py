@@ -46,9 +46,42 @@ def test_other_audit_columns_keep_string_and_timestamp(config, tmp_path):
                          generated_date="2026-01-01")
 
 
+def _acfc_prx(config):
+    conventions = config.conventions.model_copy(update={"profile": "acfc_prx"})
+    return config.model_copy(update={"conventions": conventions})
+
+
+@pytest.mark.parametrize(("column", "raw", "spelled"), [
+    ("LINE_NUMBER", "integer", "INT"), ("LINE_NUMBER", "Integer", "INT"),
+    ("LOAD_ID", "bigint", "BIGINT"), ("ROW_SEQ", "smallint", "SMALLINT"),
+    ("IS_CURRENT", "boolean", "BOOLEAN"),
+])
+def test_acfc_prx_writes_a_stated_audit_type_as_stated(config, tmp_path, column, raw, spelled):
+    """post179 (a staging run): under acfc_prx an audit column's stated integer /
+    boolean type is transcribed, not refused - the STTM fills what it states."""
+    config = _acfc_prx(config)
+    workbook = family_e_workbook(tmp_path / "p6.xlsx", [None], audit=AUDIT + [(column, raw)])
+    contract = extract_contract(workbook, family_e_frd(tmp_path / "frd.json"), config,
+                                generated_date="2026-01-01")
+    (feed,) = contract.feeds
+    assert [(a.column, a.datatype) for a in feed.audit_columns][-1] == (column, spelled)
+
+
+def test_acfc_prx_still_refuses_a_type_it_cannot_spell(config, tmp_path):
+    workbook = family_e_workbook(tmp_path / "p6.xlsx", [None],
+                                 audit=AUDIT + [("LINE_NUMBER", "number")])
+    with pytest.raises(Exception, match=r"audit column 'LINE_NUMBER' has datatype 'number'"):
+        extract_contract(workbook, family_e_frd(tmp_path / "frd.json"), _acfc_prx(config),
+                         generated_date="2026-01-01")
+
+
 def test_the_accepted_sets_are_profile_configuration(config):
     profile = config.conventions.get("acfc_prx")
-    assert profile.audit_datatypes == ["string", "timestamp"]
+    # post179: every type the contract can spell (the reference profile keeps
+    # string / timestamp - the model default)
+    assert profile.audit_datatypes == ["string", "timestamp", "tinyint", "smallint", "int",
+                                       "integer", "bigint", "boolean"]
+    assert config.conventions.get("edo_sfmc").audit_datatypes == ["string", "timestamp"]
     assert profile.audit_flag_datatypes == ["tinyint", "int", "smallint", "boolean"]
     assert profile.audit_flag_suffixes == ["_flag", "_ind"]
     widened = profile.model_copy(update={"audit_datatypes": ["string", "timestamp", "bigint"]})

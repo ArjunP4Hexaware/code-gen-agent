@@ -318,6 +318,12 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   pairing from the documents (standard table from its rows, file pattern by file
   identity) or blank + flagged - never token overlap. When the FRD names no table
   (pair_09) it is not split (parked with the RDMS sheet; RESTART.md).
+  **A TableName cell that LISTS tables** (post179, `extract/list_cells.py`): one
+  mapping for parallel feeds is split by POSITION (feed i = the i-th name of every
+  list cell + the i-th line of File Names) only when File Names states as many files;
+  else no split. A row naming another standard table keeps stage, standard blank +
+  flagged. An FRD target-table cell holding a nested table is read by its table
+  column, never its header words.
   **The STTM is authoritative for a feed's table set** (post160, Soham 2026-11-02): FRD
   stage tables no STTM field maps are set aside, never silently (flag
   `frd_tables_set_aside:stage` + NOTE + one non-blocking INPUT_NEEDED) - only when that

@@ -221,6 +221,14 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
     and run them as files; write commit messages to a file and `git commit -F`;
   - `fixtures/** -text` commits raw bytes — patch fixtures with `read_bytes` /
     `write_bytes`, keep each file's EOL, check `git diff --cached --stat` for churn;
+  - the state root lives in TWO copies: the Apps' `CODEGEN_STATE_DIR` (Workspace
+    `codegen/state/codegen-state/`, mirrored read-only on every generate request - no
+    restart) and the volume `d1_dlk/codegen/state/` the harness recipe copies; a state
+    edit goes to both (byte-check each, a dated `.bak_<date>` beside it - loaders read only
+    `<name>.yaml`), and it reaches BOTH Apps at their next run - Soham's word first;
+  - the Playwright smoke here needs `LD_LIBRARY_PATH=/tmp/pwlibs/usr/lib/x86_64-linux-gnu:
+    /tmp/pwlibs/lib/x86_64-linux-gnu PLAYWRIGHT_BROWSERS_PATH=/tmp/pw` (dev_bootstrap's
+    Chromium + libs); without them Chromium dies on a missing `.so`, not the App;
   - the container harness applies the state volume's `answers/<pair>/answers.yaml`, so a
     question the App asks (it applies none) may never appear in a harness run — check an
     App-path fix through the App's API (a local server on a scratch copy, mock);

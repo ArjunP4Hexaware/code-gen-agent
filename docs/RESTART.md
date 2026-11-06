@@ -4,7 +4,7 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (session ended 2026-11-05 late night - nothing pending)
+## Start here (session ended 2026-11-06 on /clear - nothing pending, nothing running)
 
 **First check:** `git fetch && git status -sb` should say up to date with
 `origin/feature/multi-table`. BOTH Apps on post177: dev from feature 56f10cc, staging
@@ -26,7 +26,7 @@ below is live on both. Session log: CLAUDE_HISTORY §[H21].
 5. Older items: the Apps stop / start schedule (spend), Venu's answer on GPT-6.1 Sol, the
    11-pair layout cost measurement, Rama's answers (blocks below).
 
-## State (2026-11-05 late night — post177 on the dev App)
+## State (2026-11-06 — post177 on BOTH Apps)
 
 - **State overlay: three own-pair overrides REMOVED** (Soham's word; both copies - the
   Workspace `codegen/state/codegen-state/overlays/acfc_prx.yaml` the Apps read and the
@@ -51,13 +51,25 @@ below is live on both. Session log: CLAUDE_HISTORY §[H21].
   schema-drift flags, `/Workspace` notebook prefix, ACTIVE_END_DATE hold; default path
   family holds on pair_12's ADLS sheet but not its STGDELTA sheet; data_type_style mixed;
   NO_OF_CYCLE_PER_DAY fails on 2 of 3.
-- **Delegation workbook** (Workspace `STTM_to_Artefacts_Agent_Delegation (1).xlsx`):
-  columns I-K (built today) + sheet "Measured 2026-11-05"; the original saved beside it
-  (`... - before 2026-11-05.xlsx`). Its 86% / 39% predate the honest scores above.
-- Recipes rebuilt this session: `/tmp/deleg_scripts/` (`pair_check.sh` + `classify.py`
-  = the 12-pair check; `heldout.sh`, `score_run.sh` [+ STRIP=1]); Chromium needs
-  `LD_LIBRARY_PATH=/tmp/pwlibs/usr/lib/x86_64-linux-gnu:/tmp/pwlibs/lib/x86_64-linux-gnu
-  PLAYWRIGHT_BROWSERS_PATH=/tmp/pw` for `/tmp/t/smoke/smoke.js`.
+- **Delegation workbook** (Workspace `STTM_to_Artefacts_Agent_Delegation (1).xlsx`, a
+  sheet Soham shares): main sheet columns I-K (built today / what the agent does / hours
+  today: 69 h -> 49 h per feed, IIG 4-8 h) + sheet "Measured 2026-11-05" (12-pair mock
+  run, honest IIG scores 84.9% / 36.6%); the original is saved beside it
+  (`... - before 2026-11-05.xlsx`). Hours are estimates until an engineer times a feed.
+- **Recipes in `/tmp/deleg_scripts/`** (lost on a container reset - rebuild from this):
+  `pair_check.sh <old-sha>` = the 12-pair check (state from the volume + the pairs into
+  `/tmp/t/rp`, a worktree of the old sha, harness `--pairs 1` warm-up then all 12 per tree,
+  `classify.py` = per pair identical / banner-only / REAL with xlsx sheet.column counts,
+  then removes the worktree and the copies); `heldout.sh` = pairs 2 / 11 / 12 through
+  the harness + `tools/iig_diff.py` per golden file, per-column status counts
+  (`heldout_cols.py`); `score_run.sh` (+ `STRIP=1` = the state overlay's overrides
+  stripped in the scratch copy) = per-pair totals; `parser_ceiling.py` / `line_a.py` =
+  is a wrong cell's prod value stated in the FRD / STTM (a text match - short values
+  match by accident, read the field's own cell before believing it).
+- **Merged + deployed staging** (Soham's word, 2026-11-06): `main` 5527eff (tree = feature
+  f3f9e30, fast-forward), `codegen-agent-staging` deployment
+  01f1d9711f041d8b84eed96acaf56ead, health post177, smoke green. Feature has docs-only
+  commits after f3f9e30 - `main` catches up at the next merge.
 
 ## State (2026-11-05 night — post176 on BOTH Apps)
 

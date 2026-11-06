@@ -216,7 +216,9 @@ extractor:
         field_length: ["field length", "field length fixed width"]
         start: ["start", "start position", "start position fixed width"]
         end: ["end", "end position", "end position fixed width"]
-        segment: ["segment", "record segment", "segment ex header trailer detail"]
+        # post180 (a staging STTM: "Record Type" column holding HR / DR / TR)
+        segment: ["segment", "record segment", "segment ex header trailer detail",
+                  "record type"]
         required: ["required", "mandatory field", "mandatory"]
         nullable: ["nullable", "null not null"]
         null_check: ["null check"]

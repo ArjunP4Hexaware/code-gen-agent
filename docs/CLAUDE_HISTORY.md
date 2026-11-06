@@ -3590,3 +3590,58 @@ value came from; a "line A" text match needs the field's own cell, not any occur
 values match by accident); score on pairs a value was NOT learned from; a run-level value
 must be decided where the run's documents are in view (the per-feed IIG sees one feed);
 openpyxl `insert_rows` does not move merged cells - re-merge after inserting.
+
+### Retired RESTART.md block (2026-11-06, replaced at the post179 hand-off)
+
+## Start here (session ended 2026-11-06 on /clear - nothing pending, nothing running)
+
+**First check:** `git fetch && git status -sb` should say up to date with
+`origin/feature/multi-table`. BOTH Apps on post177: dev from feature 56f10cc, staging
+from `main` 5527eff (identical-tree merge of feature f3f9e30; deployment
+01f1d9711f041d8b84eed96acaf56ead; health post177 + smoke green). The state overlay change
+below is live on both. Session log: CLAUDE_HISTORY §[H21].
+
+**Open, in order:**
+1. **NO_OF_CYCLE_PER_DAY** "1" (corpus 98.2%) is wrong on pairs 11 / 12 - Soham's call.
+2. **`codingapp` deploy** - the bootstrap patch is IMPORTED (block "2026-11-04" below);
+   `databricks apps deploy codingapp` restarts this container: on Soham's word, last in a
+   session. After it: `gh auth login`, `~/bootstrap`, the checks in that block.
+3. **Step 3 for the STTM** - the same `layout/cell_locate.py` locator could read a refused
+   STTM cell (Soham allowed FRD + STTM); only FRD cells are wired.
+4. **Ask the BSA** about pairs 05 / 11's STTM "DQ rules" sheet (names fields those feeds do
+   not have - looks copied from another feed's template); and pair_12's recycle days (FRD
+   says 15, prod has 7) and stage load option (FRD "Truncate and Load", prod Append on 4 of
+   18 files).
+5. Older items: the Apps stop / start schedule (spend), Venu's answer on GPT-6.1 Sol, the
+   11-pair layout cost measurement, Rama's answers (blocks below).
+
+### Retired RESTART.md block (2026-11-06 evening, replaced at the post181 hand-off)
+
+## Start here (session ended 2026-11-06 - nothing running)
+
+**First check:** `git fetch && git status -sb` should say up to date with
+`origin/feature/multi-table`. BOTH Apps on post179: dev from feature 597c848 (deployment
+of 2026-11-06 18:40 UTC), staging from `main` 7a7c245 (identical-tree merge of feature
+597c848; deployment 01f1da113da91d899b859c750a9ed99e); health post179 + smoke (Generate +
+Results 200, 0 console errors) green on both. Block "2026-11-06 — post178 / post179" below.
+
+**Open, in order:**
+1. **Tell the tester (via Soham)** both staging failures are fixed in post179; her 820 pair
+   now runs to the gate and lands in GATE_FAIL for item 2 (files written, quarantined).
+2. **Repeated source names in a header-row file** (`source_names_repeated`, "not covered -
+   review"): an H/D/T file read flat numbers each record's fields 1..N, so the generated
+   test fixture dict repeats keys and the `ruff` gate check fails (F601) - the 820 pair
+   (mock: both feeds GATE_FAIL on ruff only). Framework mode renders the pipeline only for
+   the gate. Needs Soham's call: positional names in the generated tests, or read the
+   file as segmented.
+3. **Non-split sheets with several standard tables** still keep the dominant one with a
+   NOTE only (`extract/generic._band_constant`); post179 blanks + flags the other rows only
+   inside a list-cell split.
+4. **The HBL pair** (Rx claims history) now reaches NEEDS_ANSWERS under mock (delimiters +
+   mock layout questions); not run live.
+5. NO_OF_CYCLE_PER_DAY "1" on pairs 11 / 12 - Soham's call.
+6. **`codingapp` deploy** - the bootstrap patch is IMPORTED (block "2026-11-04" below);
+   restarts this container: on Soham's word, last in a session.
+7. Step 3 for the STTM cell locator; ask the BSA about pairs 05 / 11's DQ rules sheet and
+   pair_12's recycle days / stage load option; the Apps stop / start schedule, Venu's GPT-6.1
+   Sol answer, the 11-pair layout cost, Rama's answers.

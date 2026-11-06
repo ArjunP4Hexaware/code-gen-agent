@@ -4,27 +4,73 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (session ended 2026-11-06 on /clear - nothing pending, nothing running)
+## Start here (2026-11-06 evening - post181 pushed, NOT deployed)
 
-**First check:** `git fetch && git status -sb` should say up to date with
-`origin/feature/multi-table`. BOTH Apps on post177: dev from feature 56f10cc, staging
-from `main` 5527eff (identical-tree merge of feature f3f9e30; deployment
-01f1d9711f041d8b84eed96acaf56ead; health post177 + smoke green). The state overlay change
-below is live on both. Session log: CLAUDE_HISTORY §[H21].
+**First check:** `git fetch && git status -sb` - up to date with `origin/feature/multi-table`
+at post181 (8874764). **Both Apps are on post179**: dev from commit 597c848 (redeployed by
+sha after the failures below; health post179 + smoke green), staging from `main` 7a7c245.
+`main` was NOT moved for post180 / post181.
+
+**Blocker - any commit after 597c848 fails to deploy** (Databricks build layer): branch
+deploys failed "Error downloading source code ... Unexpected error" then "failed to extract
+source code from Git"; the exact sha cd154c3 failed the same; 597c848 by sha SUCCEEDED twice.
+GitHub serves both commits as valid archives (zipball 9.26 MB, 973 entries, testzip clean;
+the tree diff is text only - no new file, no mode change, no odd bytes). Request ID
+a0015f2b-de4e-41b4-a101-43005e93c83a; deployments 01f1da1d20721f7bb0bf54dbaa83a293,
+01f1da1d4a90164482483141fc6ca9f0. **A failed deploy takes the App DOWN (502)** - restore with
+`databricks apps deploy codegen-agent -p codegen-oaut --json '{"mode":"SNAPSHOT",
+"git_source":{"commit":"597c8487273eef933ff8fdaf7e79c30bf1adb5f0"}}'`. Spiral check done
+(pattern A, Databricks layer); NO more deploy attempts without Soham: a Databricks ticket,
+or his go for ONE diagnostic deploy of the docs-only commit 4b066b1 (fails = not our
+content). Log the cause in docs/spiral-log.md once known.
+
+**Ready to ship once deploys work** (each: both suites green, its tests fail with only it
+reverted, 12-pair check outcomes unchanged + no artefact change beyond the report's
+version line):
+- post180: "Record Type" is a segment column (H/D/T read by record type - the 820 pair's
+  ruff F601 gone), the list split on segmented sheets, `_TableGroup.fields` keeps a shared
+  column's standard mapping. 820 pair mock: PASS_WITH_OPEN_INPUTS, both feeds PASS_WITH_FLAGS.
+- post181: one standard table per stage table on EVERY sheet (`generic
+  ._one_standard_table_per_stage`) - rows naming a second one blank + flagged, never dropped.
+Then: dev deploy + smoke, `main` merge (`git commit-tree feature^{tree} -p origin/main -p
+feature`), staging deploy + smoke (the tester's bug - Soham's word given for this fix line).
 
 **Open, in order:**
-1. **NO_OF_CYCLE_PER_DAY** "1" (corpus 98.2%) is wrong on pairs 11 / 12 - Soham's call.
-2. **`codingapp` deploy** - the bootstrap patch is IMPORTED (block "2026-11-04" below);
-   `databricks apps deploy codingapp` restarts this container: on Soham's word, last in a
-   session. After it: `gh auth login`, `~/bootstrap`, the checks in that block.
-3. **Step 3 for the STTM** - the same `layout/cell_locate.py` locator could read a refused
-   STTM cell (Soham allowed FRD + STTM); only FRD cells are wired.
-4. **Ask the BSA** about pairs 05 / 11's STTM "DQ rules" sheet (names fields those feeds do
-   not have - looks copied from another feed's template); and pair_12's recycle days (FRD
-   says 15, prod has 7) and stage load option (FRD "Truncate and Load", prod Append on 4 of
-   18 files).
-5. Older items: the Apps stop / start schedule (spend), Venu's answer on GPT-6.1 Sol, the
-   11-pair layout cost measurement, Rama's answers (blocks below).
+1. The deploy blocker above.
+2. Tell the tester (via Soham) once staging has post180/181: the 820 pair runs through
+   (its `_sumry` tables are flagged, not built); the HBL pair reaches the normal questions.
+3. A second standard table per stage table (summary tables by record type) - a model
+   change in `metadata_template._table_groups` + the IIG's stage-to-standard rows (which
+   records go where is not an IIG value any document states) - Soham's call.
+4. Rows 3 / 4 of the delegation workbook (read-only lookups) need the EXPLAIN-only rule
+   changed first - Soham's call.
+5. NO_OF_CYCLE_PER_DAY "1" on pairs 11 / 12 - Soham's call.
+6. `codingapp` deploy (bootstrap patch imported, block "2026-11-04") - restarts this
+   container: on Soham's word, last in a session.
+7. Step 3 for the STTM cell locator; ask the BSA about pairs 05 / 11's DQ rules sheet and
+   pair_12's recycle days / stage load option; the Apps stop / start schedule, Venu's GPT-6.1
+   Sol answer, the 11-pair layout cost, Rama's answers.
+
+## State (2026-11-06 — post178 / post179)
+
+- **post178** (be7e915): the per-feed ADDITION.md retired; the run LOG.md carries each
+  feed's HELD BACK / PROVENANCE notes. 12-pair check (mock, framework, post177 vs 178):
+  outcomes unchanged, 13 ADDITION.md gone, every DDL / IIG / insert / test case identical.
+- **post179** (597c848): two staging failures from real pairs - a TableName cell listing
+  two tables (split by position, `extract/list_cells.py`), an FRD nested "Vendor | Target
+  Table" cell read as four tables, two sheets sharing one file failing the sheet match, and
+  an audit column typed `integer` refused. 12-pair check (post178 vs 179): outcomes
+  unchanged; SQL / TXT / 20 xlsx banner-sha only (two pairs' FRD contracts changed); real
+  changes only from the nested-cell fix - two pairs' FRD contracts drop the junk tables and
+  a bogus "frd_tables_set_aside: ['Vendor', 'Target Table', ...]" review item is gone.
+- The delegation workbook (Soham's Workspace folder) was overwritten: rows 12, 13 out of
+  scope, row 7 RFC dropped, ADDITION.md folded into LOG.md; projected saving 29 h of 69
+  (42%). Rows 3 / 4 (check an existing pipeline / IIG config, check the tables in Unity
+  Catalog) STAY IN SCOPE (Soham, 2026-11-06) - not built; building them needs read-only
+  queries beyond the EXPLAIN-only rule in AGENTS.md, so that rule changes first (his call).
+- AGENTS.md trimmed (repo layout to 4 facts; UI rules moved to `ui/AGENTS.md`, loaded by
+  `ui/CLAUDE.md` under `ui/`). /doctor: 43 unused `~/.claude/skills` + debug-everything
+  off, deepwiki MCP off for this project, defaultMode auto - all in HOME, gone on restart.
 
 ## State (2026-11-06 — post177 on BOTH Apps)
 

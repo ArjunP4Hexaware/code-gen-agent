@@ -916,14 +916,11 @@ def _split_by_list(sheets: list[SheetData]) -> list[SheetData]:
     and whose own File Names cell states as many files is one mapping for that
     many parallel feeds (``codegen.extract.list_cells``). Copy ``i`` takes the
     ``i``-th name of every list cell and the ``i``-th file; a cell listing another
-    number of names is blank for it. A row whose standard table is not the
-    copy's main one (a summary table no feed builds) keeps its stage mapping and
-    loses its standard one - blank and flagged, never moved into the main table.
-    post180: a SEGMENTED sheet (Header / Detail / Trailer) splits the same way and
-    keeps the same rule - a stage table feeds ONE standard table in the DDL / IIG
-    model (``metadata_template._table_groups``), so a header / trailer summary
-    table is blank + flagged there too, never silently dropped. A sheet without
-    the file evidence is left as it is."""
+    number of names is blank for it. post180: a SEGMENTED sheet (Header / Detail /
+    Trailer) splits the same way. Rows naming a second standard table for one
+    stage table (a header / trailer summary table) are handled after the split,
+    on every sheet (``_one_standard_table_per_stage``). A sheet without the file
+    evidence is left as it is."""
     from codegen.extract.list_cells import pick, split_count
 
     out: list[SheetData] = []
@@ -947,14 +944,6 @@ def _split_by_list(sheets: list[SheetData]) -> list[SheetData]:
                         if other:
                             mismatched.append(row.row)
                 rows.append(replace(row, values=values))
-            main = _dominant([r.values.get("standard.table") for r in rows])
-            other_std: dict[str, list[int]] = {}
-            for j, row in enumerate(rows):
-                table = row.values.get("standard.table")
-                if table is not None and main is not None and table != main:
-                    other_std.setdefault(table, []).append(row.row)
-                    rows[j] = replace(row, values={k: (None if k.startswith("standard.") else v)
-                                                   for k, v in row.values.items()})
             audit = []
             for entry in sheet.audit:
                 table, other = pick(entry.table, index, count)
@@ -970,17 +959,51 @@ def _split_by_list(sheets: list[SheetData]) -> list[SheetData]:
                 flags.append(f"sttm_list_cell_count:{name} — {len(rows_said)} row(s) list "
                              f"another number of tables than {count} (rows {rows_said}); "
                              "those cells are left blank for this feed")
-            for table, at in other_std.items():
-                flags.append(f"sttm_standard_table_not_built:{name} — {len(at)} row(s) map "
-                             f"to standard table {table!r}, not this feed's {main!r} (rows "
-                             f"{at[0]}-{at[-1]}); their standard mapping is left blank - the "
-                             "agent builds one standard table per feed")
             out.append(SheetData(profile=sheet.profile,
                                  meta={**sheet.meta, "file_names": files[index]},
                                  meta_raw=sheet.meta_raw, fields=rows, audit=audit,
                                  skipped=sheet.skipped if index == 0 else [],
                                  list_split_flags=flags))
     return out
+
+
+def _one_standard_table_per_stage(sheet: SheetData) -> SheetData:
+    """post181: a stage table feeds ONE standard table in the DDL / IIG model
+    (``metadata_template._table_groups``). Per stage table (a row with a blank
+    stage cell belongs to the table of the row above it, as a merged cell's
+    anchor states), the standard table most of its rows name is built; a row
+    naming ANOTHER one keeps its stage mapping and leaves its standard one blank
+    - flagged, never moved into that table and never dropped silently (a flat
+    sheet kept the dominant table with a NOTE only; a segmented one the first
+    segment's table)."""
+    current: str | None = None
+    stage_of: dict[int, str | None] = {}
+    for row in sorted(sheet.fields, key=lambda r: r.row):
+        current = row.values.get("stage.table") or current
+        stage_of[row.row] = current
+    main: dict[str | None, str | None] = {}
+    for stage in dict.fromkeys(stage_of.values()):
+        named = [r.values.get("standard.table") for r in sheet.fields
+                 if stage_of[r.row] == stage]
+        main[stage] = _dominant(named)
+    other: dict[tuple[str | None, str], list[int]] = {}
+    rows: list[FieldRow] = []
+    for row in sheet.fields:
+        table = row.values.get("standard.table")
+        stage = stage_of[row.row]
+        if table is not None and main[stage] is not None and table != main[stage]:
+            other.setdefault((stage, table), []).append(row.row)
+            row = replace(row, values={k: (None if k.startswith("standard.") else v)
+                                       for k, v in row.values.items()})
+        rows.append(row)
+    if not other:
+        return sheet
+    flags = [f"sttm_standard_table_not_built:{sheet.profile.name} — {len(at)} row(s) map to "
+             f"standard table {table!r}, not this feed's {main[stage]!r} (stage table "
+             f"{stage!r}; rows {at[0]}-{at[-1]}); their standard mapping is left blank - the "
+             "agent builds one standard table per stage table"
+             for (stage, table), at in other.items()]
+    return replace(sheet, fields=rows, list_split_flags=[*sheet.list_split_flags, *flags])
 
 
 def _split_by_table(sheets: list[SheetData], frd: FrdContract) -> list[SheetData]:
@@ -1034,7 +1057,8 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
     feeds: list[SttmFeed] = []
     pending: list[PendingAnswer] = []
     questions: list[PendingAnswer] = []
-    for sheet in _split_by_table(_split_by_list(ir.sheets), frd):
+    for sheet in map(_one_standard_table_per_stage,
+                     _split_by_table(_split_by_list(ir.sheets), frd)):
         try:
             open_bands = _open_band_layers(sheet, ir)
             if open_bands:

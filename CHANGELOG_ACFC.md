@@ -4,6 +4,20 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post181 — 2026-11-06 (one standard table per stage table, on every sheet)
+
+post180 blanked + flagged the rows of a second standard table only inside a list-cell
+split. Any sheet can have it: one stage table whose header / trailer rows name a summary
+standard table. The DDL / IIG model (`metadata_template._table_groups`) gives a stage table
+ONE standard table, so the other rows were lost without a flag - a flat sheet kept the
+dominant table (a NOTE only), a segmented one took the FIRST segment's table and dropped
+the main one. `extract.generic._one_standard_table_per_stage` now runs on every sheet:
+per stage table (a blank stage cell belongs to the row above's table), the standard table
+most rows name is built; a row naming another keeps its stage mapping and leaves the
+standard one blank - flag `sttm_standard_table_not_built:` (the stage table named). The
+list-cell split keeps its own flags only. Building a second standard table per stage table
+(a summary table per record type) is a model change - not done.
+
 ## 0.5.8.post180 — 2026-11-06 (a header / detail / trailer STTM read by record type)
 
 The staging 820 pair (post179: split by position) still landed in GATE_FAIL: its sheet

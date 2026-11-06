@@ -36,7 +36,7 @@ SUMRY = "nb_a_remit_sumry\nnb_b_remit_sumry"
 
 
 def _sttm(path: Path, files: list[str] = FILES, stage: str = STAGE, *,
-          segmented: bool = False) -> Path:
+          segmented: bool = False, main: str = MAIN, sumry: str = SUMRY) -> Path:
     """``segmented`` (post180): a leading "Record Type" column (HR / DR / TR, the
     staging STTM's spelling) and a column (REC_SEQ) the header AND the detail
     record both carry - the header's into the summary table, the detail's into
@@ -48,19 +48,19 @@ def _sttm(path: Path, files: list[str] = FILES, stage: str = STAGE, *,
               "Schema", "TableName", "ColumnName", "DataType",
               "Schema", "TableName", "ColumnName", "DataType", "Recycle Flag"]
     rows = [  # (record type, field, stage column, standard table cell)
-        ("HR", "batch_id", "BATCH_ID", SUMRY), ("HR", "batch_date", "BATCH_DATE", SUMRY),
-        ("DR", "member_id", "MEMBER_ID", MAIN), ("DR", "paid_amount", "PAID_AMOUNT", MAIN),
-        ("DR", "claim_ref", "CLAIM_REF", MAIN),
+        ("HR", "batch_id", "BATCH_ID", sumry), ("HR", "batch_date", "BATCH_DATE", sumry),
+        ("DR", "member_id", "MEMBER_ID", main), ("DR", "paid_amount", "PAID_AMOUNT", main),
+        ("DR", "claim_ref", "CLAIM_REF", main),
     ]
     if segmented:
-        rows = [("HR", "rec_seq", "REC_SEQ", SUMRY), *rows, ("DR", "rec_seq", "REC_SEQ", MAIN),
-                ("DR", "service_date", "SERVICE_DATE", MAIN), ("DR", "payee_id", "PAYEE_ID", MAIN),
-                ("TR", "rec_count", "REC_COUNT", SUMRY)]
+        rows = [("HR", "rec_seq", "REC_SEQ", sumry), *rows, ("DR", "rec_seq", "REC_SEQ", main),
+                ("DR", "service_date", "SERVICE_DATE", main), ("DR", "payee_id", "PAYEE_ID", main),
+                ("TR", "rec_count", "REC_COUNT", sumry)]
     body = [[name, f"{name} of the remit", "varchar", "N", "stg_nb_rm", stage, column,
              "String", "nb_rm", std, column, "String", None] for _rt, name, column, std in rows]
     for column, datatype in (("SRC_FILE_NAME", "String"), ("REC_CREATION_TIME", "Timestamp")):
         body.append(["NA", None, None, None, "stg_nb_rm", stage, column, datatype,
-                     "nb_rm", MAIN, column, datatype, None])
+                     "nb_rm", main, column, datatype, None])
     if segmented:
         titles, header = ["Source File Layout", None, *titles[1:]], ["Record Type", *header]
         record_types = [rt for rt, *_ in rows] + ["DR", "DR"]
@@ -230,3 +230,28 @@ def test_the_shared_column_prefers_the_field_with_a_standard_band():
     group = _TableGroup(stage=None, standard=None,
                         segments=[SimpleNamespace(fields=[both, detail])])
     assert group.fields == [both]                          # the first mapped one stays
+
+
+# --- post181: one standard table per stage table, on every sheet --------------------
+
+@pytest.mark.parametrize("segmented", [False, True])
+def test_a_single_table_sheet_naming_a_second_standard_table_blanks_those_rows(
+        env, capsys, segmented):
+    """No list cells, no split: ONE stage table whose header rows name a summary
+    standard table. The DDL / IIG build one standard table per stage table, so
+    the summary rows keep stage and leave standard blank + flagged - before, a
+    flat sheet kept the dominant table with a NOTE only and a segmented one took
+    the first segment's (the summary) table, dropping the main one."""
+    path = _sttm(env / f"STTM_one_{segmented}.xlsx", files=FILES[:1], stage="nb_a_remit",
+                 segmented=segmented, main="nb_a_remit", sumry="nb_a_remit_sumry")
+    frd, sttm = _chain(env, capsys, path)
+    (feed,) = sttm.feeds
+    assert feed.standard.table == "nb_a_remit"
+    by_column = {}
+    for f in feed.fields:
+        by_column.setdefault(f.stage_column, []).append(f.standard_column)
+    assert by_column["BATCH_ID"] == [None] and by_column["MEMBER_ID"] == ["MEMBER_ID"]
+    (flag,) = [f for f in feed.extraction_flags
+               if f.startswith("sttm_standard_table_not_built:")]
+    assert "standard table 'nb_a_remit_sumry', not this feed's 'nb_a_remit'" in flag
+    assert not [f for f in feed.extraction_flags if f.startswith("sttm_list")]

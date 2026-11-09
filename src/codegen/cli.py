@@ -2269,6 +2269,11 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument("--profile", dest="conventions_profile", default=None,
                           help="conventions profile (config conventions.profiles; default "
                                "conventions.profile — edo_sfmc = today's output)")
+    generate.add_argument("--orchestrator", default=None,
+                          help="post187: what the pipelines are built for - adf (pipeline "
+                               "names PL_..., the default) or workflow (a Databricks "
+                               "Workflow: WF_...); config engineering_standards."
+                               "pipeline_orchestrator")
     generate.add_argument("--iig-template", dest="iig_template", default=None,
                           help="IIG workbook template version (iig_v1 = demo.metadata_sheet, "
                                "or a key of config metadata.templates)")
@@ -2765,6 +2770,15 @@ def _main(argv: list[str] | None = None) -> int:
             live=_live_run(config, getattr(args, "dry_run", False))))
     except EnvironmentSelectionError as exc:
         _fail(args.command, f"environment — {exc}", "environment", Coord("environment"),
+              exc=exc)
+        return 1
+    # post187: the pipelines' orchestrator (ADF -> PL_, a Databricks Workflow -> WF_)
+    from codegen.orchestrator import with_orchestrator
+
+    try:
+        config = with_orchestrator(config, getattr(args, "orchestrator", None))
+    except ValueError as exc:
+        _fail(args.command, f"orchestrator — {exc}", "usage", Coord("config"),
               exc=exc)
         return 1
     # M9: `generate` parsed --vdd / --profile / --iig-template /

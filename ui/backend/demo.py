@@ -468,6 +468,8 @@ class DemoRunner:
         # template. In-memory only, like the output mode.
         self.conventions_profile: str | None = None
         self.iig_template: str | None = None
+        # post187: the pipelines' orchestrator (adf -> PL_, workflow -> WF_); None = config
+        self.pipeline_orchestrator: str | None = None
         # 2026-10-14: the run's environment — None = the default; else
         # {"name": <a choice>} or {"custom": {...}, "custom_name": <name>}
         self.environment_choice: dict | None = None
@@ -1226,7 +1228,8 @@ class DemoRunner:
 
     def select_generation_options(self, *, conventions_profile: str | None = None,
                                   iig_template: str | None = None,
-                                  playbook_template: str | None = None) -> None:
+                                  playbook_template: str | None = None,
+                                  pipeline_orchestrator: str | None = None) -> None:
         """Validate against the config and record the choice (None = default)."""
         with self._lock:
             if self.state == "running":
@@ -1236,6 +1239,10 @@ class DemoRunner:
         config.conventions.get(conventions_profile)      # raises ValueError when unknown
         config.metadata.resolve(iig_template)
         config.playbook.resolve(playbook_template)
+        from codegen.orchestrator import with_orchestrator
+
+        with_orchestrator(config, pipeline_orchestrator)  # raises ValueError when unknown
+        self.pipeline_orchestrator = pipeline_orchestrator
         self.conventions_profile = conventions_profile
         self.iig_template = iig_template
         self.playbook_template = playbook_template
@@ -1346,6 +1353,13 @@ class DemoRunner:
                 "options": sorted(config.playbook.templates),
                 "default": config.playbook.template,
                 "selected": self.playbook_template,
+            },
+            # post187: ADF (PL_ pipeline names) or a Databricks Workflow (WF_)
+            "pipeline_orchestrator": {
+                "options": list(config.engineering_standards.pipeline_name_prefixes),
+                "default": config.engineering_standards.pipeline_orchestrator or "",
+                "selected": self.pipeline_orchestrator,
+                "labels": dict(config.engineering_standards.pipeline_orchestrator_labels),
             },
         }
 
@@ -2510,8 +2524,10 @@ class DemoRunner:
         from codegen import run_stages
         from codegen.environments import with_environment
         from codegen.generate_run import GenerateRun, run_level_lines
+        from codegen.orchestrator import with_orchestrator
 
-        run_config = with_environment(config, run_env)
+        run_config = with_orchestrator(with_environment(config, run_env),
+                                       self.pipeline_orchestrator)
         parts = self.effective_output_parts()
         gen = GenerateRun(run_config, out_root=run_root, command="generate", output_mode=parts,
                           iig_template=self.iig_template,
@@ -2540,7 +2556,8 @@ class DemoRunner:
                     output_mode=parts, extra_flags=extra_flags,
                     conventions_profile=self.conventions_profile,
                     iig_template=self.iig_template, playbook_template=self.playbook_template,
-                    layout_usage=layout_usage, environment=run_env, faq_answers=faq_answers,
+                    layout_usage=layout_usage, environment=run_env,
+                    orchestrator=self.pipeline_orchestrator, faq_answers=faq_answers,
                     frd_path=frd_path, sttm_path=sttm_path, layer2="later",
                     layer2_jobs=jobs, framework_out=gen.framework))
             if result is None:

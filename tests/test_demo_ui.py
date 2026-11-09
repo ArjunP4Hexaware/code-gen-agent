@@ -629,6 +629,27 @@ def test_generation_options_endpoint_offers_config_and_validates(client):
     assert all(v["selected"] is None for v in r.json().values())
 
 
+def test_the_pipeline_orchestrator_is_an_advanced_option(client):
+    """post187 (Soham): ADF (PL_) or a Databricks Workflow (WF_) is chosen in the
+    Advanced options - offered from config with its labels, ADF by default, an
+    unknown value a 400 that changes nothing, and the run built for the choice."""
+    body = client.get("/api/demo/generation-options").json()
+    group = body["pipeline_orchestrator"]
+    assert group["options"] == ["adf", "workflow"]
+    assert group["default"] == "adf" and group["selected"] is None
+    assert group["labels"] == {"adf": "Azure Data Factory (PL_)",
+                               "workflow": "Databricks Workflow (WF_)"}
+    r = client.post("/api/demo/generation-options", json={"pipeline_orchestrator": "workflow"})
+    assert r.status_code == 200
+    assert r.json()["pipeline_orchestrator"]["selected"] == "workflow"
+    r = client.post("/api/demo/generation-options", json={"pipeline_orchestrator": "airflow"})
+    assert r.status_code == 400
+    body = client.get("/api/demo/generation-options").json()
+    assert body["pipeline_orchestrator"]["selected"] == "workflow"
+    r = client.post("/api/demo/generation-options", json={})
+    assert r.json()["pipeline_orchestrator"]["selected"] is None
+
+
 def test_vdd_endpoints_select_and_clear(client):
     """M3/M6: the VDD chooser — any listed .xlsx becomes the third input;
     DELETE clears it; a path escape is refused."""

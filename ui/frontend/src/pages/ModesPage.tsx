@@ -325,6 +325,7 @@ export function ModesPage({
       conventions_profile: genOptions.conventions_profile.selected,
       iig_template: genOptions.iig_template.selected,
       playbook_template: genOptions.playbook_template.selected,
+      pipeline_orchestrator: genOptions.pipeline_orchestrator?.selected ?? null,
       [knob]: value === "" ? null : value,
     };
     try {
@@ -927,9 +928,13 @@ export function ModesPage({
                       ["conventions_profile", "Conventions profile"],
                       ["iig_template", "IIG template"],
                       ["playbook_template", "Playbook template"],
+                      // post187: PL_ (ADF) or WF_ (a Databricks Workflow) pipeline names
+                      ["pipeline_orchestrator", "Pipeline orchestrator"],
                     ] as const
                   ).map(([knob, label]) => {
                     const group = genOptions[knob];
+                    if (!group) return null;
+                    const named = (o: string) => group.labels?.[o] ?? o;
                     return (
                       <label key={knob} className="field">
                         {label}
@@ -938,10 +943,10 @@ export function ModesPage({
                           value={group.selected ?? ""}
                           onChange={(e) => chooseGenerationOption(knob, e.target.value)}
                         >
-                          <option value="">{`default (${group.default})`}</option>
+                          <option value="">{`default (${named(group.default)})`}</option>
                           {group.options.map((o) => (
                             <option key={o} value={o}>
-                              {o}
+                              {named(o)}
                             </option>
                           ))}
                         </select>

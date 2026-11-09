@@ -117,7 +117,7 @@ def test_a_config_without_the_tables_keeps_its_constants(standards):
 # ---- the names' provenance in the feed report and the run's LOG.md (post186) ------
 
 
-def _framework_run(tmp_path, naming=None):
+def _framework_run(tmp_path, naming=None, extra=None):
     import json
 
     import test_sttm_authoritative_tables as T
@@ -131,7 +131,8 @@ def _framework_run(tmp_path, naming=None):
     env.pop("CODEGEN_SKIP_ENV_OVERLAY", None)        # the ACFC pipeline-name rules
     done = T._run(["generate", "--config", str(T.CONFIG), "--frd", str(frd), "--sttm",
                    str(sttm), "--dry-run", "--skip-tests", "--output-mode", "framework",
-                   "--profile", "acfc_prx", "--iig-template", "iig_v2"], env, REPO)
+                   "--profile", "acfc_prx", "--iig-template", "iig_v2", *(extra or [])],
+                  env, REPO)
     report = "".join(p.read_text("utf-8") for p in (tmp_path / "reports").rglob("*.md"))
     log = "".join(p.read_text("utf-8") for p in (tmp_path / "out").rglob("*_LOG.md"))
     return done, report, log

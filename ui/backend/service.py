@@ -293,6 +293,7 @@ class GenerationStore:
         playbook_template: str | None = None,
         layout_usage=None,
         environment=None,
+        orchestrator: str | None = None,
         faq_answers: dict | None = None,
         frd_path: Path | None = None,
         sttm_path: Path | None = None,
@@ -311,9 +312,12 @@ class GenerationStore:
         from codegen.cli import generate_feed_result
         from codegen.environments import with_environment
         from codegen.metadata_template import EMPTY_BY_RULE_LABELS
+        from codegen.orchestrator import with_orchestrator
 
+        # post187: ``orchestrator`` = the run's pipeline orchestrator (None = config)
         result = generate_feed_result(
-            spec, with_environment(self.config, environment), dry_run=dry_run,
+            spec, with_orchestrator(with_environment(self.config, environment), orchestrator),
+            dry_run=dry_run,
             skip_tests=skip_tests, output_mode=output_mode, extra_flags=extra_flags,
             conventions_profile=conventions_profile, iig_template=iig_template,
             playbook_template=playbook_template, layout_usage=layout_usage,

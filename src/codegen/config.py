@@ -1008,6 +1008,13 @@ class EngineeringStandardsConfig(BaseModel):
     product_target_words: list[str] = Field(default_factory=list)
     # table 3.3's "No Sub-Product" row: written, flagged, when the FRD names none
     no_sub_product_code: str = ""
+    # post187: the orchestrator a run's pipelines are built for (ADF or a Databricks
+    # Workflow) and the Naming Standards prefix each one gives a pipeline name - the
+    # {pipeline_prefix} part of pipeline_name_templates (codegen.orchestrator). The
+    # run's choice (App Advanced options / generate --orchestrator) wins.
+    pipeline_orchestrator: str | None = None
+    pipeline_name_prefixes: dict[str, str] = Field(default_factory=dict)
+    pipeline_orchestrator_labels: dict[str, str] = Field(default_factory=dict)
     source_abbreviations: dict[str, str] = Field(default_factory=dict)
     domain_abbreviations: dict[str, str] = Field(default_factory=dict)
     lob_abbreviations: dict[str, str] = Field(default_factory=dict)

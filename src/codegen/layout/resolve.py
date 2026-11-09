@@ -1516,6 +1516,15 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
         facts["texts"] += [(f"{ws.title}!{coord}", value) for coord, value in region.cells]
     open_band_sheets = {u.sheet for u in profile.unresolved
                         if BAND_REF_RE.match(str(u.layer)) and u.role == BAND_LAYER_ROLE}
+    from codegen.extract.generic import _unmapped_markers
+
+    markers = _unmapped_markers(config)
+
+    def _named(value: str | None) -> str | None:
+        # post183 (a staging run): a table / schema cell reading a skip marker
+        # ("Do Not Map") names no table - the row is unmapped (extract-sttm skips it)
+        return None if value is None or normalize(value) in markers else value
+
     for sp in profile.mapping_sheets:
         # Per mapping sheet: the dominant stage / standard table and stage schema.
         # A sheet with a band whose layer is open says nothing yet (Chunk A):
@@ -1550,7 +1559,7 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
             band = sp.band(layer)  # type: ignore[arg-type]
             col = band.column(role) if band else None
             if col is not None:
-                values = [text(r[col - 1]) if col - 1 < len(r) else None for r in rows]
+                values = [_named(text(r[col - 1])) if col - 1 < len(r) else None for r in rows]
                 entry[key] = _dominant(values)
                 if role == Role.TABLE:
                     # Chunk B: EVERY table the band names (a segmented sheet
@@ -1564,7 +1573,7 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
         source_col = _col("source", Role.SOURCE_TABLE)
         if stage_col is not None:
             def _cell_at(r, col):
-                return text(r[col - 1]) if col is not None and col - 1 < len(r) else None
+                return _named(text(r[col - 1])) if col is not None and col - 1 < len(r) else None
 
             entry["table_rows"] = [(_cell_at(r, stage_col), _cell_at(r, standard_col),
                                     _cell_at(r, source_col))
@@ -1585,7 +1594,8 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
                 col = band.column(role)
                 if col is None:
                     continue
-                value = _dominant([text(r[col - 1]) if col - 1 < len(r) else None for r in rows])
+                value = _dominant([_named(text(r[col - 1])) if col - 1 < len(r) else None
+                                   for r in rows])
                 if value:
                     facts["schemas"][f"{layer}.{role.value}"] = (
                         value, f"{sp.name}!{get_column_letter(col)} ({role.value} column, "

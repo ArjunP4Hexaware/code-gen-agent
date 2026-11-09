@@ -89,21 +89,19 @@ class PairDecision:
     @property
     def ambiguous(self) -> bool:
         """Undecided AND worth asking. An FRD is required, so any scored
-        candidate is worth showing. A VDD is optional: a candidate that shares
-        SOMETHING (a score above 0) is asked about — M15.4: a best score above
-        0 but below ``min_score`` used to be a dead zone, neither paired nor
-        asked, and it blocked the same-folder rescue — and, kept as found, so
-        is a no-content decision (``min_score`` 0.0 on those branches: the
-        dictionary is OFFERED rather than silently dropped). A name overlap
-        below the fuzzy threshold is never a pair — it is asked (``ask``)."""
+        candidate is worth showing, and a name overlap below the fuzzy
+        threshold is asked (``ask``), never paired. A VDD is optional (Soham,
+        2026-11-09: only the FRD and STTM are mandatory): it is asked about
+        only when a candidate shares SOMETHING (a score above 0 - M15.4: no
+        dead zone below ``min_score``) or an override names a missing one
+        (``ask``); a dictionary nothing points to - names alone, no content -
+        pairs nothing and the run goes on without a VDD (post184; it used to
+        pause the run on a question every candidate scored 0 in)."""
         if self.chosen is not None or not self.candidates:
             return False
         if self.ask:
             return True
-        best = self.candidates[0].score
-        if self.kind == "frd":
-            return best > 0
-        return best > 0 or best >= self.min_score
+        return self.candidates[0].score > 0
 
     def question(self) -> dict:
         """The decision as a layout-dialog ``choice`` question (same shape
@@ -398,7 +396,9 @@ def decide(kind: str, sttm_name: str, scored: list[PairCandidate], config: Confi
             # candidates at it, a shared ticket): a question, never a pair.
             return PairDecision(kind, sttm_name, None, None, top,
                                 "no content signal and the names do not single one out: "
-                                + match_by_name(sttm_name, names, threshold).reason, ask=True)
+                                + match_by_name(sttm_name, names, threshold).reason,
+                                # post184: a VDD is optional - names alone never ask
+                                ask=kind == "frd")
         return PairDecision(kind, sttm_name, None, None, top, "no candidate shares any content")
     best = ranked[0]
     runner_up = ranked[1].score if len(ranked) > 1 else 0.0

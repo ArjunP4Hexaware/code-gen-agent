@@ -743,11 +743,34 @@ def test_a_weak_vdd_score_is_a_question_not_a_dead_zone(config):
     question = decision.question()
     assert question["candidates"][0]["value"] == "VDD_a.xlsx"
     assert f"score {best.score:g}" in question["candidates"][0]["source"]
-    # Kept as found (test_vdd_pairing_kind): a dictionary that shares NOTHING is
-    # still OFFERED rather than silently dropped.
+    # post184 (a VDD is optional): a dictionary that shares NOTHING pairs nothing
+    # and asks nothing - the run goes on without a VDD.
     none = pair_by_content("vdd", Path("STTM_x.xlsx"), {"VDD_b.xlsx": paths["VDD_b.xlsx"]},
                            config, REPO, known_facts={"STTM_x.xlsx": sttm, "VDD_b.xlsx": nothing})
-    assert none.chosen is None and none.ambiguous
+    assert none.chosen is None and not none.ambiguous
+
+
+def test_a_vdd_only_the_names_loosely_share_is_no_question(config):
+    """post184 (a dev-App run): every dictionary scored 0 and the best name overlap
+    sat below the fuzzy threshold - the run paused on a VDD question. A VDD is
+    optional: names alone never ask; an FRD in the same spot still does."""
+    from codegen.pairing import facts_from_dict, pair_by_content
+
+    nothing = facts_from_dict({})
+    names = ["VDD_Alpha_Accum.xlsx", "VDD_Bravo_Eligibility.xlsx"]
+    known = {"STTM_Alpha_Accum_Ingestion_from_Bravo.xlsx": nothing,
+             **{n: nothing for n in names}}
+    vdd = pair_by_content("vdd", Path("STTM_Alpha_Accum_Ingestion_from_Bravo.xlsx"),
+                          {n: Path(n) for n in names}, config, REPO, known_facts=known)
+    assert vdd.chosen is None and vdd.candidates
+    assert all(c.score == 0 for c in vdd.candidates)
+    assert any(c.name_similarity > 0 for c in vdd.candidates)  # the names DO overlap
+    assert not vdd.ambiguous
+    frds = [n.replace("VDD_", "FRD_").replace(".xlsx", ".docx") for n in names]
+    frd = pair_by_content("frd", Path("STTM_Alpha_Accum_Ingestion_from_Bravo.xlsx"),
+                          {n: Path(n) for n in frds}, config, REPO,
+                          known_facts={**known, **{n: nothing for n in frds}})
+    assert frd.chosen is None and frd.ambiguous                # an FRD is required
 
 
 def test_the_sole_vdd_in_the_folder_pairs_even_on_a_weak_score(ws, monkeypatch):

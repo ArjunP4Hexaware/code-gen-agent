@@ -94,11 +94,12 @@ def test_an_uploaded_sttm_never_pairs_its_own_copy_as_the_vdd(api):
     vdd = finished["pairing"]["vdd"]
     # The STTM's own copy is not even a candidate — it reads as a mapping workbook.
     assert STTM.name not in {c["name"] for c in vdd["candidates"]}, vdd
-    # The real dictionary is chosen or, when no content decides, OFFERED: it
-    # is a candidate of the question the run asks (never replaced by an STTM).
+    # The real dictionary is the candidate (never replaced by an STTM). post184:
+    # a VDD is optional - when no content decides, nothing is paired and NO
+    # question is asked (names alone never ask about a VDD).
     assert vdd["chosen"] in (VDD.name, None), vdd
     assert VDD.name in {c["name"] for c in vdd["candidates"]}, vdd
-    assert vdd["chosen"] == VDD.name or vdd["question"], vdd
+    assert vdd["chosen"] == VDD.name or not vdd["question"], vdd
     assert status["selection"]["vdd"] in (VDD.name, None), status["selection"]
     assert runner.selected_vdd is None or runner.selected_vdd.name == VDD.name
 
@@ -141,5 +142,10 @@ def test_cli_pair_never_offers_an_sttm_workbook_as_the_vdd(tmp_path, capsys, mon
     cli_main(["pair", "--config", str(REPO / "config" / "config.yaml"),
               "--sttm", str(folder / UPLOADED)])
     out = capsys.readouterr().out
-    vdd_lines = [line for line in out.splitlines() if " vdd " in f" {line} " or "CANDIDATE" in line]
+    # The lines that PAIR or OFFER a VDD (post184: a names-only VDD is a NONE
+    # line, which quotes the STTM being paired - that offers nothing).
+    lines = out.splitlines()
+    vdd_lines = [line for line in lines if line.startswith(("PAIRED", "CANDIDATE"))
+                 and (" vdd " in f" {line} " or "CANDIDATE" in line)]
     assert not any(STTM.name in line for line in vdd_lines), out
+    assert any(line.startswith("NONE") and " vdd " in line for line in lines), out

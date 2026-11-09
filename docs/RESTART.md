@@ -4,13 +4,16 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (session ended 2026-11-09 on /clear - nothing pending, nothing running)
+## Start here (2026-11-09 - post183 on DEV only)
 
 **First check:** `git fetch && git status -sb` should say up to date with
-`origin/feature/multi-table`. BOTH Apps on post182: dev from feature 857470f (branch
-deploy), staging from `main` 0582e8c (identical-tree merge of feature 857470f); health
-post182 + smoke (Generate + Results 200, 0 console errors) green on both. Later docs-only
-commits on feature need no deploy. Session log: CLAUDE_HISTORY §[H22].
+`origin/feature/multi-table`. **post183** (a "Do Not Map" STTM table cell is no table;
+CHANGELOG) is pushed (49b29ab) and on the DEV App (deployment
+01f1dc59d40016afa83bf86ce0b4bc73; health post183, smoke Generate + Results 200, 0
+console errors). Suites `.venv` 2545 / `.venv-d1` 2198 green; 12-pair check (mock,
+framework) outcomes unchanged, no artefact change (version / scratch paths only).
+**Staging is still post182** (`main` 0582e8c) - its merge + deploy wait for Soham's
+word. Session log: CLAUDE_HISTORY §[H22].
 
 **Open, in order:**
 1. **Tell the tester (via Soham)** staging has post182: her 820 pair runs through (split

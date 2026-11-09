@@ -1112,24 +1112,32 @@ conventions:
       # post140 (Soham, 2026-10-28): the table COMMENT = the STTM Table Description
       # + the separator + the load strategy above ("description + load strategy").
       table_description_comment: true
-      # Standard-table TBLPROPERTIES, transcribed in order from ACFC's own
-      # production standard DDL for the SFMC feed
-      # (fixtures/reference/SFMC_standard_table_creation.txt, scrubbed). Open with
-      # Nikshit (2026-10-23): ACFC's standard, or a SHOW CREATE TABLE dump?
+      # Standard-table TBLPROPERTIES, in order, exactly as ACFC's standard-table
+      # template states them (Soham, 2026-11-09, post185 - replaces the set transcribed
+      # from the SFMC production DDL, fixtures/reference/SFMC_standard_table_creation.txt;
+      # that set's parquet codec is not in the template). Values verbatim (TRUE / FALSE).
       standard_tblproperties:
-        delta.autoOptimize.autoCompact: "true"
-        delta.autoOptimize.optimizeWrite: "true"
-        delta.checkpoint.writeStatsAsJson: "false"
-        delta.checkpoint.writeStatsAsStruct: "true"
+        delta.minReaderVersion: "1"
+        delta.minWriterVersion: "2"
+        delta.autoOptimize.autoCompact: "TRUE"
+        delta.autoOptimize.optimizeWrite: "TRUE"
+        delta.checkpoint.writeStatsAsJson: "FALSE"
+        delta.checkpoint.writeStatsAsStruct: "TRUE"
         delta.checkpointPolicy: "v2"
-        delta.enableDeletionVectors: "true"
-        delta.enableRowTracking: "true"
+        delta.columnMapping.mode: "name"
+        delta.enableDeletionVectors: "TRUE"
+        delta.enableRowTracking: "TRUE"
         delta.feature.appendOnly: "supported"
+        delta.feature.changeDataFeed: "supported"
+        delta.feature.checkConstraints: "supported"
+        delta.feature.columnMapping: "supported"
         delta.feature.deletionVectors: "supported"
+        delta.feature.generatedColumns: "supported"
+        delta.feature.identityColumns: "supported"
         delta.feature.invariants: "supported"
         delta.feature.rowTracking: "supported"
         delta.feature.v2Checkpoint: "supported"
-        delta.parquet.compression.codec: "zstd"
+        predictiveOptimization: "true"
       # post105: the rest of ACFC's production DDL template (the same SFMC files:
       # fixtures/reference/SFMC_{stage,standard}_table_creation.txt, scrubbed) -
       # CLUSTER BY AUTO on both layers (this profile writes no LOCATION), the

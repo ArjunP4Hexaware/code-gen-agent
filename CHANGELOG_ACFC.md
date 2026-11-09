@@ -4,6 +4,19 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post185 — 2026-11-09 (the standard-table TBLPROPERTIES = ACFC's template)
+
+Config only (`conventions.profiles.acfc_prx.standard_tblproperties`): the standard
+layer's TBLPROPERTIES are now ACFC's standard-table template as Soham sent it - 21
+properties, in its order, values verbatim (`TRUE` / `FALSE`): adds the protocol versions
+(`delta.minReaderVersion` 1 / `delta.minWriterVersion` 2), `delta.columnMapping.mode` =
+name, the changeDataFeed / checkConstraints / columnMapping / generatedColumns /
+identityColumns features and `predictiveOptimization`; drops
+`delta.parquet.compression.codec` (zstd), which the template does not carry. The stage
+set is unchanged. Every acfc_prx DDL's standard block and its DDL test case
+(`table_properties`) change accordingly. Test: `tests/test_ddl_comments.py` pins the
+whole list.
+
 ## 0.5.8.post184 — 2026-11-09 (a VDD is optional: no question nothing points to)
 
 A dev-App run paused before generating on "Which Vendor Data Dictionary belongs to ...?":

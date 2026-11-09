@@ -92,9 +92,28 @@ def test_tblproperties_per_layer_in_config_order(pair11, shipped):
         lines = [f"  '{k}' = '{v}'" for k, v in props.items()]
         expected = "TBLPROPERTIES (\n" + ",\n".join(lines) + ");\n"
         assert expected in _block(ddl, banner)
-    assert list(profile.standard_tblproperties)[0] == "delta.autoOptimize.autoCompact"
-    assert profile.standard_tblproperties["delta.parquet.compression.codec"] == "zstd"
+    # post185 (Soham, 2026-11-09): the standard set is ACFC's standard-table
+    # template, every key and value as it states them, in its order
+    assert list(profile.standard_tblproperties.items()) == STANDARD_TEMPLATE
     assert "delta.minWriterVersion" in profile.stage_tblproperties
+
+
+STANDARD_TEMPLATE = [
+    ("delta.minReaderVersion", "1"), ("delta.minWriterVersion", "2"),
+    ("delta.autoOptimize.autoCompact", "TRUE"), ("delta.autoOptimize.optimizeWrite", "TRUE"),
+    ("delta.checkpoint.writeStatsAsJson", "FALSE"),
+    ("delta.checkpoint.writeStatsAsStruct", "TRUE"), ("delta.checkpointPolicy", "v2"),
+    ("delta.columnMapping.mode", "name"), ("delta.enableDeletionVectors", "TRUE"),
+    ("delta.enableRowTracking", "TRUE"), ("delta.feature.appendOnly", "supported"),
+    ("delta.feature.changeDataFeed", "supported"),
+    ("delta.feature.checkConstraints", "supported"),
+    ("delta.feature.columnMapping", "supported"),
+    ("delta.feature.deletionVectors", "supported"),
+    ("delta.feature.generatedColumns", "supported"),
+    ("delta.feature.identityColumns", "supported"), ("delta.feature.invariants", "supported"),
+    ("delta.feature.rowTracking", "supported"), ("delta.feature.v2Checkpoint", "supported"),
+    ("predictiveOptimization", "true"),
+]
 
 
 def test_audit_columns_without_a_description_are_flagged_per_table(pair11):

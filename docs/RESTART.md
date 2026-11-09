@@ -4,18 +4,28 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-09 - BOTH Apps on post184)
+## Start here (2026-11-09 - dev post186, staging post184)
 
 **First check:** `git fetch && git status -sb` should say up to date with
 `origin/feature/multi-table`.
-- **post183** (a "Do Not Map" STTM table cell is no table) is on BOTH Apps: staging from
-  `main` 99cdcd1 (identical-tree merge), health + smoke green. A live dev-App run of the
-  staging pair that failed: PASS_WITH_OPEN_INPUTS (1 feed PASS_WITH_FLAGS, 0 blocking, 13
-  open, no model call).
-- **post184** (a VDD is optional: no question when nothing points to one; AGENTS.md rule)
-  is on BOTH Apps: dev from feature bbc945c, staging from `main` 96a32e5 (identical-tree
-  merge, deployment 01f1dc6bb896...); health + smoke green on both; the same pair now
-  selects with no VDD question. Suites `.venv` 2546 / `.venv-d1` 2198.
+- **Staging** = post184 (`main` 96a32e5): the "Do Not Map" fix (post183) + a VDD is
+  optional (post184). Health + smoke green.
+- **Dev** = post186 (706b169, deployment 01f1dc87f21e...; health + smoke green):
+  post185 the standard-table TBLPROPERTIES = the template Soham sent (open: Databricks
+  reports minReader/Writer 3 / 7 on a table with features, so the DDL test case's "1 / 2"
+  will not match - his call; `predictiveOptimization` is no Delta property); post186
+  the Naming Standards product / sub-product READ from the FRD (tables 3.2 / 3.3,
+  `codegen.naming_codes`; NSP + flag when no 3.3 entry) and "How the names were built"
+  in each feed report + the run LOG.md (`codegen.naming_provenance`). 12-pair check:
+  outcomes unchanged, no IIG / DDL value changed (pair_06's HVR is a held table-source
+  IIG), contracts + reports + LOG gain the naming evidence. Suites 2559 / 2211.
+  Staging waits for Soham's word.
+- **Next (post187, Soham's answers first): ADF (`PL_`) vs Databricks Workflow (`WF_`).**
+  No FRD / STTM / VDD states it; every prod IIG name in the 12 pairs + 15 RFCs is `PL_`;
+  the only Workflow statement is the pair_12 RFC's TDD ("Databricks Workflow Job will be
+  used to orchestrate"), yet its prod IIG names are `PL_`. Proposed: default PL, WF only
+  on an explicit Databricks-Workflow statement, one non-blocking question per run; the
+  `WF_` shape (the document's WF pattern has no pipeline type / child) is open - Lokesh.
 Session log: CLAUDE_HISTORY §[H22].
 
 **Open, in order:**

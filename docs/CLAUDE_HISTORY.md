@@ -3645,3 +3645,109 @@ Results 200, 0 console errors) green on both. Block "2026-11-06 — post178 / po
 7. Step 3 for the STTM cell locator; ask the BSA about pairs 05 / 11's DQ rules sheet and
    pair_12's recycle days / stage load option; the Apps stop / start schedule, Venu's GPT-6.1
    Sol answer, the 11-pair layout cost, Rama's answers.
+
+## §[H22] Session 2026-11-06 → 09: /doctor, the delegation workbook, the staging-run fixes, post178–post182
+
+- **/doctor** (Claude Code health check): install current, settings valid; 43 unused user
+  skills + debug-everything turned off, deepwiki MCP off for this project, defaultMode auto
+  (all in HOME - lost on restart). AGENTS.md trimmed: the repo layout to its 4 non-derivable
+  facts, the App's UI rules moved to `ui/AGENTS.md` (`ui/CLAUDE.md` imports it).
+- **The delegation workbook** (Soham's Workspace file): read in place, overwritten on his
+  word - rows 12 / 13 (master workflow, DAB) out of scope, row 7's RFC dropped, ADDITION.md
+  folded into LOG.md, then rows 3 / 4 (read-only lookups) put BACK in scope (Soham). The
+  "TDD" he asked about was the test-driven-development skill in the /doctor table, not a
+  design document - a word clash.
+- **post178:** the per-feed ADDITION.md retired (Soham: it and LOG.md are one thing).
+- **Two staging failures** (the tester's 820 and HBL pairs, via Soham, screenshots):
+  - 820: every TableName cell listed two tables (one per line of business), File Names two
+    files; the FRD named no table -> one "table name" with a space -> TableNameError.
+    Behind it: header / trailer rows go to `_sumry` standard tables, the sheet is H/D/T.
+    Soham's rule for the fix: the documents fill what they state, the rest blank + flagged.
+    post179 split by position; post180 read H/D/T by record type ("Record Type" header) -
+    the flat read had repeated field names (generated tests failed ruff F601); a
+    second standard table per stage table is NOT built (the model gives a stage table one
+    standard table; letting the summary table through dropped the main one silently -
+    caught in the mock run before shipping).
+  - HBL: an audit column typed `integer` refused (acfc_prx audit types widened), then an
+    FRD nested "Vendor | Target Table" cell read as four tables (two real pairs had the
+    same junk), then two sheets sharing one file failing the sheet match.
+- **post181:** one standard table per stage table on every sheet (blank + flag, never a
+  silent drop). **post182:** an independent adversarial review (one agent, synthetic
+  workbooks only) found nine wrong-output / crash cases in 178-181, all reproduced and
+  fixed (`tests/test_adversarial_post182.py`); the first suite run caught the tracked layout
+  profiles lacking the new `segment_header` (regenerated, that field only).
+- **Deploys** (2026-11-06): about an hour of Databricks-side "failed to extract source code
+  from Git" on every new commit; each failed deploy took the dev App down (502). Restored by
+  deploying the last good commit by sha; one owner-approved diagnostic deploy (docs-only
+  4b066b1) succeeded, then the target did - transient. One deploy was wasted on a typed
+  (invented) sha. Spiral log + known cause + replay scenario added.
+- **Venu summary** written in Soham's voice (versions 170-179); the ELI5 of how the parser
+  learns new formats safely (read the known lines, report the unfamiliar shapes, propose a
+  label from an answer, approve once, the model points / the code copies).
+- Every version: both suites green, its tests fail with only it reverted, the 12-pair check
+  (rebuilt this session, RESTART recipes) outcomes unchanged; dev deployed + smoked, `main`
+  merged identical-tree and staging deployed + smoked (Soham's word for this fix line).
+  Client copies deleted after every check.
+
+### Retired RESTART.md block (2026-11-09, replaced at the /clear hand-off)
+
+## Start here (2026-11-06 night - post182 on BOTH Apps)
+
+**First check:** `git fetch && git status -sb` - up to date with `origin/feature/multi-table`.
+BOTH Apps on post182: dev from feature 857470f (branch deploy), staging from `main` 0582e8c
+(identical-tree merge of feature 857470f); health post182 + smoke (Generate + Results 200,
+0 console errors) green on both. post182 = nine fixes from an adversarial review of
+post178-181 (CHANGELOG_ACFC.md; `tests/test_adversarial_post182.py` fails on post181);
+both suites green, 12-pair check outcomes unchanged and no artefact change (the layout
+profiles gain `segment_header`, the reports their version line). The tracked layout
+profiles were regenerated (`scripts/build_layout_profiles.py`: `segment_header` added only).
+
+**The deploy failures (resolved, transient):** for about an hour every new commit failed in
+the Databricks build's Git download / extract step and each failure took the dev App DOWN
+(502); the docs-only 4b066b1 then deployed, and so did the post181 tip. Spiral log
+2026-11-06; restore command if it recurs: deploy the last good commit by sha
+(`databricks apps deploy codegen-agent -p codegen-oaut --json '{"mode":"SNAPSHOT",
+"git_source":{"commit":"<full sha from git rev-parse>"}}'`).
+
+**Shipped this evening:** post180 (H/D/T read by record type, the list split on segmented
+sheets, a shared column keeps its standard mapping) and post181 (one standard table per
+stage table on every sheet). Each: both suites green, its tests fail with only it reverted,
+12-pair check outcomes unchanged and no artefact change beyond the report's version line.
+820 pair (mock): PASS_WITH_OPEN_INPUTS, both feeds PASS_WITH_FLAGS.
+
+**Open, in order:**
+1. Tell the tester (via Soham): staging has post181 - the 820 pair runs through (its
+   `_sumry` tables are flagged, not built); the HBL pair reaches the normal questions.
+2. (spare slot)
+3. A second standard table per stage table (summary tables by record type) - a model
+   change in `metadata_template._table_groups` + the IIG's stage-to-standard rows (which
+   records go where is not an IIG value any document states) - Soham's call.
+4. Rows 3 / 4 of the delegation workbook (read-only lookups) need the EXPLAIN-only rule
+   changed first - Soham's call.
+5. NO_OF_CYCLE_PER_DAY "1" on pairs 11 / 12 - Soham's call.
+6. `codingapp` deploy (bootstrap patch imported, block "2026-11-04") - restarts this
+   container: on Soham's word, last in a session.
+7. Step 3 for the STTM cell locator; ask the BSA about pairs 05 / 11's DQ rules sheet and
+   pair_12's recycle days / stage load option; the Apps stop / start schedule, Venu's GPT-6.1
+   Sol answer, the 11-pair layout cost, Rama's answers.
+
+## State (2026-11-06 — post178 / post179)
+
+- **post178** (be7e915): the per-feed ADDITION.md retired; the run LOG.md carries each
+  feed's HELD BACK / PROVENANCE notes. 12-pair check (mock, framework, post177 vs 178):
+  outcomes unchanged, 13 ADDITION.md gone, every DDL / IIG / insert / test case identical.
+- **post179** (597c848): two staging failures from real pairs - a TableName cell listing
+  two tables (split by position, `extract/list_cells.py`), an FRD nested "Vendor | Target
+  Table" cell read as four tables, two sheets sharing one file failing the sheet match, and
+  an audit column typed `integer` refused. 12-pair check (post178 vs 179): outcomes
+  unchanged; SQL / TXT / 20 xlsx banner-sha only (two pairs' FRD contracts changed); real
+  changes only from the nested-cell fix - two pairs' FRD contracts drop the junk tables and
+  a bogus "frd_tables_set_aside: ['Vendor', 'Target Table', ...]" review item is gone.
+- The delegation workbook (Soham's Workspace folder) was overwritten: rows 12, 13 out of
+  scope, row 7 RFC dropped, ADDITION.md folded into LOG.md; projected saving 29 h of 69
+  (42%). Rows 3 / 4 (check an existing pipeline / IIG config, check the tables in Unity
+  Catalog) STAY IN SCOPE (Soham, 2026-11-06) - not built; building them needs read-only
+  queries beyond the EXPLAIN-only rule in AGENTS.md, so that rule changes first (his call).
+- AGENTS.md trimmed (repo layout to 4 facts; UI rules moved to `ui/AGENTS.md`, loaded by
+  `ui/CLAUDE.md` under `ui/`). /doctor: 43 unused `~/.claude/skills` + debug-everything
+  off, deepwiki MCP off for this project, defaultMode auto - all in HOME, gone on restart.

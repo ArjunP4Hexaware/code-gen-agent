@@ -129,7 +129,11 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   its grants without Soham's word. For ~30 s after a
   deploy `/api/health` may answer non-JSON and the Dashboard time out — retry before
   believing it. A Git deploy can time out downloading the repo (`get-repo-archive ...
-  timed out`): a Databricks-side hiccup, retry the deploy once. A RUN on the dev App is
+  timed out`) or fail "failed to extract source code from Git": a Databricks-side
+  hiccup, retry the deploy once. **A failed deploy takes the App DOWN (502)** - restore
+  it at once by deploying the last good commit by sha (`git_source.commit`, the full sha
+  from `git rev-parse` - never a typed one), then stop and ask (spiral log 2026-11-06).
+  A RUN on the dev App is
   live (client documents go to the model) — allowed without a per-run ask (2026-11-02;
   report pair, outcome and counts only); the App quotes a new pair's first layout run as
   6-8 DBU (a deliberately high estimate; measured once at 4.84 DBU, RESTART.md). Check
@@ -229,6 +233,12 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   - the Playwright smoke here needs `LD_LIBRARY_PATH=/tmp/pwlibs/usr/lib/x86_64-linux-gnu:
     /tmp/pwlibs/lib/x86_64-linux-gnu PLAYWRIGHT_BROWSERS_PATH=/tmp/pw` (dev_bootstrap's
     Chromium + libs); without them Chromium dies on a missing `.so`, not the App;
+  - the container harness sets `CODEGEN_CONFIG_OVERLAYS` itself for its sub-steps (its
+    state overlay): a config experiment on a harness run goes into a scratch copy of the
+    state dir's `overlays/acfc_prx.yaml`, never the environment variable;
+  - a new field on a layout model (`layout/profile.py`) changes a fresh build of the
+    tracked layout profiles: regenerate them (`scripts/build_layout_profiles.py`) and
+    check the diff is that field only (`test_tracked_layout_profiles_equal_a_fresh_build`);
   - the container harness applies the state volume's `answers/<pair>/answers.yaml`, so a
     question the App asks (it applies none) may never appear in a harness run — check an
     App-path fix through the App's API (a local server on a scratch copy, mock);

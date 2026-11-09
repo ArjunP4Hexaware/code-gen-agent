@@ -4,66 +4,58 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-06 night - post182 on BOTH Apps)
+## Start here (session ended 2026-11-09 on /clear - nothing pending, nothing running)
 
-**First check:** `git fetch && git status -sb` - up to date with `origin/feature/multi-table`.
-BOTH Apps on post182: dev from feature 857470f (branch deploy), staging from `main` 0582e8c
-(identical-tree merge of feature 857470f); health post182 + smoke (Generate + Results 200,
-0 console errors) green on both. post182 = nine fixes from an adversarial review of
-post178-181 (CHANGELOG_ACFC.md; `tests/test_adversarial_post182.py` fails on post181);
-both suites green, 12-pair check outcomes unchanged and no artefact change (the layout
-profiles gain `segment_header`, the reports their version line). The tracked layout
-profiles were regenerated (`scripts/build_layout_profiles.py`: `segment_header` added only).
-
-**The deploy failures (resolved, transient):** for about an hour every new commit failed in
-the Databricks build's Git download / extract step and each failure took the dev App DOWN
-(502); the docs-only 4b066b1 then deployed, and so did the post181 tip. Spiral log
-2026-11-06; restore command if it recurs: deploy the last good commit by sha
-(`databricks apps deploy codegen-agent -p codegen-oaut --json '{"mode":"SNAPSHOT",
-"git_source":{"commit":"<full sha from git rev-parse>"}}'`).
-
-**Shipped this evening:** post180 (H/D/T read by record type, the list split on segmented
-sheets, a shared column keeps its standard mapping) and post181 (one standard table per
-stage table on every sheet). Each: both suites green, its tests fail with only it reverted,
-12-pair check outcomes unchanged and no artefact change beyond the report's version line.
-820 pair (mock): PASS_WITH_OPEN_INPUTS, both feeds PASS_WITH_FLAGS.
+**First check:** `git fetch && git status -sb` should say up to date with
+`origin/feature/multi-table`. BOTH Apps on post182: dev from feature 857470f (branch
+deploy), staging from `main` 0582e8c (identical-tree merge of feature 857470f); health
+post182 + smoke (Generate + Results 200, 0 console errors) green on both. Later docs-only
+commits on feature need no deploy. Session log: CLAUDE_HISTORY §[H22].
 
 **Open, in order:**
-1. Tell the tester (via Soham): staging has post181 - the 820 pair runs through (its
-   `_sumry` tables are flagged, not built); the HBL pair reaches the normal questions.
-2. (spare slot)
-3. A second standard table per stage table (summary tables by record type) - a model
-   change in `metadata_template._table_groups` + the IIG's stage-to-standard rows (which
-   records go where is not an IIG value any document states) - Soham's call.
-4. Rows 3 / 4 of the delegation workbook (read-only lookups) need the EXPLAIN-only rule
-   changed first - Soham's call.
-5. NO_OF_CYCLE_PER_DAY "1" on pairs 11 / 12 - Soham's call.
-6. `codingapp` deploy (bootstrap patch imported, block "2026-11-04") - restarts this
-   container: on Soham's word, last in a session.
-7. Step 3 for the STTM cell locator; ask the BSA about pairs 05 / 11's DQ rules sheet and
-   pair_12's recycle days / stage load option; the Apps stop / start schedule, Venu's GPT-6.1
-   Sol answer, the 11-pair layout cost, Rama's answers.
+1. **Tell the tester (via Soham)** staging has post182: her 820 pair runs through (split
+   into one feed per line of business, read by record type; its `_sumry` standard tables
+   are flagged, not built); the HBL pair reaches the normal questions. Neither has been run
+   LIVE yet - a dev-App run is allowed without a per-run ask (report pair / outcome /
+   counts only); her files are in Soham's Workspace folder `aruna_test_files`.
+2. **A second standard table per stage table** (the `_sumry` tables): a model change in
+   `metadata_template._table_groups` (one stage table -> one standard table today) and the
+   IIG's stage-to-standard rows; which records go to which table is not an IIG value any
+   document states - Soham's call before any code.
+3. **Rows 3 / 4 of the delegation workbook** (check an existing pipeline / IIG config,
+   check the tables in Unity Catalog) are IN scope and not built: they need read-only
+   queries beyond the EXPLAIN-only rule in AGENTS.md - that rule changes first (his call).
+4. NO_OF_CYCLE_PER_DAY "1" (corpus 98.2%) is wrong on pairs 11 / 12 - Soham's call.
+5. **`codingapp` deploy** - the bootstrap patch is IMPORTED (block "2026-11-04" below);
+   `databricks apps deploy codingapp` restarts this container: on Soham's word, last in a
+   session. After it: `gh auth login`, `~/bootstrap`, the checks in that block.
+6. Step 3 for the STTM cell locator (`layout/cell_locate.py` reads only FRD cells); ask the
+   BSA about pairs 05 / 11's STTM "DQ rules" sheet and pair_12's recycle days / stage load
+   option; the Apps stop / start schedule, Venu's GPT-6.1 Sol answer, the 11-pair layout
+   cost, Rama's answers (blocks below).
 
-## State (2026-11-06 — post178 / post179)
+## State (2026-11-06 → 09 — post178 to post182)
 
-- **post178** (be7e915): the per-feed ADDITION.md retired; the run LOG.md carries each
-  feed's HELD BACK / PROVENANCE notes. 12-pair check (mock, framework, post177 vs 178):
-  outcomes unchanged, 13 ADDITION.md gone, every DDL / IIG / insert / test case identical.
-- **post179** (597c848): two staging failures from real pairs - a TableName cell listing
-  two tables (split by position, `extract/list_cells.py`), an FRD nested "Vendor | Target
-  Table" cell read as four tables, two sheets sharing one file failing the sheet match, and
-  an audit column typed `integer` refused. 12-pair check (post178 vs 179): outcomes
-  unchanged; SQL / TXT / 20 xlsx banner-sha only (two pairs' FRD contracts changed); real
-  changes only from the nested-cell fix - two pairs' FRD contracts drop the junk tables and
-  a bogus "frd_tables_set_aside: ['Vendor', 'Target Table', ...]" review item is gone.
-- The delegation workbook (Soham's Workspace folder) was overwritten: rows 12, 13 out of
-  scope, row 7 RFC dropped, ADDITION.md folded into LOG.md; projected saving 29 h of 69
-  (42%). Rows 3 / 4 (check an existing pipeline / IIG config, check the tables in Unity
-  Catalog) STAY IN SCOPE (Soham, 2026-11-06) - not built; building them needs read-only
-  queries beyond the EXPLAIN-only rule in AGENTS.md, so that rule changes first (his call).
-- AGENTS.md trimmed (repo layout to 4 facts; UI rules moved to `ui/AGENTS.md`, loaded by
-  `ui/CLAUDE.md` under `ui/`). /doctor: 43 unused `~/.claude/skills` + debug-everything
-  off, deepwiki MCP off for this project, defaultMode auto - all in HOME, gone on restart.
+- **post178** ADDITION.md retired (the run LOG.md carries HELD BACK / PROVENANCE).
+  **post179** two staging failures: a TableName cell listing two tables (split by
+  position, `extract/list_cells.py`), an FRD nested "Vendor | Target Table" cell, two sheets
+  sharing one file, an audit column typed `integer`. **post180** "Record Type" = a segment
+  column (H/D/T read by record type), the split on segmented sheets, a shared column keeps
+  its standard mapping. **post181** one standard table per stage table on every sheet.
+  **post182** nine fixes from an adversarial review of 178-181
+  (`tests/test_adversarial_post182.py`). Details: CHANGELOG_ACFC.md.
+- Every one: both suites green, its new tests fail with only it reverted, the 12-pair check
+  (mock, framework) outcomes unchanged (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2
+  GATE_FAIL, 2 FAIL). Real artefact changes on the 12 pairs: none, except post179's
+  nested-cell fix (two pairs drop junk FRD tables and a bogus review item).
+- **The delegation workbook** (Workspace `STTM_to_Artefacts_Agent_Delegation (1).xlsx`,
+  overwritten in place on Soham's word): rows 12 / 13 out of scope, row 7 RFC dropped,
+  ADDITION.md folded into LOG.md, rows 3 / 4 in scope; projected 29 h saved of 69 (42%).
+- **Deploys failed for about an hour on 2026-11-06** (Databricks build layer, transient;
+  spiral log + known cause): each failure took the dev App DOWN (502) - restore by
+  deploying the last good commit by sha.
+- /doctor (2026-11-06): 43 unused `~/.claude/skills` + debug-everything off, deepwiki MCP
+  off for this project, defaultMode auto - all in HOME, gone on the next restart.
 
 ## State (2026-11-06 — post177 on BOTH Apps)
 
@@ -601,16 +593,18 @@ post165 (DQ rows only where the STTM states them) and post166 (placeholder pipel
 
 ## Recipes this session relied on (`/tmp` is lost on a container reset)
 
-- **12-pair check:** `/tmp/t/pair_check.sh <old-sha>` (variants `pair_check139b.sh` = one
-  pair, `pair_check142.sh` = notebook mode) — copies the state (`environments overlays
-  leakgate answers` from `dbfs:/Volumes/d1_dlk/codegen/state/`) and the pairs
-  (`/Workspace/Users/<me>/frd_sttm_pairs`) into `/tmp/t/rp`, adds a worktree of
-  `<old-sha>`, runs the harness `--pairs 1` once per tree (cache warm-up), then all 12 per
-  tree, compares (`cmp2.py`, `cmp_kinds.py`), then the CLASSIFIERS — `tc_check.py`
-  (test-case SELECTs), `ddl_comment_diff.py` (DDLs differ only in COMMENTs),
-  `classify_rest.py` (every other file: banner sha only vs real), `classify_nb.py`
-  (which notebook cells differ) — and only then removes the worktree and deletes the
-  copies. Rebuild from this description if lost; never pass a placeholder sha.
+- **12-pair check** (rebuilt 2026-11-06, `/tmp/t/p182/`): `pair_check.sh prepare | run |
+  compare | cleanup` with the old sha in `base_sha` (look it up with `git rev-parse`, never
+  type one) - copies `environments overlays leakgate` from `dbfs:/Volumes/d1_dlk/codegen/
+  state/` and the pairs (`/Workspace/Users/<me>/frd_sttm_pairs`) into `/tmp/t/rp182`, adds
+  a worktree of the old sha, runs the harness `--pairs 1` (warm-up) then 1-12 per tree.
+  Compare the `--work` trees (`work_old` / `work_new` - the artefacts live there; `--out`
+  holds only the run summary). Then: `outcomes.py` (per-pair outcome, old vs new),
+  `classify_sha.py` (sha only vs REAL: normalizes the scratch paths, timestamps, the
+  version, and 12-64-char hex - banners print a 16-char sha prefix; xlsx compared cell by
+  cell), `classify.py` (REAL changes as shapes only: JSON key paths, md / sql line shapes
+  with words masked - parse JSON raw, never after normalizing). Only then `cleanup`
+  (deletes the copies + the worktree). Rebuild from this description if lost.
 - **Local App on scratch data:** `/tmp/t/ui/serve.sh` (port 8599, mock, storage roles and
   state in `/tmp/t/ui`, synthetic pair 4 as the input folder; `DATABRICKS_APP_PORT`
   overridden). A copy pointed at a worktree: `cd` + `PYTHONPATH=<worktree>/src:<worktree>`.

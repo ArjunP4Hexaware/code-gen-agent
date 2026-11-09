@@ -47,7 +47,9 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   IIG is training and scoring material, never a value source** (Soham, 2026-11-05: users
   bring an FRD + STTM, not a prod IIG): a convention may be LEARNED from the corpus and
   proven on pairs it was not learned from; a constant copied from one pair's prod IIG is
-  this bug (post177 removed post102's Daily masters).
+  this bug (post177 removed post102's Daily masters). **A TDD (the RFC's technical design
+  document) is the same: training material, never a value source** - the agent's inputs
+  are the FRD, the STTM and a VDD (2026-11-09: only two TDDs exist in `rfc_samples`).
 - **Citation rule:** every conflict / assumption / confirm item and provenance note quotes
   the exact FRD field or STTM cell it rests on (models enforce non-empty citations; tests
   assert them). Layer scope comes from Load Strategy, never from which schemas a Target

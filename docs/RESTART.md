@@ -4,51 +4,75 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-09 - dev post187, staging post186)
+## Start here (2026-11-09 night - BOTH Apps on post187, nothing running)
 
 **First check:** `git fetch && git status -sb` should say up to date with
-`origin/feature/multi-table`.
-- **Staging** = post186 (`main` 1da8363; health + smoke green).
-- **Dev** = post187 (718c4c3, deployment 01f1dc902166...; health + smoke green): the
-  pipeline orchestrator is an Advanced option (ADF = PL_, the default; Databricks
-  Workflow = WF_, the rest of the name unchanged; `generate --orchestrator`). Suites
-  `.venv` 2565 / `.venv-d1` 2216; 12-pair check: outcomes and every IIG value
-  unchanged (only the quoted pattern text `{pipeline_prefix}_...` in notes / manifests).
-  Staging waits for Soham's word.
-- post185 open: the standard TBLPROPERTIES' minReader/Writer 1 / 2 vs Databricks' 3 / 7
-  on a table with features (the DDL test case would not match) - Soham's call.
-- **TDDs** (Venu: use them to train): two in `rfc_samples` - the pair_12 RFC's (says
-  Databricks Workflow Job; its prod IIG is PL_) and `TDD_Implement_Medicare_Growth_
-  Expansion_2025_1003866.docx` (pair_2's project; says ADF, prod IIG PL_). The 1003866
-  one lists the run's ingestion modules: most REUSE an existing grand master (the agent
-  always writes a new GMSTR + MSTR - a question for Soham / Lokesh), and its new grand
-  masters are `PL_GMSTR_<source>_<subject>_<LOB>_<freq>` with NO product / sub-product
-  codes (as pair_11's prod IIG) - the Naming Standards pattern post186 follows has them:
-  ask Lokesh which. Linked "Generic Pipeline Design" / "Parameterize ADF Workflows"
-  docs are on SharePoint (unreachable) - copies to the Workspace would help.
-Session log: CLAUDE_HISTORY §[H22].
+`origin/feature/multi-table`. BOTH Apps on post187: dev from feature 718c4c3 (deployment
+01f1dc902166...), staging from `main` 8fcdea6 (identical-tree merge, deployment
+01f1dc9958511f...); health post187 + smoke (Generate + Results 200, 0 console errors)
+green on both. Later docs-only commits on feature need no deploy. Session log:
+CLAUDE_HISTORY §[H23].
 
 **Open, in order:**
-1. **Tell the tester (via Soham)** staging has post182: her 820 pair runs through (split
-   into one feed per line of business, read by record type; its `_sumry` standard tables
-   are flagged, not built); the HBL pair reaches the normal questions. Neither has been run
-   LIVE yet - a dev-App run is allowed without a per-run ask (report pair / outcome /
-   counts only); her files are in Soham's Workspace folder `aruna_test_files`.
-2. **A second standard table per stage table** (the `_sumry` tables): a model change in
-   `metadata_template._table_groups` (one stage table -> one standard table today) and the
-   IIG's stage-to-standard rows; which records go to which table is not an IIG value any
-   document states - Soham's call before any code.
-3. **Rows 3 / 4 of the delegation workbook** (check an existing pipeline / IIG config,
-   check the tables in Unity Catalog) are IN scope and not built: they need read-only
-   queries beyond the EXPLAIN-only rule in AGENTS.md - that rule changes first (his call).
-4. NO_OF_CYCLE_PER_DAY "1" (corpus 98.2%) is wrong on pairs 11 / 12 - Soham's call.
-5. **`codingapp` deploy** - the bootstrap patch is IMPORTED (block "2026-11-04" below);
+1. **post185's protocol lines** (Soham's call): the standard TBLPROPERTIES carry
+   `delta.minReaderVersion 1` / `minWriterVersion 2` as he sent them, but a table with
+   deletion vectors / column mapping / v2 checkpoints runs on 3 / 7 (Databricks upgrades
+   it), so the DDL test case "includes delta.minReaderVersion = 1" will not match by eye;
+   `predictiveOptimization` is no Delta property (stored as a label, enables nothing).
+2. **Ask Lokesh (via Soham), from pair_2's TDD** (`rfc_samples/TDD_Implement_Medicare_
+   Growth_Expansion_2025_1003866.docx`): (a) prod grand master names are
+   `PL_GMSTR_<source>_<subject>_<LOB>_<freq>` WITHOUT product / sub-product codes (pair_11's
+   prod IIG too) - the Naming Standards pattern post186 follows has them; which wins?
+   (b) most modules REUSE an existing grand master - should a new feed point at one (its
+   name from the BSA) instead of the agent always writing a new GMSTR + MSTR? (c) pair_12's
+   TDD says "Databricks Workflow Job" yet its prod IIG names are PL_.
+3. **TDD training** (Venu): only two TDDs exist in `rfc_samples` (pair_2's, pair_12's).
+   They link "Generic Pipeline Design Documents" and "Parameterize ADF Workflows" on
+   SharePoint (unreachable from here) - copies in the Workspace would be the useful ones.
+   A TDD is training material only (AGENTS.md); more TDDs are needed before any convention
+   is learned + proven on held-out pairs.
+4. **Tell the tester (via Soham)**: staging has the "Do Not Map" fix (her Accumulators
+   pair ran PASS_WITH_OPEN_INPUTS there), a VDD is optional (no question when none
+   matches), the template TBLPROPERTIES, Naming-Standards codes read from the FRD
+   (+ "How the names were built" in each report / LOG.md) and the Pipeline orchestrator
+   dropdown (Advanced options). Message text drafted in the session (H23).
+5. **A second standard table per stage table** (the 820 pair's `_sumry` tables): a model
+   change in `metadata_template._table_groups` - Soham's call before any code.
+6. **Rows 3 / 4 of the delegation workbook** (check an existing pipeline / IIG config, the
+   tables in Unity Catalog): need read-only queries beyond the EXPLAIN-only rule - that
+   rule changes first (his call).
+7. NO_OF_CYCLE_PER_DAY "1" (corpus 98.2%) is wrong on pairs 11 / 12 - Soham's call.
+8. **`codingapp` deploy** - the bootstrap patch is IMPORTED (block "2026-11-04" below);
    `databricks apps deploy codingapp` restarts this container: on Soham's word, last in a
    session. After it: `gh auth login`, `~/bootstrap`, the checks in that block.
-6. Step 3 for the STTM cell locator (`layout/cell_locate.py` reads only FRD cells); ask the
+9. Step 3 for the STTM cell locator (`layout/cell_locate.py` reads only FRD cells); ask the
    BSA about pairs 05 / 11's STTM "DQ rules" sheet and pair_12's recycle days / stage load
    option; the Apps stop / start schedule, Venu's GPT-6.1 Sol answer, the 11-pair layout
    cost, Rama's answers (blocks below).
+
+## State (2026-11-09 — post183 to post187)
+
+- **post183** a "Do Not Map" STTM table / schema cell names no table
+  (`layout.resolve._sttm_facts`; the staging Accumulators pair failed "FRD stage tables not
+  mapped ... ['Do Not Map']"). Live dev run of that pair: PASS_WITH_OPEN_INPUTS, 1 feed
+  PASS_WITH_FLAGS, 0 blocking, no model call; staging re-run (someone else's) the same.
+- **post184** a VDD is optional: no pairing question when no dictionary shares content
+  (`pairing.PairDecision.ambiguous`); AGENTS.md rule.
+- **post185** the standard-table TBLPROPERTIES = the template Soham sent (21 properties,
+  verbatim; zstd dropped). Open item 1 above.
+- **post186** the Naming Standards product (3.2) / sub-product (3.3) codes READ from the
+  FRD (`codegen.naming_codes`, transcribed tables in config; product = what the FRD
+  ingests into, sub-product = a 3.3 entry named, else NSP + flag; none / several = open,
+  asked); every PIPELINE_NAME sourced part by part in the feed report + run LOG.md
+  ("How the names were built", `codegen.naming_provenance`, for Lokesh). 12 pairs: all DLK
+  from an FRD line, pair_06 HVR (a held table-source IIG, so no written name changes).
+- **post187** ADF (`PL_`, default) or Databricks Workflow (`WF_`) - App Advanced options
+  "Pipeline orchestrator" / `generate --orchestrator`; `{pipeline_prefix}` in the ACFC
+  patterns (`codegen.orchestrator`). No FRD / STTM / VDD states it (searched: 12 pairs +
+  15 RFC packages, every prod IIG name PL_).
+- Every one: both suites green, the 12-pair check (mock, framework) outcomes unchanged
+  (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), dev deployed + smoked,
+  staging merged identical-tree + deployed + smoked on Soham's word.
 
 ## State (2026-11-06 → 09 — post178 to post182)
 

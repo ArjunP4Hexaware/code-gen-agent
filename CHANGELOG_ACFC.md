@@ -4,6 +4,19 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post184 — 2026-11-09 (a VDD is optional: no question nothing points to)
+
+A dev-App run paused before generating on "Which Vendor Data Dictionary belongs to ...?":
+every candidate scored 0 and the best name overlap sat below the fuzzy threshold
+(`pairing.decide` marked a names-only decision `ask`, and `PairDecision.ambiguous` asked a
+VDD even at score 0 - M15.4's "offered rather than silently dropped"). Only the FRD and
+STTM are mandatory (Soham): a VDD is now asked about only when a candidate shares content
+(score > 0) or an override names a missing one; otherwise nothing is paired and the run
+goes on without a VDD. The FRD's pairing is unchanged (a names-only FRD is still asked).
+Tests: `tests/test_m93_chooser.py` (`test_a_vdd_only_the_names_loosely_share_is_no_question`;
+the no-content half of `test_a_weak_vdd_score_is_a_question_not_a_dead_zone` flipped) -
+both fail on post183.
+
 ## 0.5.8.post183 — 2026-11-09 (a "Do Not Map" table cell is no table)
 
 A staging run FAILed "contract mismatch ... FRD stage tables not mapped by any STTM

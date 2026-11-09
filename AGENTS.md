@@ -295,7 +295,9 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   `vdd_*` gate flags, never the standard layer). Selection-time pairing is automatic
   among local candidates (`codegen.pairing`: content, ticket number, name role; a
   `pairing_overrides.yaml` wins); a manual pick is never marked automatic; no match or
-  ambiguity pairs nothing.
+  ambiguity pairs nothing. **Only the FRD and STTM are mandatory** (Soham, 2026-11-09): a
+  run never stops for a VDD - a dictionary is asked about only when it shares content
+  with the pair (score > 0) or an override names a missing one (post184).
 - **Layout recognition** (`src/codegen/layout/`, `docs/LAYOUT_RECOGNITION.md`): a model
   decides WHERE things are, code copies the values, a validator sits between. Order:
   cache → synonyms → model → validate → user. The model sees only fingerprint material

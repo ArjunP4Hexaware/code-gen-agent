@@ -4,7 +4,7 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-09 - dev post184, staging post183)
+## Start here (2026-11-09 - BOTH Apps on post184)
 
 **First check:** `git fetch && git status -sb` should say up to date with
 `origin/feature/multi-table`.
@@ -13,9 +13,9 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
   staging pair that failed: PASS_WITH_OPEN_INPUTS (1 feed PASS_WITH_FLAGS, 0 blocking, 13
   open, no model call).
 - **post184** (a VDD is optional: no question when nothing points to one; AGENTS.md rule)
-  is on the DEV App only (bbc945c, deployment 01f1dc6b...; health + smoke green; the same
-  pair now selects with no VDD question). Suites `.venv` 2546 / `.venv-d1` 2198.
-  Staging waits for Soham's word.
+  is on BOTH Apps: dev from feature bbc945c, staging from `main` 96a32e5 (identical-tree
+  merge, deployment 01f1dc6bb896...); health + smoke green on both; the same pair now
+  selects with no VDD question. Suites `.venv` 2546 / `.venv-d1` 2198.
 Session log: CLAUDE_HISTORY §[H22].
 
 **Open, in order:**

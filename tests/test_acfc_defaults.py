@@ -135,9 +135,10 @@ def test_the_app_selectors_default_to_the_overlay(monkeypatch):
     _overlay_on(monkeypatch)
     runner = SimpleNamespace(_store=SimpleNamespace(config=load_config(CONFIG)),
                              conventions_profile=None, iig_template=None,
-                             playbook_template=None)
+                             playbook_template=None, pipeline_orchestrator=None)
     options = DemoRunner.generation_options(runner)
     assert options["conventions_profile"]["default"] == "acfc_prx"
+    assert options["pipeline_orchestrator"]["default"] == "adf"     # post187: PL_
     assert options["iig_template"]["default"] == "iig_v2"
     assert "acfc_prx" in options["conventions_profile"]["options"]
     assert "iig_v2" in options["iig_template"]["options"]

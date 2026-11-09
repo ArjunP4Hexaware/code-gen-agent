@@ -4,6 +4,25 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post187 — 2026-11-09 (ADF or Databricks Workflow: PL_ / WF_, an Advanced option)
+
+Lokesh's rule (via Soham): pipelines built for Azure Data Factory are named `PL_...`
+(the default), for a Databricks Workflow `WF_...` - the name shaped as usual, only the
+prefix moves. No FRD / STTM / VDD of the 12 pairs states the orchestrator (searched
+2026-11-09: every prod IIG name in the 12 pairs + 15 RFC packages is `PL_`; only one
+RFC's TDD speaks of a Databricks Workflow Job), so it is a RUN choice: the App's
+**Advanced options -> Pipeline orchestrator** dropdown ("Azure Data Factory (PL_)" /
+"Databricks Workflow (WF_)"), `generate --orchestrator adf|workflow` on the CLI, else
+`engineering_standards.pipeline_orchestrator` (`adf`). The ACFC patterns
+(`pipeline_name_templates`) start with a `{pipeline_prefix}` part
+(`pipeline_name_prefixes: {adf: PL, workflow: WF}`, `codegen.orchestrator`), and the
+"How the names were built" provenance names where the prefix came from. An unknown
+choice is refused (CLI exit 1, App 400). Default runs are unchanged.
+
+Tests: `tests/test_orchestrator.py`, `tests/test_demo_ui.py`
+(`test_the_pipeline_orchestrator_is_an_advanced_option`); the UI checked in a local mock
+App with Playwright (the dropdown, its labels, choose / reset, 0 console errors).
+
 ## 0.5.8.post186 — 2026-11-09 (Naming Standards product / sub-product read from the FRD; names sourced)
 
 1. **The product / sub-product codes are a LOOKUP, not constants** (Soham: "instead of

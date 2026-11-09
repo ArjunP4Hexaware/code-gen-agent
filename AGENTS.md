@@ -436,6 +436,9 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   asked - except 3.3's own "No Sub-Product" code, written WITH a flag). Every
   PIPELINE_NAME is sourced part by part in the feed report and the run's LOG.md ("How
   the names were built", `codegen.naming_provenance`) - keep that when names change.
+  The prefix is the run's orchestrator (post187, Lokesh via Soham): ADF = `PL_` (the
+  default), a Databricks Workflow = `WF_`, the rest of the name unchanged - a RUN choice
+  (App Advanced options / `generate --orchestrator`), since no FRD / STTM states it.
 
 ## Output modes and artefacts
 

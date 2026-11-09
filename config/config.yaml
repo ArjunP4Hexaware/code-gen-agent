@@ -814,6 +814,14 @@ engineering_standards:
     # the table's spelling only: "forecast" as an ordinary word is no sub-product
     - {entry: "Forcast", code: FCT, stated_as: ["Forcast"]}
   no_sub_product_code: NSP
+  # post187 (Soham, 2026-11-09, Lokesh's rule): the pipelines' orchestrator - ADF by
+  # default (every prod IIG name in the 12 pairs + 15 RFC packages is PL_), a Databricks
+  # Workflow when the run says so (App Advanced options, generate --orchestrator). The
+  # prefix replaces PL_ and nothing else (the name is shaped as usual). Naming Standards:
+  # ADF "Pipeline Master / Child" PL_..., Databricks "WORKFLOW" WF_...
+  pipeline_orchestrator: adf
+  pipeline_name_prefixes: {adf: PL, workflow: WF}
+  pipeline_orchestrator_labels: {adf: "Azure Data Factory (PL_)", workflow: "Databricks Workflow (WF_)"}
   # Source/Target abbreviations (table 3.1) + vendor names seen in contracts.
   source_abbreviations:
     FACETS: FACETS

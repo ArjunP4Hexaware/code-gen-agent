@@ -58,7 +58,9 @@ PLACEHOLDERS = ("domain", "subdomain", "source", "frequency", "layer", "load_mod
                 # post85: the EDO Naming Standards' own components (its abbreviation
                 # tables, engineering_standards:) — the document's pipeline names
                 "product_code", "sub_product_code", "source_std", "domain_std",
-                "subdomain_std", "lob_std", "load_std")
+                "subdomain_std", "lob_std", "load_std",
+                # post187: PL (ADF) / WF (a Databricks Workflow) - codegen.orchestrator
+                "pipeline_prefix")
 FLOWS = ("grand_master", "master", "file_to_stg", "stg_to_std")
 PIPELINE = "pipeline_name"
 PROFILE_DEFAULT = "profile_default"
@@ -322,9 +324,12 @@ def flow_tokens(base: dict[str, str], spec, profile, flow: str,
     codes = ({k.casefold(): v for k, v in
               config.engineering_standards.load_strategy_abbreviations.items()}
              if config is not None else {})
+    from codegen.orchestrator import pipeline_prefix
+
     return {**base, "layer": profile.pipeline_flow_layers.get(flow, ""),
             "load_mode": _strategy(load),
-            "load_std": str(codes.get(_strategy(load).casefold(), "") or "")}
+            "load_std": str(codes.get(_strategy(load).casefold(), "") or ""),
+            "pipeline_prefix": pipeline_prefix(config)}
 
 
 def _role_frequency(tokens: dict[str, str], tpl, flow: str, config) -> dict[str, str]:
@@ -560,14 +565,16 @@ def proposal(item: Defaulted, spec, profile, tpl, tokens: dict[str, str],
                             "conventions.profiles.<profile>.pipeline_name_templates in the "
                             "ACFC overlay")
         flow_values = flow_tokens(tokens, spec, profile, item.flow, config, tpl)
-        open_codes = [t for t in ("product_code", "sub_product_code")
+        open_codes = [t for t in ("product_code", "sub_product_code", "pipeline_prefix")
                       if "{" + t + "}" in template and not str(flow_values.get(t) or "")]
         if open_codes:
             # post186: a Naming Standards code the FRD does not state (or states
             # twice) - never a name with that part missing; the name is asked
             return Proposal(template=template, refused=(
-                f"the FRD states no single Naming Standards {' / '.join(open_codes)} "
-                "(tables 3.2 / 3.3; the naming_product / naming_sub_product flags)"))
+                f"no value for {' / '.join(open_codes)} (product / sub-product: the FRD "
+                "states no single Naming Standards 3.2 / 3.3 entry - the naming_product / "
+                "naming_sub_product flags; pipeline_prefix: no orchestrator prefix "
+                "configured)"))
         value = render(template, flow_values, case=profile.pipeline_name_case)
         if not value:
             return Proposal(template=template, refused="the template renders empty")

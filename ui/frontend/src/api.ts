@@ -93,12 +93,16 @@ export interface GenerationOptionGroup {
   options: string[];
   default: string;
   selected: string | null;
+  // post187: what each option is called on the page (else the option itself)
+  labels?: Record<string, string>;
 }
 
 export interface GenerationOptions {
   conventions_profile: GenerationOptionGroup;
   iig_template: GenerationOptionGroup;
   playbook_template: GenerationOptionGroup;
+  // post187: ADF (PL_ pipeline names) or a Databricks Workflow (WF_)
+  pipeline_orchestrator?: GenerationOptionGroup;
 }
 
 // The run's environment (2026-10-14, GET/POST /api/demo/environment): the
@@ -1095,6 +1099,7 @@ export const api = {
     conventions_profile: string | null;
     iig_template: string | null;
     playbook_template: string | null;
+    pipeline_orchestrator?: string | null;
   }) =>
     request<GenerationOptions>("/api/demo/generation-options", {
       method: "POST",

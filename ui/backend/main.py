@@ -1226,6 +1226,8 @@ class GenerationOptionsRequest(BaseModel):
     conventions_profile: str | None = None
     iig_template: str | None = None
     playbook_template: str | None = None
+    # post187: adf (PL_) | workflow (WF_); null = the config's
+    pipeline_orchestrator: str | None = None
 
 
 class EnvironmentRequest(BaseModel):
@@ -1271,7 +1273,8 @@ def select_generation_options(req: GenerationOptionsRequest) -> dict:
     try:
         _require_runner().select_generation_options(
             conventions_profile=req.conventions_profile, iig_template=req.iig_template,
-            playbook_template=req.playbook_template)
+            playbook_template=req.playbook_template,
+            pipeline_orchestrator=req.pipeline_orchestrator)
     except LiveRunInProgress as exc:
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:

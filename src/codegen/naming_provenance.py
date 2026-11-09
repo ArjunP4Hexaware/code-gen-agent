@@ -88,6 +88,15 @@ def _part_sources(spec, config: Config, flow: str) -> dict[str, str]:
                        "load_strategy_abbreviations" if load else
                        "no load strategy for this row - the part is empty")
     out["layer"] = f"conventions pipeline_flow_layers[{flow}]"
+    from codegen.orchestrator import label, orchestrator
+
+    choice = orchestrator(config)
+    out["pipeline_prefix"] = (
+        f"the run's pipeline orchestrator: {label(config)} "
+        "(engineering_standards.pipeline_orchestrator; ADF unless the run chose a "
+        "Databricks Workflow - App Advanced options / generate --orchestrator); Naming "
+        "Standards: ADF pipelines PL_, Databricks workflows WF_" if choice else
+        "no pipeline orchestrator configured")
     return out
 
 

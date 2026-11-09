@@ -253,8 +253,11 @@ def _standards_tokens(spec, config, source: str) -> dict[str, str]:
     lobs = list(getattr(spec, "lobs", None) or [])
     lob = (_abbreviate(lobs[0], standards.lob_abbreviations) if len(lobs) == 1
            else standards.multi_lob_abbreviation if lobs else "")
-    return {"product_code": _sanitize_name_part(standards.product_code),
-            "sub_product_code": _sanitize_name_part(standards.sub_product_code),
+    from codegen.naming_codes import spec_codes
+
+    product, sub_product = spec_codes(spec, standards)   # post186: read from the FRD
+    return {"product_code": _sanitize_name_part(product),
+            "sub_product_code": _sanitize_name_part(sub_product),
             "source_std": _abbreviate(source or None, standards.source_abbreviations),
             "domain_std": _abbreviate(spec.domain, standards.domain_abbreviations),
             "subdomain_std": _abbreviate(spec.sub_domain, standards.domain_abbreviations),
@@ -556,8 +559,16 @@ def proposal(item: Defaulted, spec, profile, tpl, tokens: dict[str, str],
             return Proposal(template=template, refused=f"{PLACEHOLDER_LABEL}: set "
                             "conventions.profiles.<profile>.pipeline_name_templates in the "
                             "ACFC overlay")
-        value = render(template, flow_tokens(tokens, spec, profile, item.flow, config, tpl),
-                       case=profile.pipeline_name_case)
+        flow_values = flow_tokens(tokens, spec, profile, item.flow, config, tpl)
+        open_codes = [t for t in ("product_code", "sub_product_code")
+                      if "{" + t + "}" in template and not str(flow_values.get(t) or "")]
+        if open_codes:
+            # post186: a Naming Standards code the FRD does not state (or states
+            # twice) - never a name with that part missing; the name is asked
+            return Proposal(template=template, refused=(
+                f"the FRD states no single Naming Standards {' / '.join(open_codes)} "
+                "(tables 3.2 / 3.3; the naming_product / naming_sub_product flags)"))
+        value = render(template, flow_values, case=profile.pipeline_name_case)
         if not value:
             return Proposal(template=template, refused="the template renders empty")
         if value.casefold() in taken:

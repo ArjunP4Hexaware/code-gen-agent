@@ -162,6 +162,10 @@ class ResolvedFeedSpec(BaseModel):
     # M4: facts the resolver took from the STTM because the FRD named none
     # (file pattern, record segments) — surfaced as gate flags, never silent.
     provenance_flags: list[str] = Field(default_factory=list)
+    # post186: the Naming Standards product / sub-product codes the FRD states
+    # (codegen.naming_codes; None = open - the names carrying it are not written)
+    product_code: str | None = None
+    sub_product_code: str | None = None
     # post170: values the person left blank on purpose (answers.leave_blank) - their
     # cells are blank + flagged; an empty delimiter here is NOT a fixed-width file
     left_blank: list[str] = Field(default_factory=list)

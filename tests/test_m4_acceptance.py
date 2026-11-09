@@ -100,6 +100,10 @@ PAIR1_PROVENANCE_KINDS = [
     "frd_unstated:stage_target.catalog",     # … and no catalog -> STTM band
     "frd_unstated:standard_target.catalog",
     "segments_from_sttm",
+    # post186: the Naming Standards codes read from the FRD - this synthetic FRD names
+    # no 3.2 ingestion target (product open) and no 3.3 entry (NSP, flagged)
+    "naming_product_unstated",
+    "naming_sub_product_unstated",
 ]
 
 

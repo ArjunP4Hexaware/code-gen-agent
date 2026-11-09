@@ -135,6 +135,9 @@ class FrameworkArtefacts:
     # discriminator line and the held-back workbook Standard layer.
     assumed_notes: list[str] = field(default_factory=list)
     held_back: list[str] = field(default_factory=list)
+    # post186: how every PIPELINE_NAME was built - pattern, parts, sources
+    # (codegen.naming_provenance); the report and the run's LOG.md carry them
+    naming_notes: list[str] = field(default_factory=list)
     # M4: gate flags this emit raised (blank-and-flag IIG columns, a DDL
     # file name derived from the slug) — joined to the verdict by the caller.
     flags: list[str] = field(default_factory=list)
@@ -1212,6 +1215,8 @@ def emit_framework(
         ]
 
 
+    from codegen.naming_provenance import pipeline_name_provenance
+
     return FrameworkArtefacts(
         files=files,
         row_counts={name: len(tab["rows"]) for name, tab in payload["tabs"].items()},
@@ -1219,6 +1224,9 @@ def emit_framework(
         flagged_blank_columns=flagged,
         assumed_notes=assumed_notes,
         held_back=held_back,
+        naming_notes=pipeline_name_provenance(
+            spec, faq, config, conventions_profile=conventions_profile,
+            iig_template=iig_template, frd_path=frd_path, base=base_dir),
         flags=flags,
         checks=checks,
         payload=payload,
@@ -1317,8 +1325,16 @@ def report_section(artefacts: FrameworkArtefacts) -> str:
         lines.append(f"| **PROVENANCE** | {note} |")
     for held in artefacts.held_back:
         lines.append(f"| **HELD BACK** | {held} |")
+
     # post66: the derived ratio lives here (the App's panel dropped it), labelled
     lines += ["", derived_line(coverage)]
+    naming = getattr(artefacts, "naming_notes", [])
+    if naming:
+        # post186 (Lokesh via Soham): every pipeline name sourced, part by part
+        lines += ["", "## How the names were built", "",
+                  "Each PIPELINE_NAME: how it got there, the naming-standard pattern and "
+                  "its config key, then every part with its value and its source.", ""]
+        lines += [f"- {note}" for note in naming]
     return "\n".join(lines) + "\n"
 
 

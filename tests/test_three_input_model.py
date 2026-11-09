@@ -110,6 +110,7 @@ def test_edo_workflow_name_from_config(config):
         domain="member",
         sub_domain="outreach",
         lobs=["All"],
+        codes=("DLK", "NSP"),      # post186: the feed's codes, read from its FRD
     )
     assert name == "WF_DLK_NSP_SFMC_EMAIL_CAMPAIGN_TRACKING_MBR_OUTREACH_ALL_DLY"
 
@@ -125,7 +126,8 @@ def test_edo_workflow_name_collapses_unknown_components(config):
         sub_domain=None,
         lobs=[],
     )
-    assert name == "WF_DLK_NSP_SOME_FEED_ADH"
+    # post186: no codes given = no product / sub-product part (never a constant)
+    assert name == "WF_SOME_FEED_ADH"
     assert "__" not in name
 
 
@@ -138,6 +140,7 @@ def test_edo_notebook_name_from_config(config):
         "sfmc_email_campaign_tracking",
         domain="member",
         sub_domain="outreach",
+        codes=("DLK", "NSP"),
     )
     assert name == "NB_DLK_NSP_MBR_OUTREACH_INGEST"
 

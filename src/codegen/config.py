@@ -949,6 +949,18 @@ class TypeMappingEntry(BaseModel):
     target: str
 
 
+class NamingCode(BaseModel):
+    """post186: one row of the Naming Standards' Product (3.2) / Sub-Product (3.3)
+    table - the "Project / Use Case" (``entry``), its acronym (``code``) and the
+    phrases a document states it by (``stated_as``; codegen.naming_codes)."""
+
+    model_config = _MODEL_CONFIG
+
+    entry: str
+    code: str
+    stated_as: list[str] = Field(default_factory=list)
+
+
 class EngineeringStandardsConfig(BaseModel):
     """Client engineering/coding standards (three-input model, input #2).
 
@@ -986,8 +998,16 @@ class EngineeringStandardsConfig(BaseModel):
     # codes, source/domain/LOB/frequency abbreviations). Lookups are
     # case-insensitive on the normalized key; an unmapped value falls back to
     # its sanitized uppercase form rather than failing generation.
+    # post186: the codes READ from the FRD through tables 3.2 / 3.3
+    # (codegen.naming_codes); the two constants only where no table is configured.
     product_code: str = ""
     sub_product_code: str = ""
+    product_codes: list[NamingCode] = Field(default_factory=list)
+    sub_product_codes: list[NamingCode] = Field(default_factory=list)
+    # the words that make a 3.2 entry the ingestion TARGET ("into Lakehouse")
+    product_target_words: list[str] = Field(default_factory=list)
+    # table 3.3's "No Sub-Product" row: written, flagged, when the FRD names none
+    no_sub_product_code: str = ""
     source_abbreviations: dict[str, str] = Field(default_factory=dict)
     domain_abbreviations: dict[str, str] = Field(default_factory=dict)
     lob_abbreviations: dict[str, str] = Field(default_factory=dict)

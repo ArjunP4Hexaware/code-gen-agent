@@ -325,16 +325,19 @@ def _frequency_cell(feed: FrdFeed, faq):
 
 
 def _standards_name_cell(config: Config, feed: FrdFeed, slug: str, faq,
-                         kind: str):
-    """WF_/NB_ name from the engineering-standards patterns (input #2)."""
+                         kind: str, spec=None):
+    """WF_/NB_ name from the engineering-standards patterns (input #2). post186: the
+    product / sub-product codes the FRD states (``spec``; codegen.naming_codes)."""
     if faq is None:
         return None
     from codegen.emit.context import resolve_job_name, resolve_notebook_name
+    from codegen.naming_codes import spec_codes
 
     builder = resolve_job_name if kind == "job" else resolve_notebook_name
     name = builder(config.engineering_standards, faq, slug,
                    source=feed.source_system, domain=feed.domain,
-                   sub_domain=feed.sub_domain, lobs=feed.lobs)
+                   sub_domain=feed.sub_domain, lobs=feed.lobs,
+                   codes=spec_codes(spec, config.engineering_standards))
     if not name:
         return None
     return _cell(name, "from_standards",
@@ -569,7 +572,7 @@ def _frequency_parts(frequency: str | None) -> tuple[str | None, str | None]:
 def _pipeline_schedule_rows(feed: FrdFeed, config: Config, spec, faq,
                             unmapped: set[str]) -> list[dict[str, dict]]:
     slug = normalize_feed_name(feed.feed_name)
-    name_cell = _standards_name_cell(config, feed, slug, faq, "job")
+    name_cell = _standards_name_cell(config, feed, slug, faq, "job", spec)
     rows = []
     layers = ["STAGE"]
     if (spec is not None and spec.standard_table is not None) or (
@@ -684,8 +687,8 @@ def _refresh_type_cell(frd_strategy, layer_label: str, fallback: str) -> dict:
 def _notebook_details_rows(feed: FrdFeed, config: Config, spec, faq,
                            unmapped: set[str]) -> list[dict[str, dict]]:
     slug = normalize_feed_name(feed.feed_name)
-    job_cell = _standards_name_cell(config, feed, slug, faq, "job")
-    notebook_cell = _standards_name_cell(config, feed, slug, faq, "notebook")
+    job_cell = _standards_name_cell(config, feed, slug, faq, "job", spec)
+    notebook_cell = _standards_name_cell(config, feed, slug, faq, "notebook", spec)
     strategy = config.demo.source_files.load_strategy
     rows = []
     layers = [("STAGE", "STG",

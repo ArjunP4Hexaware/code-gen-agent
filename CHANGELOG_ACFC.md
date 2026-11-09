@@ -4,6 +4,20 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post183 — 2026-11-09 (a "Do Not Map" table cell is no table)
+
+A staging run FAILed "contract mismatch ... FRD stage tables not mapped by any STTM
+field or recycle rule: ['Do Not Map']": the STTM marks unmapped rows with the skip
+marker in their Target Table / Schema cells too (not only the column cells), and the
+layout's STTM facts (`layout.resolve._sttm_facts`) took every non-blank table cell as a
+table. The FRD named no stage table, so the gap fill copied the band's list - marker
+included - and the resolver failed on it. A table / schema cell reading a skip marker
+(`_unmapped_markers`: the profile's `skip_row_markers` + `extractor.unmapped_markers`)
+now names no table or schema there (stage / standard tables, schemas, the per-row
+table pairs); extract-sttm already skipped those rows. Tests:
+`tests/test_sttm_marker_tables.py` (pair-1 shape with the marker in all four table /
+schema cells; both fail on post182).
+
 ## 0.5.8.post182 — 2026-11-06 (an adversarial review of post178-181: nine fixes)
 
 An independent review fed unusual but plausible synthetic workbooks to post178-181;

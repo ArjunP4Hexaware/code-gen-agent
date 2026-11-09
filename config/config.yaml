@@ -779,10 +779,41 @@ engineering_standards:
   # EDO Databricks NOTEBOOK convention:
   #   NB_<3 Char Product>_<3 Char Sub-Product>_<Domain>_<Subdomain>_<Functionality>
   notebook_name_pattern: "NB_{product}_{subproduct}_{domain}_{subdomain}_INGEST"
-  # Product / Sub-Product codes (Naming Standards tables 3.2 / 3.3): this
-  # agent generates Data Lake ingestion pipelines with no sub-product.
-  product_code: "DLK"
-  sub_product_code: "NSP"
+  # post186 (Soham, 2026-11-09): Product / Sub-Product codes READ from the FRD through
+  # the Naming Standards' tables 3.2 / 3.3 (codegen.naming_codes) - never a constant
+  # (they were DLK / NSP for every feed). Entries + acronyms transcribed from the EDO
+  # Data Engineering Naming Standards (.docx, Workspace standards_docs/), in its
+  # order; ``stated_as`` = the phrases a document states the entry by.
+  # Product: the entry the FRD names as what it ingests INTO (product_target_words
+  # before the phrase) - a consumer mention ("for HEDIS consumption") is not it.
+  product_codes:
+    - {entry: "CMS – Consumption load, JSONS Creations", code: CMS, stated_as: ["CMS"]}
+    - {entry: "HEDIS2.0", code: HDS, stated_as: ["HEDIS2.0", "HEDIS 2.0"]}
+    - {entry: "Wider Circle", code: WDC, stated_as: ["Wider Circle"]}
+    - {entry: "Milliman", code: MMN, stated_as: ["Milliman"]}
+    - {entry: "Fee Schedule", code: FSC, stated_as: ["Fee Schedule"]}
+    - {entry: "Somatus", code: SOM, stated_as: ["Somatus"]}
+    - {entry: "Digital", code: DGT, stated_as: ["Digital"]}
+    - {entry: "Actuarial", code: ACT, stated_as: ["Actuarial"]}
+    - {entry: "MDM/RDM", code: MDM, stated_as: ["MDM/RDM", "MDM", "RDM"]}
+    # the FRDs state the Data Lake as "Lakehouse" / "DL" too (12 pairs, 2026-11-09)
+    - {entry: "Data Lake", code: DLK, stated_as: ["Data Lake", "Data Lakehouse", "Lakehouse", "DL"]}
+    - {entry: "EDH", code: EDH, stated_as: ["EDH"]}
+  product_target_words: ["into", "ingestion to", "ingested to", "ingest to", "loaded to",
+                         "load to"]
+  # Sub-product: a 3.3 entry the FRD names anywhere (whole word / phrase); none named
+  # = the table's own "No Sub-Product" code, flagged (Soham: "NSP with a flag").
+  sub_product_codes:
+    - {entry: "BITS2.0", code: BCL, stated_as: ["BITS2.0", "BITS 2.0"]}
+    - {entry: "Lake to Lake", code: LTL, stated_as: ["Lake to Lake"]}
+    - {entry: "HVR", code: HVR, stated_as: ["HVR"]}
+    - {entry: "FHIR", code: FHR, stated_as: ["FHIR"]}
+    - {entry: "Data Science -Serving layer (Sandbox)", code: BDS,
+       stated_as: ["Data Science -Serving layer", "Data Science - Serving layer",
+                   "Data Science Serving layer"]}
+    # the table's spelling only: "forecast" as an ordinary word is no sub-product
+    - {entry: "Forcast", code: FCT, stated_as: ["Forcast"]}
+  no_sub_product_code: NSP
   # Source/Target abbreviations (table 3.1) + vendor names seen in contracts.
   source_abbreviations:
     FACETS: FACETS

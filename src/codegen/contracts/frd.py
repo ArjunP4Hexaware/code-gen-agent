@@ -267,6 +267,18 @@ class FrdFeed(BaseModel):
         return len(self.record_segments) > 0
 
 
+class NamingEvidence(BaseModel):
+    """post186: the Naming Standards table entries (3.2 product / 3.3 sub-product)
+    the FRD states, in document order - each code with its entry and the FRD line
+    it rests on (codegen.naming_codes)."""
+
+    model_config = _MODEL_CONFIG
+
+    codes: list[str]
+    entries: list[str]
+    quotes: list[str]
+
+
 class FrdContract(BaseModel):
     """Top-level FRD feed-level mapping contract."""
 
@@ -297,3 +309,6 @@ class FrdContract(BaseModel):
     # file_pattern_from_object_name. The contract resolver carries them to the
     # gate (the CLI path has no layout stage to do it). Absent when empty.
     extraction_flags: list[str] = Field(default_factory=list)
+    # post186: what the FRD states of the Naming Standards' product / sub-product
+    # tables ("product" / "sub_product"). Absent when empty (older JSON loads).
+    naming: dict[str, NamingEvidence] = Field(default_factory=dict)

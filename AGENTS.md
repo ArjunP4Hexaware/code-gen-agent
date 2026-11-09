@@ -429,7 +429,13 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   one retry.
 - **Engineering standards** live as data in `engineering_standards:` (EDO naming
   patterns + abbreviation tables) and `job:`; clause-by-clause map + deviations in
-  `docs/EDO_STANDARDS_ALIGNMENT.md` (being revisited — RESTART.md).
+  `docs/EDO_STANDARDS_ALIGNMENT.md` (being revisited — RESTART.md). **A naming
+  standard's abbreviation table is a LOOKUP, never a constant** (Soham, 2026-11-09,
+  post186): the product / sub-product codes are read from the FRD through tables 3.2 /
+  3.3 (`codegen.naming_codes`; none / several = open, a name that needs the code is
+  asked - except 3.3's own "No Sub-Product" code, written WITH a flag). Every
+  PIPELINE_NAME is sourced part by part in the feed report and the run's LOG.md ("How
+  the names were built", `codegen.naming_provenance`) - keep that when names change.
 
 ## Output modes and artefacts
 

@@ -24,16 +24,19 @@ CV_FEEDS = ["cv_community_demographic_risk", "cv_community_risk", "cv_individual
 # <subproduct>_<feed>_<domain>_<subdomain>_<lob>_<frequency>. Frequency comes
 # from fixtures/faq/<slug>.faq.yaml (yearly → YRL, monthly → MTH); the CV
 # domains have no EDO abbreviation so they fall back to sanitized uppercase.
+# post186: the product / sub-product codes are READ from the FRD (Naming Standards
+# 3.2 / 3.3): this upstream contract JSON carries no FRD text, so no product (the part
+# is left out, flagged naming_product_unstated) and no 3.3 entry (NSP, flagged).
 EXPECTED_JOB_NAMES = {
     "cv_community_demographic_risk": (
-        "WF_DLK_NSP_CV_COMMUNITY_DEMOGRAPHIC_RISK_"
+        "WF_NSP_CV_COMMUNITY_DEMOGRAPHIC_RISK_"
         "SOCIAL_DETERMINANTS_OF_HEALTH_PUBLIC_OHDS_YRL"
     ),
     "cv_community_risk": (
-        "WF_DLK_NSP_CV_COMMUNITY_RISK_SOCIAL_DETERMINANTS_OF_HEALTH_PUBLIC_OHDS_YRL"
+        "WF_NSP_CV_COMMUNITY_RISK_SOCIAL_DETERMINANTS_OF_HEALTH_PUBLIC_OHDS_YRL"
     ),
     "cv_individual_risk": (
-        "WF_DLK_NSP_CV_INDIVIDUAL_RISK_CARE_MANAGEMENT_"
+        "WF_NSP_CV_INDIVIDUAL_RISK_CARE_MANAGEMENT_"
         "SOCIAL_DETERMINANTS_OF_HEALTH_OHDS_MTH"
     ),
 }

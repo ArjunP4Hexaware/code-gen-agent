@@ -1507,6 +1507,7 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         ),
         field_provenance={k: v for k, v in evidence.items()
                           if "#" not in k or k.endswith("(confirming)")},
+        naming=_naming(content, config),
         layout=FrdLayoutSummary(family=profile.family, source=profile.source,
                                 fingerprint=profile.fingerprint,
                                 unresolved=[f"{u.field}: {u.reason}" for u in profile.unresolved]),
@@ -1730,6 +1731,24 @@ def extract_frd_contract(path: Path, config: Config, *, contract_name: str | Non
                         generated_date=generated_date or datetime.now().date().isoformat(),
                         contract_name=contract_name)
     return contract, profile
+
+
+def _naming(content: DocxContent, config: Config) -> dict:
+    """post186: what the FRD states of the Naming Standards' product / sub-product
+    tables - every body paragraph and table cell, each cited by its place."""
+    from codegen.naming_codes import find_naming
+
+    lines: list[tuple[str, str]] = [(f"paragraph {n}", text)
+                                    for n, (_t, text) in enumerate(content.paragraphs, 1)]
+    for t, table in enumerate(content.tables, 1):
+        for r, row in enumerate(table, 1):
+            for c, cell in enumerate(row, 1):
+                if c > 1 and cell == row[c - 2]:
+                    continue                # a merged cell repeats its text
+                for line in cell.splitlines():
+                    if line.strip():
+                        lines.append((f"table {t} row {r} cell {c}", line))
+    return find_naming(lines, config.engineering_standards)
 
 
 def contract_to_json(contract: FrdContract) -> str:

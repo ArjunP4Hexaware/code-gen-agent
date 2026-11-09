@@ -1327,6 +1327,10 @@ def _resolve_one(
                                       marked=_pk_marked)
     phi = _phi_stage_columns(segments, sttm_feed.load_rules.phi_columns)
 
+    from codegen.naming_codes import resolve_codes
+
+    product_code, sub_product_code, naming_flags = resolve_codes(
+        frd.naming, config.engineering_standards)
     spec = ResolvedFeedSpec(
         feed_id=feed_id,
         feed_slug=normalize_feed_name(feed_id),
@@ -1368,7 +1372,9 @@ def _resolve_one(
             *_frd_extraction_flags(frd, original_frd_feed), *sttm_feed.extraction_flags,
             *stated_flags, *width_flags, *gap_flags, *catalog_flags, *provenance_flags,
             *file_flags,
-            *key_flags, *delimiter_flags])),
+            *key_flags, *delimiter_flags, *naming_flags])),
+        product_code=product_code,
+        sub_product_code=sub_product_code,
         files=files,
         left_blank=sorted(left_blank),
         dq_sheet_rows=[dict(zip(aux.headers, row, strict=False))

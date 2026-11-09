@@ -399,6 +399,13 @@ def test_the_shipped_names_follow_the_naming_standards_document(tmp_path):
     (tmp_path / "contracts").mkdir()
     specs, _flags = _pair11_specs(FRD, tmp_path / "contracts", config)
     spec, profile = specs[0], config.conventions.get("acfc_prx")
+    # post186: the codes come from the FRD (codegen.naming_codes) - this synthetic FRD
+    # states the Data Lake as its ingestion target (cited) and no 3.3 entry (NSP, flagged)
+    assert spec.product_code == "DLK" and spec.sub_product_code == "NSP"
+    assert any(f.startswith("naming_product:DLK") and "from the FRD:" in f
+               for f in spec.provenance_flags)
+    assert any(f.startswith("naming_sub_product_unstated:NSP") for f in spec.provenance_flags)
+    spec = spec.model_copy(update={"product_code": "DLK", "sub_product_code": "HVR"})
     tpl = config.metadata.templates["iig_v2"]
     tokens = input_choices.feed_tokens(spec, tpl, None, config)
     names = {flow: input_choices.render(profile.pipeline_name_templates[flow],
@@ -406,7 +413,7 @@ def test_the_shipped_names_follow_the_naming_standards_document(tmp_path):
                                                                   config))
              for flow in FLOWS}
     standards = config.engineering_standards
-    head = f"{standards.product_code}_{standards.sub_product_code}"
+    head = "DLK_HVR"
     assert names["grand_master"].startswith(f"PL_GMSTR_{head}_")
     assert names["master"] == names["grand_master"].replace("PL_GMSTR_", "PL_MSTR_", 1)
     assert names["master"].endswith("_" + tokens["frequency_code"]) and tokens["frequency_code"]
@@ -416,3 +423,24 @@ def test_the_shipped_names_follow_the_naming_standards_document(tmp_path):
     assert names["file_to_stg"] == f"PL_CHLD_{head}_RAW_TO_STG_{codes[stage]}"
     assert names["stg_to_std"] == f"PL_CHLD_{head}_STG_TO_STD_{codes[standard]}"
     assert set(input_choices.PLACEHOLDERS) >= {"product_code", "load_std", "lob_std"}
+
+
+def test_an_open_naming_code_leaves_the_pipeline_name_open(tmp_path):
+    """post186: a pattern whose {product_code} the FRD does not state is never
+    rendered with that part missing - the proposal is refused (the name is asked)."""
+    config = _scoped(_acfc(), tmp_path)
+    (tmp_path / "contracts").mkdir()
+    specs, _flags = _pair11_specs(FRD, tmp_path / "contracts", config)
+    spec, profile = specs[0], config.conventions.get("acfc_prx")
+    spec = spec.model_copy(update={"product_code": None})   # the FRD stated none
+    tpl = config.metadata.templates["iig_v2"]
+    tokens = input_choices.feed_tokens(spec, tpl, None, config)
+    items = [i for i in input_choices.defaulted_inputs(tpl) if i.flow]
+    assert items
+    for item in items:
+        offer = input_choices.proposal(item, spec, profile, tpl, tokens, frozenset(), config)
+        assert not offer.value and "product_code" in offer.refused, (item.flow, offer)
+    stated = spec.model_copy(update={"product_code": "DLK"})
+    tokens = input_choices.feed_tokens(stated, tpl, None, config)
+    offer = input_choices.proposal(items[0], stated, profile, tpl, tokens, frozenset(), config)
+    assert offer.value.startswith("PL_") and "_DLK_NSP_" in offer.value

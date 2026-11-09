@@ -16,6 +16,7 @@ from codegen.config import Config, EngineeringStandardsConfig
 from codegen.contracts.frd import stated_source
 from codegen.contracts.resolved import ResolvedFeedSpec, SegmentSpec
 from codegen.faq import WRITER_BEHAVIOR, LoadPatternFaq, summarize
+from codegen.naming_codes import spec_codes
 from codegen.run_errors import Coord, located
 
 # Contract file-name patterns use date placeholders; longest tokens first so
@@ -243,8 +244,13 @@ def _name_components(
     domain: str | None,
     sub_domain: str | None,
     lobs: tuple[str, ...] | list[str],
+    codes: tuple[str, str] | None = None,
 ) -> dict[str, str]:
-    """Every placeholder either naming pattern may interpolate."""
+    """Every placeholder either naming pattern may interpolate. post186: ``codes`` =
+    the feed's (product, sub-product) codes read from the FRD
+    (codegen.naming_codes.spec_codes; '' = open); None = the standards' constants."""
+    product, sub_product = (codes if codes is not None
+                            else (standards.product_code, standards.sub_product_code))
     if len(lobs) == 1:
         lob = _abbreviate(lobs[0], standards.lob_abbreviations)
     else:
@@ -256,8 +262,8 @@ def _name_components(
         "prefix": standards.job_prefix_by_frequency.get(faq.load_frequency.value, ""),
         "slug": slug,
         "feed": _sanitize_name_part(slug),
-        "product": _sanitize_name_part(standards.product_code),
-        "subproduct": _sanitize_name_part(standards.sub_product_code),
+        "product": _sanitize_name_part(product),
+        "subproduct": _sanitize_name_part(sub_product),
         "source": _abbreviate(stated_source(source), standards.source_abbreviations),
         "domain": _abbreviate(domain, standards.domain_abbreviations),
         "subdomain": _abbreviate(sub_domain, standards.domain_abbreviations),
@@ -280,13 +286,15 @@ def resolve_job_name(
     domain: str | None = None,
     sub_domain: str | None = None,
     lobs: tuple[str, ...] | list[str] = (),
+    codes: tuple[str, str] | None = None,
 ) -> str:
     """Job/workflow name from the standards pattern (EDO naming standard:
     ``WF_<product>_<subproduct>_<sources>_<domain>_<subdomain>_<lob>_<freq>``).
     With the stub default pattern and an unknown frequency this degrades to
     the legacy ``ingest_<slug>``."""
     components = _name_components(
-        standards, faq, slug, source=source, domain=domain, sub_domain=sub_domain, lobs=lobs
+        standards, faq, slug, source=source, domain=domain, sub_domain=sub_domain, lobs=lobs,
+        codes=codes,
     )
     return _collapse_name(standards.job_name_pattern.format(**components))
 
@@ -300,12 +308,14 @@ def resolve_notebook_name(
     domain: str | None = None,
     sub_domain: str | None = None,
     lobs: tuple[str, ...] | list[str] = (),
+    codes: tuple[str, str] | None = None,
 ) -> str | None:
     """EDO workspace notebook name (``NB_...``); None when unconfigured."""
     if not standards.notebook_name_pattern:
         return None
     components = _name_components(
-        standards, faq, slug, source=source, domain=domain, sub_domain=sub_domain, lobs=lobs
+        standards, faq, slug, source=source, domain=domain, sub_domain=sub_domain, lobs=lobs,
+        codes=codes,
     )
     return _collapse_name(standards.notebook_name_pattern.format(**components))
 
@@ -645,6 +655,7 @@ def build_context(
             domain=spec.domain,
             sub_domain=spec.sub_domain,
             lobs=spec.lobs,
+            codes=spec_codes(spec, config.engineering_standards),
         ),
         # EDO workspace notebook name; the legacy leaf when unconfigured.
         "workspace_notebook_name": resolve_notebook_name(
@@ -655,6 +666,7 @@ def build_context(
             domain=spec.domain,
             sub_domain=spec.sub_domain,
             lobs=spec.lobs,
+            codes=spec_codes(spec, config.engineering_standards),
         )
         or "notebook_entrypoint",
         "lobs": spec.lobs,

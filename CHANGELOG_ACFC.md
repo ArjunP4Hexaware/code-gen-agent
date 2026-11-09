@@ -4,6 +4,36 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post186 — 2026-11-09 (Naming Standards product / sub-product read from the FRD; names sourced)
+
+1. **The product / sub-product codes are a LOOKUP, not constants** (Soham: "instead of
+   using the naming standards abbreviation descriptions to dynamically name, you put in
+   ... NSP"). Until post185 every pipeline / job / notebook name carried `DLK_NSP`. Now
+   the EDO Naming Standards' tables 3.2 (Product) and 3.3 (Sub-Product) are transcribed
+   into config (`engineering_standards.product_codes` / `sub_product_codes`) and read
+   from the FRD (`codegen.naming_codes`; the reader stores them on the contract as
+   `naming`): the product = the 3.2 entry the FRD ingests INTO ("into Lakehouse",
+   "Ingestion to DL"; a consumer mention such as "for HEDIS consumption" is not it), the
+   sub-product = a 3.3 entry the FRD names (whole word / phrase). Each code is a
+   provenance flag quoting its FRD line (`naming_product:` / `naming_sub_product:`). None
+   named: the product stays OPEN (`naming_product_unstated`; a pipeline name that needs
+   it is not written - asked), the sub-product is 3.3's own `NSP` WITH a flag
+   (`naming_sub_product_unstated:NSP`, Soham's choice). Several: none picked
+   (`_ambiguous`), asked. On the 12 pairs: every pair's product `DLK` from an FRD line,
+   pair_6 `HVR` (its FRD's CDC-via-HVR scope), the other 11 `NSP` flagged.
+2. **How the names were built** (Lokesh via Soham: provenance "so if there is another
+   debacle like with the pipeline name it can be easily sourced"): the feed report and
+   the run's `<STTM>_LOG.md` carry one block per PIPELINE_NAME - the name (or why it is
+   open), how it got there (the pattern written unasked / a BSA choice / an answer), the
+   pattern and its config key, then every part with its value and its source (the FRD
+   line, which Naming Standards table) (`codegen.naming_provenance`).
+
+Tests: `tests/test_naming_codes.py` (the rules + both report sections),
+`tests/test_pipeline_name_choice.py` (an open code leaves the name open); the notebook
+snapshot moves deliberately (three job / notebook names lose `DLK` - that upstream
+contract JSON carries no FRD text - and their reports' flags); the pair-1 pins gain the
+two naming flags.
+
 ## 0.5.8.post185 — 2026-11-09 (the standard-table TBLPROPERTIES = ACFC's template)
 
 Config only (`conventions.profiles.acfc_prx.standard_tblproperties`): the standard

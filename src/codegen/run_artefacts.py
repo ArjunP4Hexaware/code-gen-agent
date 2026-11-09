@@ -506,6 +506,16 @@ def _log_text(sttm, kept, excluded, names, written, merge, ddl_skipped, conflict
               for note in getattr(k.artefacts, "assumed_notes", [])]
     if notes:
         lines += ["", "## Held back and provenance", ""] + notes
+    # post186 (Lokesh via Soham): how every pipeline name was built - its pattern,
+    # each part's value and the FRD / Naming Standards source it came from
+    naming = [(k.slug, note) for k in kept for note in getattr(k.artefacts, "naming_notes", [])]
+    if naming:
+        lines += ["", "## How the names were built", "",
+                  "Each PIPELINE_NAME: how it got there, the naming-standard pattern (and the "
+                  "config key it lives under), then every part of the pattern with its value "
+                  "and its source. The grand master / master rows are written once for the "
+                  "run (the first feed's line holds for them).", ""]
+        lines += [f"- `{slug}` — {note}" for slug, note in naming]
     if merge is not None:
         lines += ["", "## Rows per feed", "", "| Sheet | Feed | Sheet rows |", "|---|---|---|"]
         for sheet, spans in merge.ranges.items():

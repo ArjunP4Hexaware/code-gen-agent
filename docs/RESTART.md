@@ -4,28 +4,28 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-09 - dev post186, staging post184)
+## Start here (2026-11-09 - dev post187, staging post186)
 
 **First check:** `git fetch && git status -sb` should say up to date with
 `origin/feature/multi-table`.
-- **Staging** = post184 (`main` 96a32e5): the "Do Not Map" fix (post183) + a VDD is
-  optional (post184). Health + smoke green.
-- **Dev** = post186 (706b169, deployment 01f1dc87f21e...; health + smoke green):
-  post185 the standard-table TBLPROPERTIES = the template Soham sent (open: Databricks
-  reports minReader/Writer 3 / 7 on a table with features, so the DDL test case's "1 / 2"
-  will not match - his call; `predictiveOptimization` is no Delta property); post186
-  the Naming Standards product / sub-product READ from the FRD (tables 3.2 / 3.3,
-  `codegen.naming_codes`; NSP + flag when no 3.3 entry) and "How the names were built"
-  in each feed report + the run LOG.md (`codegen.naming_provenance`). 12-pair check:
-  outcomes unchanged, no IIG / DDL value changed (pair_06's HVR is a held table-source
-  IIG), contracts + reports + LOG gain the naming evidence. Suites 2559 / 2211.
+- **Staging** = post186 (`main` 1da8363; health + smoke green).
+- **Dev** = post187 (718c4c3, deployment 01f1dc902166...; health + smoke green): the
+  pipeline orchestrator is an Advanced option (ADF = PL_, the default; Databricks
+  Workflow = WF_, the rest of the name unchanged; `generate --orchestrator`). Suites
+  `.venv` 2565 / `.venv-d1` 2216; 12-pair check: outcomes and every IIG value
+  unchanged (only the quoted pattern text `{pipeline_prefix}_...` in notes / manifests).
   Staging waits for Soham's word.
-- **Next (post187, Soham's answers first): ADF (`PL_`) vs Databricks Workflow (`WF_`).**
-  No FRD / STTM / VDD states it; every prod IIG name in the 12 pairs + 15 RFCs is `PL_`;
-  the only Workflow statement is the pair_12 RFC's TDD ("Databricks Workflow Job will be
-  used to orchestrate"), yet its prod IIG names are `PL_`. Proposed: default PL, WF only
-  on an explicit Databricks-Workflow statement, one non-blocking question per run; the
-  `WF_` shape (the document's WF pattern has no pipeline type / child) is open - Lokesh.
+- post185 open: the standard TBLPROPERTIES' minReader/Writer 1 / 2 vs Databricks' 3 / 7
+  on a table with features (the DDL test case would not match) - Soham's call.
+- **TDDs** (Venu: use them to train): two in `rfc_samples` - the pair_12 RFC's (says
+  Databricks Workflow Job; its prod IIG is PL_) and `TDD_Implement_Medicare_Growth_
+  Expansion_2025_1003866.docx` (pair_2's project; says ADF, prod IIG PL_). The 1003866
+  one lists the run's ingestion modules: most REUSE an existing grand master (the agent
+  always writes a new GMSTR + MSTR - a question for Soham / Lokesh), and its new grand
+  masters are `PL_GMSTR_<source>_<subject>_<LOB>_<freq>` with NO product / sub-product
+  codes (as pair_11's prod IIG) - the Naming Standards pattern post186 follows has them:
+  ask Lokesh which. Linked "Generic Pipeline Design" / "Parameterize ADF Workflows"
+  docs are on SharePoint (unreachable) - copies to the Workspace would help.
 Session log: CLAUDE_HISTORY §[H22].
 
 **Open, in order:**

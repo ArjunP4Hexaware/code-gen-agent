@@ -87,9 +87,11 @@ env:
   # post167: both Apps (codegen-agent, codegen-agent-staging) deploy this file, so they
   # used to share state + outputs (one selection, one run record, one "Clear past runs").
   # Every App but the primary keeps them in a subfolder named after it, e.g.
-  # codegen/state/codegen-agent-staging/ (inputs, the pairs and CODEGEN_STATE_DIR shared).
+  # codegen/state/codegen-agent-staging/ (the pairs and CODEGEN_STATE_DIR shared).
+  # post188: inputs too - the dev App's uploads / fetches never reach the testers'
+  # document list on staging, nor overwrite a file of the same name there.
   - name: CODEGEN_STORAGE_PER_APP
-    value: "state,outputs"
+    value: "inputs,state,outputs"
   - name: CODEGEN_STORAGE_PRIMARY_APP
     value: "codegen-agent"
   # post72: codegen-state (environments/<name>.yaml, overlays/<profile>.yaml) on a UC

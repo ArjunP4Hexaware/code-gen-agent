@@ -1,7 +1,8 @@
 # ui/ — App UI rules
 
-Loaded when working under `ui/`; the repo-wide rules are in the root `AGENTS.md`
-(its "The App" section holds identity, grants, model cost and learned labels).
+Loaded when working under `ui/`; the repo-wide rules are in the root `AGENTS.md`; the
+App's identity, grants, model cost and learned labels are in `docs/PROCEDURES.md` ("The
+App", moved there from AGENTS.md on 2026-11-10).
 
 ## The App's UI
 

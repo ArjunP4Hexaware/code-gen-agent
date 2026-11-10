@@ -646,8 +646,10 @@ Code needs for the actual build is inlined in §1–§8 above.
 
 - [`README.md`](../../../README.md) — quick start, two-layer architecture,
   `extract-sttm` usage, repo layout table
-- [`AGENTS.md`](../../../AGENTS.md) — working conventions: config doctrine,
-  branching (staging→main), fixture rules, known gaps, extractor invariants
+- [`AGENTS.md`](../../../AGENTS.md) — working conventions: the rules that never bend,
+  branching, tests, fixture rules; the pipeline's rules (config doctrine, extractor
+  invariants, outputs, known gaps) in [`.claude/rules/pipeline.md`](../../rules/pipeline.md),
+  procedures (push, deploy, the App, gotchas) in [`docs/PROCEDURES.md`](../../../docs/PROCEDURES.md)
 - [`docs/DEMO_RUNBOOK.md`](../../../docs/DEMO_RUNBOOK.md) — client demo
   choreography, contingency, safety rails, and the 2026-08-07 rehearsal
   findings

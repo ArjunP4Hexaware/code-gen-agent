@@ -283,12 +283,12 @@ def runtime_layout_cache(config, base_dir: Path, *, stores: StorageSet | None = 
 PER_APP_ENV = "CODEGEN_STORAGE_PER_APP"
 PRIMARY_APP_ENV = "CODEGEN_STORAGE_PRIMARY_APP"
 APP_NAME_ENV = "DATABRICKS_APP_NAME"            # set by the Apps runtime
-_PER_APP_ROLES = ("state", "outputs")
+_PER_APP_ROLES = ("inputs", "state", "outputs")   # post188: inputs too
 _APP_FOLDER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 
 
 def per_app_folder(section, env: Mapping[str, str]) -> tuple[frozenset[str], str | None]:
-    """(roles, folder) for this process (post167). ``folder`` is the App's
+    """(roles, folder) for this process (post167; inputs since post188). ``folder`` is the App's
     name when it runs as a Databricks App other than the primary one, else None
     (the CLI, the harness, the primary App: the configured folders)."""
     raw = env.get(PER_APP_ENV)
@@ -298,7 +298,8 @@ def per_app_folder(section, env: Mapping[str, str]) -> tuple[frozenset[str], str
     if unknown:
         raise StorageConfigError(
             f"{PER_APP_ENV} / storage.per_app_roles names {unknown}: only "
-            f"{list(_PER_APP_ROLES)} may be kept per App (inputs are shared)")
+            f"{list(_PER_APP_ROLES)} may be kept per App (the pair folders and the "
+            "state dir are always shared)")
     app = (env.get(APP_NAME_ENV) or "").strip()
     primary = (env.get(PRIMARY_APP_ENV) or getattr(section, "primary_app", None) or "").strip()
     if not roles or not app or app == primary:

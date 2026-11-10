@@ -1719,7 +1719,8 @@ storage:
   scratch_dir: null                     # working copies of remote roles; null = system temp
   # post167: roles a Databricks App keeps in a subfolder named after it (DATABRICKS_APP_NAME),
   # so two Apps deployed from one app.yaml never share a selection, a run record or "Clear
-  # past runs"; remote roles only, inputs always shared. primary_app keeps the configured
+  # past runs"; remote roles only (post188: inputs may be per App too - one App's uploads
+  # never reach another's document list). primary_app keeps the configured
   # folders. Env CODEGEN_STORAGE_PER_APP / CODEGEN_STORAGE_PRIMARY_APP win (app.yaml).
   per_app_roles: []
   primary_app: null

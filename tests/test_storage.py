@@ -188,7 +188,7 @@ def test_env_overrides_and_remote_working_copies(fake, tmp_path):
 _PER_APP = {"CODEGEN_STORAGE_STATE": WS_URI + "/state",
             "CODEGEN_STORAGE_OUTPUTS": WS_URI + "/outputs",
             "CODEGEN_STORAGE_INPUTS": WS_URI + "/inputs",
-            "CODEGEN_STORAGE_PER_APP": "state,outputs",
+            "CODEGEN_STORAGE_PER_APP": "inputs,state,outputs",
             "CODEGEN_STORAGE_PRIMARY_APP": "codegen-agent"}
 
 
@@ -203,10 +203,11 @@ def test_a_second_app_gets_its_own_state_and_outputs_folders(fake, tmp_path):
     """Two Apps deployed from one app.yaml share every role URI. The 2026-11-04
     case: the staging App's document pick overwrote the dev App's selection.json
     and its run card showed the dev App's run. A non-primary App now keeps its
-    state and outputs in a subfolder named after it; inputs stay shared."""
+    state and outputs in a subfolder named after it - and since post188 its
+    inputs too (the dev App's uploads reached the testers' document list)."""
     inputs, state, outputs = _per_app_uris(fake, tmp_path,
                                            DATABRICKS_APP_NAME="codegen-agent-staging")
-    assert inputs == "workspace:/Workspace/Users/u/shared/inputs"
+    assert inputs == "workspace:/Workspace/Users/u/shared/inputs/codegen-agent-staging"
     assert state == "workspace:/Workspace/Users/u/shared/state/codegen-agent-staging"
     assert outputs == "workspace:/Workspace/Users/u/shared/outputs/codegen-agent-staging"
 
@@ -231,6 +232,24 @@ def test_the_primary_app_and_a_non_app_process_keep_the_configured_folders(fake,
     assert _per_app_uris(fake, tmp_path) == configured          # CLI / harness: no App
 
 
+def test_an_upload_on_one_app_never_reaches_the_others_inbox(fake, tmp_path):
+    """post188: the dev App (primary) and staging write uploads to different
+    folders, and staging's folder is no inbox the dev App lists (it lists only
+    inputs/<sharepoint|databricks|uploads>/ at depth 0)."""
+    config = load_config(REPO / "config" / "config.yaml")
+    base = {"CODEGEN_STORAGE_SCRATCH": str(tmp_path), **_PER_APP}
+    dev = open_storage(config, REPO, client=fake,
+                       env={**base, "DATABRICKS_APP_NAME": "codegen-agent"})
+    staging = open_storage(config, REPO, client=fake,
+                           env={**base, "DATABRICKS_APP_NAME": "codegen-agent-staging",
+                                "CODEGEN_STORAGE_SCRATCH": str(tmp_path / "s")})
+    staging.inputs.write_bytes("uploads/pair.xlsx", b"tester")
+    dev.inputs.write_bytes("uploads/pair.xlsx", b"dev")
+    assert fake.ws.files["/Users/u/shared/inputs/codegen-agent-staging/uploads/pair.xlsx"] \
+        == b"tester"
+    assert fake.ws.files["/Users/u/shared/inputs/uploads/pair.xlsx"] == b"dev"
+
+
 def test_per_app_folders_never_apply_to_a_local_role(tmp_path):
     config = load_config(REPO / "config" / "config.yaml")
     env = {"CODEGEN_STORAGE_PER_APP": "state,outputs", "DATABRICKS_APP_NAME": "codingapp",
@@ -241,7 +260,7 @@ def test_per_app_folders_never_apply_to_a_local_role(tmp_path):
 
 
 @pytest.mark.parametrize("env, match", [
-    ({"CODEGEN_STORAGE_PER_APP": "state,inputs"}, "inputs"),
+    ({"CODEGEN_STORAGE_PER_APP": "state,extra_inputs"}, "extra_inputs"),
     ({"DATABRICKS_APP_NAME": "../other"}, "folder name"),
 ])
 def test_per_app_settings_are_refused_loudly(fake, tmp_path, env, match):

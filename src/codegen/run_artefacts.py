@@ -513,8 +513,9 @@ def _log_text(sttm, kept, excluded, names, written, merge, ddl_skipped, conflict
         lines += ["", "## How the names were built", "",
                   "Each PIPELINE_NAME: how it got there, the naming-standard pattern (and the "
                   "config key it lives under), then every part of the pattern with its value "
-                  "and its source. The grand master / master rows are written once for the "
-                  "run (the first feed's line holds for them).", ""]
+                  "and its source; each PROCESS_NAME with the source its cell records. The "
+                  "grand master / master rows are written once for the run (the first "
+                  "feed's line holds for them).", ""]
         lines += [f"- `{slug}` — {note}" for slug, note in naming]
     if merge is not None:
         lines += ["", "## Rows per feed", "", "| Sheet | Feed | Sheet rows |", "|---|---|---|"]

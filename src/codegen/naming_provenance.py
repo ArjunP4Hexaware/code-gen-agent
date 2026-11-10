@@ -164,4 +164,28 @@ def pipeline_name_provenance(spec, faq, config: Config, *, conventions_profile=N
     return lines
 
 
-__all__ = ["pipeline_name_provenance"]
+PROCESS_NAME_COLUMN = "PROCESS_NAME"
+CHANGE_HINT = ("To change a name: answer its question in the App (the run's questions, or "
+               "Advanced options / Change defaults for a default) and run again; on the CLI, "
+               "`generate --answers` with the key the line names.")
+
+
+def process_name_provenance(payload: dict | None) -> list[str]:
+    """post189 (tracker incident 4): one line per PROCESS_NAME cell of the IIG - its
+    value (or OPEN) and the source the cell itself records - then how to change one."""
+    lines = []
+    for tab_name, tab in ((payload or {}).get("tabs") or {}).items():
+        for number, row in enumerate(tab.get("rows") or [], start=1):
+            values = row.get("values") or {}
+            if PROCESS_NAME_COLUMN not in values:
+                continue
+            value = str(values.get(PROCESS_NAME_COLUMN) or "").strip()
+            badge = (row.get("badges") or {}).get(PROCESS_NAME_COLUMN) or {}
+            source = badge.get("tooltip") or badge.get("badge") or "no source recorded"
+            head = (f"{PROCESS_NAME_COLUMN} [{tab_name} row {number}] = `{value}`" if value
+                    else f"{PROCESS_NAME_COLUMN} [{tab_name} row {number}] is OPEN")
+            lines.append(f"{head} — {source}")
+    return lines
+
+
+__all__ = ["CHANGE_HINT", "pipeline_name_provenance", "process_name_provenance"]

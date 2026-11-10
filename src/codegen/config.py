@@ -477,6 +477,18 @@ class FrdExtractorConfig(BaseModel):
     requirement_landing_labels: list[str] = Field(default_factory=lambda: [
         "Raw ADLS Location", "ADLS Location"])
     inline_pair_separators: list[str] = Field(default_factory=lambda: [";"])
+    # post189 (tracker incidents 6 / 7): the labels an ADLS Location cell states the
+    # feed's landing under ("Raw Path:" then the path, on the same or the next line)
+    # when the cell holds several labelled paths - the labelled line is read, the
+    # cell is not refused whole. Labels only as a client FRD writes them.
+    landing_line_labels: list[str] = Field(default_factory=list)
+    # post189: a landing's LAST segment matching this is a file name, not a folder
+    # ("<File.extn>", "*.TXT") - dropped from the landing, flagged. None = kept.
+    landing_file_segment_pattern: str | None = None
+    # post189 (tracker incident 5): an Object Name block line whose label is one of
+    # these states THE file pattern; the other listed names it matches are expected
+    # file names (samples), not separate files.
+    file_pattern_line_labels: list[str] = Field(default_factory=list)
     # post168 (an exchange FRD, 2026-11-04): an F1 cell whose EVERY line reads
     # "<label>: <value>" with one of these labels ("File Format: .txt" then
     # "Delimiter: Pipe Delimited" in the Object/data Format row) is read line by
@@ -1959,6 +1971,14 @@ class MetadataTemplateConfig(BaseModel):
     # ``mft_landing_markers`` as a path segment.
     file_adls_rows: Literal["feed", "per_file"] = "feed"
     mft_landing_markers: list[str] = Field(default_factory=list)
+    # post189 (tracker incident 8): SRC_COMPRESSION read from the FRD's archive
+    # statement (Archive Schedule): a sentence naming one of ``compression_words``
+    # = compression_values.stated, the same with a ``compression_negations`` word =
+    # .negated; no statement = the template constant (cited). Empty = off.
+    compression_words: list[str] = Field(default_factory=list)
+    compression_negations: list[str] = Field(default_factory=list)
+    compression_values: dict[Literal["stated", "negated"], str] = Field(
+        default_factory=dict)
     object_name_from_pattern: bool = False
     reject_table_suffix: str | None = None
     segment_filter_pattern: str | None = None

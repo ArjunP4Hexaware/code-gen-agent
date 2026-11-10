@@ -4,6 +4,40 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post189 — 2026-11-10 (incident tracker, CodeGen items 4-8: file pattern, landing, compression, PROCESS_NAME)
+
+From the shared AI Agent incident tracker (a staging run of an Accumulators pair). All four
+IIG bugs reproduced on post188 (mock) and are gone on this version for that pair.
+
+1. **A stated file pattern is the one file (incident 5).** An Object Name block that lists
+   sample file names per line of business AND one line labelled "file pattern"
+   (`frd.file_pattern_line_labels`) now gives ONE file - that pattern - when every other
+   listed name matches it (the samples are expected file names, flag
+   `frd_file_pattern_stated:`). A sample the pattern does not match keeps every name, as
+   before. Before: one IIG entry per listed name (4).
+2. **The landing is the "Raw Path" line, never a note (incidents 6 / 7).** An ADLS
+   Location cell holding several labelled paths ("Raw Path:" then the path, "Daily File:"
+   ...) is no longer refused whole: its `frd.landing_line_labels` line is the landing
+   (flag `frd_landing_from_labelled_line:`, naming the labelled lines not read). A value
+   that is a blank word followed by a note ("N/A- The file will land in the ADLS path
+   directly") states no path - its '/' was the one in "N/A" - so it never reaches
+   SRC_ADLS_PATH / SRC_ADLS_ARCHVL_PATH again. A trailing file segment ("<File.extn>",
+   `frd.landing_file_segment_pattern`) is dropped from the folder (flag
+   `frd_landing_file_segment:`).
+3. **SRC_COMPRESSION from the FRD (incident 8).** The Archive Schedule sentence naming
+   compression ("... should be compressed and moved to archive") writes Y, one refusing it
+   N (`compression_words` / `compression_negations` / `compression_values` on the
+   template); no such sentence = the template constant N, as before. The resolved spec now
+   carries the FRD's archive statement (`ResolvedFeedSpec.archive_retention`) to the IIG
+   builder, which used to drop it.
+4. **PROCESS_NAME in "How the names were built" (incident 4, part).** The feed report and
+   the run's LOG.md list every PROCESS_NAME cell with the source the cell records (or
+   OPEN), then one line on how to change a name and rerun.
+
+Tests: `tests/test_tracker_incidents_post189.py` (synthetic, each fix's tests fail with that
+fix alone reverted); `tests/acfc_shapes/family_e_multi.py` `build_frd` gained optional
+landing / archive rows (default bytes unchanged).
+
 ## 0.5.8.post188 — 2026-11-10 (inputs per App: dev uploads never reach staging)
 
 Soham: "it's better to split it so that my thing doesn't interrupt the tester's". Since

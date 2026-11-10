@@ -26,6 +26,7 @@ sourced field records its table/row/col and the label seen. No python-docx.
 
 from __future__ import annotations
 
+import fnmatch
 import itertools
 import re
 import zipfile
@@ -299,6 +300,22 @@ def sr_signal(index: int, rows: list[list[str]], content: DocxContent,
 
 
 _PATH_RE = re.compile(r"^[^\s:]+(?:/[^\s]+)+/?$")
+
+
+def _stated_pattern(rows, config: FrdExtractorConfig) -> tuple[str, str, list[str]] | None:
+    """post189 (tracker incident 5): (pattern, label, samples) when ONE line of an
+    Object Name block is labelled as the file pattern, holds a wildcard and every
+    other listed name matches it (case-insensitive); else None (each name a file)."""
+    labels = {normalize_label(x) for x in config.file_pattern_line_labels}
+    stated = [(row.key, row.values.get("label") or "") for row in rows
+              if normalize_label(row.values.get("label") or "") in labels]
+    if len(stated) != 1 or not any(c in stated[0][0] for c in "*?"):
+        return None
+    pattern, label = stated[0]
+    samples = [row.key for row in rows if row.key != pattern]
+    if not all(fnmatch.fnmatchcase(s.upper(), pattern.upper()) for s in samples):
+        return None
+    return pattern, label, samples
 
 
 def _labelled_path(text: str, labels: set[str]) -> str | None:
@@ -1231,9 +1248,61 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                                f"(table {source.table} row {source.row})")
         return value
 
+    landing_labels = {normalize_label(x) for x in frd_config.landing_line_labels}
+
+    def _blank_note(text: str) -> bool:
+        # post189 (incident 7): "N/A- The file will land in the ADLS path directly" -
+        # a blank word FOLLOWED BY a note states nothing (its '/' is no path).
+        t = text.strip()
+        for word in frd_config.blank_values:
+            if (len(t) > len(word) and t[:len(word)].lower() == word.lower()
+                    and not (t[len(word)].isalnum() or t[len(word)] in "/\\_.")):
+                return True
+        return False
+
+    def _landing_line(path: str, text: str) -> str | None:
+        # post189 (incident 6): the cell's "Raw Path:" line (path on the same or the
+        # next line), read where the cell is refused whole or carries the label.
+        value = _labelled_path(text, landing_labels) if landing_labels else None
+        if value is None:
+            return None
+        others = [m.group(1).strip() for line in text.split("\n")
+                  if (m := _PAIR_RE.match(line.strip()))
+                  and normalize_label(m.group(1)) not in landing_labels]
+        flags.append(f"frd_landing_from_labelled_line:{path} — the {cell_of(path)} cell's "
+                     f"labelled landing line states {value!r}"
+                     + (f"; its other labelled line(s) {others} not read" if others else ""))
+        ambiguities[:] = [a for a in ambiguities if not a.startswith(f"frd_multiline:{path}")]
+        return value
+
+    def _folder(path: str, value: str) -> str:
+        # post189: a trailing file segment ("<File.extn>") is no folder of the landing.
+        pattern = frd_config.landing_file_segment_pattern
+        head, sep, last = value.replace("\\", "/").rstrip("/").rpartition("/")
+        if pattern and sep and head and re.search(pattern, last.strip()):
+            flags.append(f"frd_landing_file_segment:{path} — the landing's last segment "
+                         f"{last.strip()!r} names a file, not a folder; dropped")
+            return head + "/"
+        return value
+
     def _landing(prefix: str) -> str:
         path = f"{prefix}.landing_location"
+        value = _landing_value(prefix)
+        return _folder(path, value) if value else value
+
+    def _landing_value(prefix: str) -> str:
+        path = f"{prefix}.landing_location"
         primary = get(path)
+        source = profile.fields.get(path)
+        if source is not None and (primary or path in structured):
+            raw = primary or _value(content, source, frd_config)
+            labelled = _landing_line(path, raw)
+            if labelled:
+                primary = labelled
+        if primary and _blank_note(primary):
+            ambiguities.append(f"{path}: the cell holds {primary!r}, a note that states "
+                               "no path; ignored")
+            primary = ""
         confirming_key = f"{path}#confirming"
         if confirming_key not in profile.fields:
             return primary
@@ -1241,6 +1310,10 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         if primary:
             evidence[f"{path} (confirming)"] = evidence.pop(confirming_key)
             return primary
+        if confirming and _blank_note(confirming):
+            ambiguities.append(f"{path}: the folder-path label holds {confirming!r}, a "
+                               "note that states no path; ignored")
+            return ""
         if confirming and not re.search(r"[\\/]", confirming):
             # "Inbound" alone is a direction word, not a folder path.
             ambiguities.append(f"{path}: the folder-path label holds {confirming!r}, which "
@@ -1356,6 +1429,15 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         file_name_patterns: list[str] = []
         if listed is not None and listed.kind == "labelled_files":
             file_name_patterns = [row.key for row in listed.rows]
+            stated = _stated_pattern(listed.rows, frd_config)
+            if stated is not None:
+                pattern, label, samples = stated
+                flags.append(f"frd_file_pattern_stated:{prefix} — the FRD "
+                             f"{cell_of(f'{prefix}.feed_name')} cell's {label!r} line states "
+                             f"the file pattern {pattern!r}; the {len(samples)} other file "
+                             "name(s) it lists match it - expected file names, not "
+                             "separate files")
+                file_name_patterns = [pattern]
             if file_name_patterns:
                 flags.append(f"file_pattern_from_object_name:{prefix} — the FRD "
                              f"{cell_of(f'{prefix}.feed_name')} cell is a block listing "

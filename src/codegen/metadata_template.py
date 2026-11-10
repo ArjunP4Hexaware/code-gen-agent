@@ -1725,8 +1725,33 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
             cells["TGT_PARTITION_VALUE"] = _cell(file.lob, "from_frd",
                                                  f"this file's LOB — {file.provenance}")
         cells.update(_paths(tpl, tab, feed, stage.table, reject))
+        compression = _stated_compression(tpl, feed)
+        if compression is not None:
+            cells["SRC_COMPRESSION"] = compression
         rows.append(_with_constants(tpl, tab, cells))
     return rows
+
+
+def _stated_compression(tpl: MetadataTemplateConfig, feed: FrdFeed) -> dict | None:
+    """post189 (tracker incident 8): SRC_COMPRESSION as the FRD's archive statement
+    states it - a sentence naming compression (Y), or refusing it (N); None when no
+    sentence does (the template constant applies)."""
+    words = {w.lower() for w in tpl.compression_words}
+    text = feed.archive_retention or ""
+    if not words or not text or not tpl.compression_values:
+        return None
+    negations = {w.lower() for w in tpl.compression_negations}
+    for sentence in re.split(r"(?<=[.;])\s+|\n", text):
+        tokens = re.findall(r"[a-z]+", sentence.lower())
+        if not words & set(tokens):
+            continue
+        kind = "negated" if negations & set(tokens) else "stated"
+        value = tpl.compression_values.get(kind)
+        if value is None:
+            return None
+        return _cell(value, "from_frd",
+                     f"FRD Archive Schedule: {sentence.strip()!r}")
+    return None
 
 
 def _recycle_cells(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,

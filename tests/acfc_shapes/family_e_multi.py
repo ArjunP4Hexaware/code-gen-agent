@@ -71,13 +71,16 @@ def build_frd(files: list[str] | None = None,
               domain_cell: str = "Member / Care Management", *,
               name: str = PROJECT, table: str = TABLE,
               format_cell: str = "Pipe delimited text, first row is a header",
-              frequency: str = "Monthly") -> bytes:
+              frequency: str = "Monthly", adls_location: str = "",
+              inbound_path: str = LOCATION, archive: str | None = None) -> bytes:
     """F1: the project as the feed name, the files in Object Name, ONE table.
     ``domain_cell`` is the "Domain and Subdomain" row (pair_12 CAQH states
     both labels there on two lines); ``format_cell`` the "Object/data Format"
     row (an exchange FRD, 2026-11-04: "File Format: .txt" + "Delimiter: ..."
-    lines in one cell)."""
+    lines in one cell). post189: ``adls_location`` / ``inbound_path`` the two landing
+    rows, ``archive`` an Archive Schedule row (none by default - the bytes unchanged)."""
     files = list(FILES.values()) if files is None else files
+    archive_rows = [("SM-12", "Archive Schedule", archive)] if archive is not None else []
     return docx_bytes([
         _f1("DM", "Descriptive Metadata", [
             ("DM-1", "Name", name),
@@ -98,8 +101,9 @@ def build_frd(files: list[str] | None = None,
             ("SM-7", "Domain and Subdomain", domain_cell),
             ("SM-8", "Load Strategy STG", "Truncate and Load"),
             ("SM-9", "Load Strategy STD", "Upsert"),
-            ("SM-10", "ADLS Location", ""),
-            ("SM-11", "Inbound File Folder Path", LOCATION),
+            ("SM-10", "ADLS Location", adls_location),
+            ("SM-11", "Inbound File Folder Path", inbound_path),
+            *archive_rows,
         ]),
         _f1("TM", "Technical Metadata", [
             ("TM-1", "Primary Key", "member_id, program_code"),

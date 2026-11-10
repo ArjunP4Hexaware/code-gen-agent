@@ -813,7 +813,7 @@ def _feed_from_spec(spec: ResolvedFeedSpec) -> FrdFeed:
         validation_rules=spec.validation_rules,
         recycle_rule=(spec.recycle.frd_rule_text if spec.recycle else None),
         history_backfill=None,
-        archive_retention=None,
+        archive_retention=spec.archive_retention,
         phi_pii_notes=None,
         sttm_reference=None,
         requirement_ids=[],

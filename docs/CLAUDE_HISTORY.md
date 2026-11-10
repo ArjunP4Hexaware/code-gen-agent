@@ -3789,6 +3789,15 @@ stage table on every sheet). Each: both suites green, its tests fail with only i
   smoked; `main` merged identical-tree and staging deployed + smoked on Soham's word
   (post183, 184, 186, 187).
 
+- **2026-11-10, Soham's answers:** (a) grand master names follow the Naming Standards
+  (keep the product / sub-product codes) - post186 unchanged; (c) Lokesh: pair_12 is a
+  Databricks Workflow -> WF_, its prod IIG's PL_ names are wrong (the TDD was right);
+  (b) "reuse an existing grand master" explained ELI5, still open with Lokesh. Asked "is
+  NSP even the right subcode": by table 3.3 yes for the 11 plain file feeds (no other row
+  fits), HVR for pair_06; unverifiable against prod (prod names carry no codes) - a
+  question with every acronym spelled out drafted for Lokesh (NSP / HVR / HEDIS DLK vs
+  HDS). Docs updated; Soham closed the coding App.
+
 ### Retired RESTART.md block (2026-11-09 night, replaced at the end of H23)
 
 ## Start here (2026-11-09 - dev post187, staging post186)

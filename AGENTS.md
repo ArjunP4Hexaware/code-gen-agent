@@ -441,6 +441,9 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   The prefix is the run's orchestrator (post187, Lokesh via Soham): ADF = `PL_` (the
   default), a Databricks Workflow = `WF_`, the rest of the name unchanged - a RUN choice
   (App Advanced options / `generate --orchestrator`), since no FRD / STTM states it.
+  The RFC's TDD states it; a prod IIG's prefix is NOT evidence (Lokesh, 2026-11-10:
+  pair_12 is a Workflow, its prod IIG's PL_ names are wrong - never score a WF_ run
+  "back" to PL_).
 
 ## Output modes and artefacts
 

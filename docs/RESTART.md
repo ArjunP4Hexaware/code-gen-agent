@@ -4,7 +4,7 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-09 night - BOTH Apps on post187, nothing running)
+## Start here (session ended 2026-11-10, Soham closed the coding App - BOTH Apps on post187, nothing running, everything pushed)
 
 **First check:** `git fetch && git status -sb` should say up to date with
 `origin/feature/multi-table`. BOTH Apps on post187: dev from feature 718c4c3 (deployment
@@ -33,6 +33,11 @@ CLAUDE_HISTORY §[H23].
    (b) most modules REUSE an existing grand master - should a new feed point at one (its
    name from the BSA) instead of the agent always writing a new GMSTR + MSTR? (c) pair_12's
    TDD says "Databricks Workflow Job" yet its prod IIG names are PL_.
+2b. **Also for Lokesh (drafted, acronyms spelled out, H23):** for plain vendor-file
+   ingestion is the sub-product NSP? Is a CDC-via-HVR feed sub-product HVR (pair_06) or
+   only the tool? Is a load "for HEDIS consumption" product DLK or HDS (pairs 05 / 07)?
+   Any answer is a config change (the 3.2 / 3.3 `stated_as` phrases or a per-feed
+   override), no code.
 3. **TDD training** (Venu): only two TDDs exist in `rfc_samples` (pair_2's, pair_12's).
    They link "Generic Pipeline Design Documents" and "Parameterize ADF Workflows" on
    SharePoint (unreachable from here) - copies in the Workspace would be the useful ones.

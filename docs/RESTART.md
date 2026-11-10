@@ -4,9 +4,9 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-10 - dev = post189, staging = post188, both running; everything pushed)
+## Start here (2026-11-10 - both Apps = post189, both running; everything pushed)
 
-**post189 (2026-11-10, DEV only - staging still post188):** the shared incident tracker's
+**post189 (2026-11-10, both Apps; staging main = 1f30078 on Soham's word):** the shared incident tracker's
 CodeGen items (sheet `CodeGen`; exported as JSON by an Office Script, kept out of the repo):
 5 a stated "file pattern" line = the one file; 6 / 7 the ADLS Location's "Raw Path" line =
 the landing, an "N/A - ..." note never a path, a trailing `<File.extn>` dropped; 8

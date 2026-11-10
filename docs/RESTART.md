@@ -4,14 +4,15 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (session ended 2026-11-10 - both Apps' code = post187; the DEV App's compute is STOPPED, staging running; everything pushed)
+## Start here (2026-11-10 - both Apps' code = post187, both running; everything pushed)
 
 **Since the last version (docs / tools only, no bump):** the recipes are tracked in
 `tools/check/` with the skills `/ship-dev`, `/ship-staging`, `/pair-check`, `/handoff`;
 AGENTS.md split verbatim (root 240 lines; the pipeline's rules in `.claude/rules/pipeline.md`,
 procedures in `docs/PROCEDURES.md`); this file trimmed (old blocks in CLAUDE_HISTORY).
-`ship.sh`'s deploy path is not yet exercised end to end (dev was stopped, staging needs
-Soham's word): watch its first `/ship-dev`. Starting the dev App bills compute - Soham.
+`ship.sh`'s deploy path is not yet exercised end to end (staging needs Soham's word):
+watch its first `/ship-dev`. Dev is running again (2026-11-10: health post187, smoke green
+after the container reset).
 
 **First check:** `git fetch && git status -sb` should say up to date with
 `origin/feature/multi-table`. BOTH Apps on post187: dev from feature 718c4c3 (deployment
@@ -107,8 +108,8 @@ CLAUDE_HISTORY §[H23].
   smoke. Refuses a STOPPED App (starting bills compute - Soham's call).
 - **The App's API:** `python -I tools/check/app_api.py <app> GET /api/demo/status`
   (OAuth profile `codegen-oaut` in `CODEGEN_OAUTH_CFG`, default `/tmp/cgs/oauth.cfg` -
-  recreate it after a reset: memory "Databricks OAuth login flow"; the DEFAULT PAT is
-  refused by the API).
+  recreate it after a reset: "OAuth" under "After a container reset" below; the DEFAULT
+  PAT is refused by the API).
 - **Smoke / local App:** `tools/check/smoke.cjs <url> <png>` (`CODEGEN_BEARER`,
   `PLAYWRIGHT_BROWSERS_PATH=/tmp/pw`, LD_LIBRARY_PATH = the /tmp/pwlibs lib dirs);
   `tools/check/serve_local.sh [port]` (mock, scratch storage in `/tmp/t/ui`, synthetic

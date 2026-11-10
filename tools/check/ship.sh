@@ -109,4 +109,4 @@ export PLAYWRIGHT_BROWSERS_PATH=/tmp/pw
 shots="${TMPDIR:-/tmp}/ship_$target"; mkdir -p "$shots"
 node "$TOOLS/smoke.cjs" "$url/" "$shots/generate.png"
 node "$TOOLS/smoke.cjs" "$url/results" "$shots/results.png"
-say "OK - $app on $want ($(git -C "$REPO" rev-parse --short "$branch" 2>/dev/null || echo "$branch")), smoke green"
+say "OK - $app on $want ($(git -C "$REPO" rev-parse --short "origin/$branch" 2>/dev/null || echo "$branch")), smoke green"

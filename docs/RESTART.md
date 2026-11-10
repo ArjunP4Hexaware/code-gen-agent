@@ -4,7 +4,15 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-10 - both Apps' code = post187, both running; everything pushed)
+## Start here (2026-11-10 - both Apps' code = post188, both running; everything pushed)
+
+**post188 (2026-11-10, both Apps):** inputs are per App (Soham: "my thing doesn't
+interrupt the tester's"). Staging reads / writes `codegen/inputs/codegen-agent-staging/`
+(its health card shows it); dev keeps `codegen/inputs/`. The 10 files in the shared
+`uploads/` were copied into staging's folder before its deploy (byte-checked), so the
+testers kept their documents; dev's copies stay where they were. main = 229dec3
+(identical-tree merge), dev = 488a6a6; health + smoke green on both. `ship.sh`'s OK line
+now names `origin/<branch>` (it printed main's stale local sha).
 
 **Since the last version (docs / tools only, no bump):** the recipes are tracked in
 `tools/check/` with the skills `/ship-dev`, `/ship-staging`, `/pair-check`, `/handoff`;

@@ -33,9 +33,17 @@ head=$(git -C "$REPO" rev-parse HEAD)
   || { say "HEAD is not origin/feature/multi-table - push (after the suites) first"; exit 1; }
 want=$(sed -n 's/^version = "\(.*\)"/\1/p' "$REPO/pyproject.toml")
 
-state=$("$REPO/.venv/bin/python" -I "$TOOLS/app_api.py" "$app" GET /api/demo/status --field state)
+compute=$(databricks apps get "$app" -p "$PROFILE" -o json | python3 -c "
+import sys, json; print(((json.load(sys.stdin).get('compute_status') or {}).get('state')) or '')")
+if [ "$compute" != ACTIVE ]; then
+  say "App compute is ${compute:-unknown} - a stopped App refuses a deploy, and starting it"
+  say "bills compute: Soham's call (databricks apps start $app). Not deploying."; exit 1
+fi
+state=$("$REPO/.venv/bin/python" -I "$TOOLS/app_api.py" "$app" GET /api/demo/status --field state) \
+  || state="unreachable"
 case "$state" in
   idle|done|failed|cancelled|"") say "App state: ${state:-unknown} - ok to deploy" ;;
+  unreachable) say "the App's API does not answer (OAuth login? App down?) - not deploying"; exit 1 ;;
   *) say "App is busy ($state) - someone is running; not deploying"; exit 1 ;;
 esac
 

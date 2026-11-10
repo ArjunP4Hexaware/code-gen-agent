@@ -20,7 +20,10 @@ CLAUDE_HISTORY §[H23].
    it), so the DDL test case "includes delta.minReaderVersion = 1" will not match by eye;
    `predictiveOptimization` is no Delta property (stored as a label, enables nothing).
 2. **Ask Lokesh (via Soham), from pair_2's TDD** (`rfc_samples/TDD_Implement_Medicare_
-   Growth_Expansion_2025_1003866.docx`): (a) prod grand master names are
+   Growth_Expansion_2025_1003866.docx`). **(a) DECIDED (Soham, 2026-11-10): the Naming
+   Standards win** - grand master names keep the product / sub-product codes (post186 as
+   is). **(c) Soham is asking Lokesh.** (b) explained to Soham, still open. Background:
+   (a) prod grand master names are
    `PL_GMSTR_<source>_<subject>_<LOB>_<freq>` WITHOUT product / sub-product codes (pair_11's
    prod IIG too) - the Naming Standards pattern post186 follows has them; which wins?
    (b) most modules REUSE an existing grand master - should a new feed point at one (its

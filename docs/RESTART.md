@@ -22,7 +22,11 @@ CLAUDE_HISTORY §[H23].
 2. **Ask Lokesh (via Soham), from pair_2's TDD** (`rfc_samples/TDD_Implement_Medicare_
    Growth_Expansion_2025_1003866.docx`). **(a) DECIDED (Soham, 2026-11-10): the Naming
    Standards win** - grand master names keep the product / sub-product codes (post186 as
-   is). **(c) Soham is asking Lokesh.** (b) explained to Soham, still open. Background:
+   is). **(c) DECIDED (Lokesh via Soham, 2026-11-10): pair_12 is a Databricks Workflow -
+   its names are `WF_`; its prod IIG's `PL_` names are wrong** (choose "Databricks
+   Workflow (WF_)" in Advanced options for pair_12; a WF_ run scores as a PIPELINE_NAME
+   mismatch against that golden - the golden is wrong, never "fix" it back; the RFC's TDD
+   is where the orchestrator is stated). (b) explained to Soham, still open. Background:
    (a) prod grand master names are
    `PL_GMSTR_<source>_<subject>_<LOB>_<freq>` WITHOUT product / sub-product codes (pair_11's
    prod IIG too) - the Naming Standards pattern post186 follows has them; which wins?

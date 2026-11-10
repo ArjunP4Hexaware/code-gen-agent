@@ -227,6 +227,10 @@ bend, working rules, tests) stay in the root `AGENTS.md`. Moved here verbatim fr
   fixed). ACFC's prod DDL template is the
   target; `tools/ddl_shape.py` scores the agent's DDL structure against it (counts and
   property names only — prod files read into a scratch dir, never the repo).
+- **The standard-table TBLPROPERTIES are ACFC's template verbatim** (post185; Lokesh,
+  2026-11-10: "keep the properties as is, this was suggested by Databricks") - the
+  reader / writer 1 / 2 and `predictiveOptimization` lines included; never "correct"
+  them.
 - **DDL string literals** escape a quote with a backslash (`\'`); `''` is no escape in
   Databricks SQL (DBR 18+ reads `'a''b'` as two chained literals). The `sql_literals`
   gate fails a doubled quote. A COMMENT is the STTM's description, never a Comments

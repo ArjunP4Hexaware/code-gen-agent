@@ -4642,3 +4642,92 @@ filled with the feed's own values (target table, real location):
   last upload, upload with `databricks workspace import … --overwrite`, download again
   and compare. `/tmp/t/xl/make_update.py` (rebuilds from scratch) is OBSOLETE — it would
   wipe later edits.
+
+## §[H24] Session 2026-11-10: container reset, post188–post190 (inputs per App, the incident tracker, the notebook vs Code Review)
+
+- **Container reset:** HOME wiped; `~/bootstrap` (venvs, Chromium, hooks, branch switch
+  main -> feature/multi-table) all green; the Databricks OAuth login redone by the
+  RESTART recipe (Soham opened the URL, pasted the `localhost:8020/?code=` URL back, curl
+  inside the container). Auto-memory was empty after the reset: "the macro we discussed"
+  could not be recovered - what must survive goes into the repo.
+- **post188 (Soham: "it's better to split it so that my thing doesn't interrupt the
+  tester's"):** the inputs role was shared by both Apps (post167 split only state +
+  outputs), so a dev upload appeared in the testers' list and a same-name upload replaced
+  theirs. `CODEGEN_STORAGE_PER_APP` may name `inputs`; app.yaml sets
+  `inputs,state,outputs`. The 10 shared `uploads/` files were copied into
+  `codegen/inputs/codegen-agent-staging/uploads/` (byte-checked) before staging's deploy.
+- **The Code Review agent's folder** (another engineer's Workspace, read via a /tmp copy
+  without `.git`, deleted after): its rule catalog cites the same four EDO documents; its
+  `review.py --no_llm` (scratch venv) run over CodeGen's output: framework files clean or
+  nearly (only names the STTM states), the notebook 9 template findings on all 13 real
+  notebooks. Soham: not incorporating Code Review into CodeGen, but no known issues at the
+  hand-off that can be fixed here.
+- **The incident tracker** (SharePoint `AI_Agent_Incident_tracker.xlsx`, sheet
+  `CodeGen`): an Office Script exports every sheet as JSON into a `_JSON_EXPORT` sheet;
+  Soham pasted the JSON. 8 incidents: 1 fixed (post183), 3 closed by Lokesh ("keep the
+  properties as is, this was suggested by Databricks"), 2 open (external tables), 4-8 =
+  post189. All four IIG bugs reproduced on the tester's staging upload (mock) first.
+- **post189:** a "file pattern" line in an Object Name block = the one file (samples
+  matched by it are expected names); the ADLS Location's "Raw Path" line = the landing; a
+  blank word + note ("N/A- The file will land ...") is never a path; a trailing
+  `<File.extn>` is dropped; SRC_COMPRESSION from the Archive Schedule (the resolved spec
+  dropped `archive_retention` before the IIG builder - carried now); PROCESS_NAME in "How
+  the names were built" + how to change a name.
+- **post190 (Soham's option 1 for the name, then "long + flag"):** notebook named
+  `NB_<Prod>_<SubProd>_<Dom>_<Sub>_<Source>_INGEST`; header cell (purpose / owners /
+  dependencies); DBTITLEs; cached reads / rejects / backlog; withColumns; one reduce
+  union; logging; 79/72 lines (a long IIG value as adjacent literals - same value). Real
+  names are 41-83 characters until the Standard Abbreviation List v28 is transcribed
+  (written + flagged). Soham asked "is it the prod ones?": no - only CodeGen's
+  notebook-mode notebooks; ACFC's framework notebooks are never touched.
+- **Process slips:**
+  - the first post190 tests were written against pair 4 only, which takes no recycle /
+    shared-segment path - reverting those fixes left them green. Template paths a pair
+    does not take are tested by rendering the template alone (StrictUndefined tells you
+    the context it needs);
+  - `test_m93_chooser::test_index_writes_never_run_inside_a_selection_step` asserts each
+    selection step < 5 s; it failed twice while both full suites ran in parallel with a
+    third job, passed alone every time - a load-sensitive timing test, not a regression;
+  - the 12-pair check's old side hit the harness's 15-minute pair timeout under the same
+    load (pair_03 FAIL vs its GATE_FAIL baseline) - run the 12-pair check after the
+    suites, not beside them;
+  - a `cd` + `rm -f *` in one command was refused by the safety check: never glob-delete
+    after a cd; a fresh `mkdir` needs no clearing;
+  - YAML knobs were first inserted inside the `constants:` mapping (the loader failed
+    loud) - check the indentation level of the block you insert beside.
+- **Drafts given to Soham (his voice):**
+  - *Lokesh, incident 2:* "Today the agent writes every table as managed (no LOCATION). To
+    support external tables I need (1) the property set for an external table - the full
+    list, plus the LOCATION format you use (storage account / container / path pattern) -
+    and (2) which FRD or STTM field states that a table is external. The agent only writes
+    what a document states." (Incident 3's half was answered: keep the properties.)
+  - *The tester:* staging's fixes listed in plain words (Do Not Map, VDD optional, template
+    table properties, names read from the FRD + "How the names were built", PL_ / WF_
+    option), "a screenshot plus the pair name is all I need"; post188 / post189 to add.
+
+### Retired RESTART.md block (2026-11-10 hand-off)
+
+#### State (2026-11-09 — post183 to post187)
+
+- **post183** a "Do Not Map" STTM table / schema cell names no table
+  (`layout.resolve._sttm_facts`; the staging Accumulators pair failed "FRD stage tables not
+  mapped ... ['Do Not Map']"). Live dev run of that pair: PASS_WITH_OPEN_INPUTS, 1 feed
+  PASS_WITH_FLAGS, 0 blocking, no model call; staging re-run (someone else's) the same.
+- **post184** a VDD is optional: no pairing question when no dictionary shares content
+  (`pairing.PairDecision.ambiguous`); AGENTS.md rule.
+- **post185** the standard-table TBLPROPERTIES = the template Soham sent (21 properties,
+  verbatim; zstd dropped). Open item 1 above.
+- **post186** the Naming Standards product (3.2) / sub-product (3.3) codes READ from the
+  FRD (`codegen.naming_codes`, transcribed tables in config; product = what the FRD
+  ingests into, sub-product = a 3.3 entry named, else NSP + flag; none / several = open,
+  asked); every PIPELINE_NAME sourced part by part in the feed report + run LOG.md
+  ("How the names were built", `codegen.naming_provenance`, for Lokesh). 12 pairs: all DLK
+  from an FRD line, pair_06 HVR (a held table-source IIG, so no written name changes).
+- **post187** ADF (`PL_`, default) or Databricks Workflow (`WF_`) - App Advanced options
+  "Pipeline orchestrator" / `generate --orchestrator`; `{pipeline_prefix}` in the ACFC
+  patterns (`codegen.orchestrator`). No FRD / STTM / VDD states it (searched: 12 pairs +
+  15 RFC packages, every prod IIG name PL_).
+- Every one: both suites green, the 12-pair check (mock, framework) outcomes unchanged
+  (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), dev deployed + smoked,
+  staging merged identical-tree + deployed + smoked on Soham's word.
+

@@ -19,3 +19,5 @@ disable-model-invocation: true
    if `ship.sh` says the profile is missing, ask Soham to log in - never route around it.
 4. Report in two lines: version + short sha deployed, health / smoke result. A FAILED
    line means stop and ask (the script already restored the last good commit).
+
+The rules behind each step: `docs/PROCEDURES.md` ("Pushing", "Deploying", "The App").

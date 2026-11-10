@@ -17,3 +17,5 @@ before - his word does not carry over to a later version.
    good commit on a failed deploy, checks health + smoke.
 3. Report: main's new short sha, the version, health / smoke. Never change staging's
    grants or run on it without Soham's word.
+
+The rules behind each step: `docs/PROCEDURES.md` ("Pushing", "Deploying", "The App").

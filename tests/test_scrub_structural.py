@@ -64,7 +64,9 @@ def test_the_scrubbed_round3_score_json_is_clean():
 def test_agents_md_carries_no_address_or_user_path():
     # 2026-10-13: the deploy notes carried a user id in a workspace path (d7aa44c);
     # scrubbed to <deploy-contact>, the history purge is in docs/acfc/LEAK_LEDGER.md.
-    assert scrub_check.structural_hits((ROOT / "AGENTS.md").read_text(encoding="utf-8")) == []
+    # 2026-11-10: AGENTS.md was split verbatim into two more files - all three checked
+    for rel in ("AGENTS.md", ".claude/rules/pipeline.md", "docs/PROCEDURES.md"):
+        assert scrub_check.structural_hits((ROOT / rel).read_text(encoding="utf-8")) == [], rel
 
 
 # 2026-10-13: the document-title phrases (held as hashes) and downloaded-copy names.

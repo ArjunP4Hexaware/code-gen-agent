@@ -61,13 +61,13 @@ def test_readable_empty_and_refused(fake):
 
 def test_a_second_app_probes_its_own_state_and_outputs_folders(fake):
     """post167: the health card names the folders this App really uses — a
-    second App's own subfolder of state / outputs, the shared inputs."""
+    second App's own subfolder of state / outputs and (post188) inputs."""
     fake.ws.dirs.update({"/Users/u/shared/state/codegen-agent-staging",
                          "/Users/u/shared/inputs"})
     env = {"CODEGEN_STORAGE_INPUTS": "workspace:/Workspace/Users/u/shared/inputs",
            "CODEGEN_STORAGE_STATE": "workspace:/Workspace/Users/u/shared/state",
            "CODEGEN_STORAGE_OUTPUTS": "workspace:/Workspace/Users/u/shared/outputs",
-           "CODEGEN_STORAGE_PER_APP": "state,outputs",
+           "CODEGEN_STORAGE_PER_APP": "inputs,state,outputs",
            "CODEGEN_STORAGE_PRIMARY_APP": "codegen-agent",
            "DATABRICKS_APP_NAME": "codegen-agent-staging"}
     values = {env_name: value for env_name, value in _probe(env, fake)}
@@ -75,7 +75,8 @@ def test_a_second_app_probes_its_own_state_and_outputs_folders(fake):
         "workspace:/Workspace/Users/u/shared/state/codegen-agent-staging"
     assert values["CODEGEN_STORAGE_OUTPUTS"] == \
         "workspace:/Workspace/Users/u/shared/outputs/codegen-agent-staging"
-    assert values["CODEGEN_STORAGE_INPUTS"] == "workspace:/Workspace/Users/u/shared/inputs"
+    assert values["CODEGEN_STORAGE_INPUTS"] == \
+        "workspace:/Workspace/Users/u/shared/inputs/codegen-agent-staging"
     assert _probe({**env, "DATABRICKS_APP_NAME": "codegen-agent"}, fake)[
         ("CODEGEN_STORAGE_STATE", "workspace:/Workspace/Users/u/shared/state")]
 

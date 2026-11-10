@@ -4,6 +4,25 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post188 — 2026-11-10 (inputs per App: dev uploads never reach staging)
+
+Soham: "it's better to split it so that my thing doesn't interrupt the tester's". Since
+post167 each App kept its own state and outputs, but the inputs role (uploads, SharePoint /
+Databricks fetches) stayed shared: a document uploaded on the dev App appeared in the
+testers' document list on staging, and an upload with the same file name replaced theirs.
+`inputs` may now be a per-App role (`storage.per_app_roles` / `CODEGEN_STORAGE_PER_APP`),
+and `app.yaml` sets `inputs,state,outputs`: every App but `CODEGEN_STORAGE_PRIMARY_APP`
+(`codegen-agent`) reads and writes `codegen/inputs/<app>/` (made on first use inside the
+granted folder, no new grant). The primary App keeps `codegen/inputs/` and lists only its
+`uploads/`, `sharepoint/`, `databricks/` inboxes, so another App's subfolder never shows
+there. The pairs folder and `CODEGEN_STATE_DIR` stay shared. On staging's first run with
+this version its inbox is empty: the documents already uploaded there are copied into
+`codegen/inputs/codegen-agent-staging/` when it is deployed (a Workspace copy, on Soham's
+word). The CLI and the harness are unchanged (no App name, the configured folders).
+
+Tests: `tests/test_storage.py` (`test_an_upload_on_one_app_never_reaches_the_others_inbox`,
+the post167 tests now with inputs), `tests/test_health_probe.py`.
+
 ## 0.5.8.post187 — 2026-11-09 (ADF or Databricks Workflow: PL_ / WF_, an Advanced option)
 
 Lokesh's rule (via Soham): pipelines built for Azure Data Factory are named `PL_...`

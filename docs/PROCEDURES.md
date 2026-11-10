@@ -96,7 +96,8 @@ Moved verbatim from `AGENTS.md` on 2026-11-10 (they load only when needed). The 
   not an error. Both Apps read the same `app.yaml`; since post167 every App but
   `CODEGEN_STORAGE_PRIMARY_APP` (`codegen-agent`) keeps state + outputs in its own
   subfolder (`codegen/state/<app>/`, `codegen/outputs/<app>/`, made by the App) -
-  inputs, the pairs and `CODEGEN_STATE_DIR` stay shared. Before post167 (still on an App
+  the pairs and `CODEGEN_STATE_DIR` stay shared; since post188 inputs (uploads, fetches)
+  are per App too (`codegen/inputs/<app>/`). Before post167 (still on an App
   whose tree lacks it) they shared runs, selection and "Clear past runs".
 - The App's UI rules (guided page, look and themes, provider wording, Choose
   documents, Cancel run) live in `ui/AGENTS.md`, loaded when working under `ui/`.

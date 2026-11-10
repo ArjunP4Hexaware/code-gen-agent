@@ -180,6 +180,9 @@ class ResolvedFeedSpec(BaseModel):
     # The FRD's cadence sentences (FrdFeed.frequency_mentions), for the
     # FREQUENCY normaliser's frequency_ambiguous flag.
     frequency_mentions: list[str] = Field(default_factory=list)
+    # post189 (tracker incident 8): the FRD's archive statement (Archive Schedule),
+    # read for the IIG's SRC_COMPRESSION; None = no document states one.
+    archive_retention: str | None = None
     # 2026-10-14 (D1 pair_12): files the FRD's LOB table keys to no single LOB
     # (their LOB cells stay open) and the answers key that asks for them
     # (``feeds[<i>].lob_by_file`` — asked once, INPUT_NEEDED, never blocking:

@@ -1381,6 +1381,7 @@ def _resolve_one(
                        for aux in sttm.auxiliary_sheets if aux.kind == "dq_rules"
                        for row in aux.rows],
         frequency_mentions=list(frd_feed.frequency_mentions),
+        archive_retention=frd_feed.archive_retention,
         lob_unkeyed=lob_unkeyed,
         lob_question_key=lob_key if lob_unkeyed else None,
         table_descriptions=dict(sttm_feed.table_descriptions),

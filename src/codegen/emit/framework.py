@@ -1224,9 +1224,11 @@ def emit_framework(
         flagged_blank_columns=flagged,
         assumed_notes=assumed_notes,
         held_back=held_back,
-        naming_notes=pipeline_name_provenance(
-            spec, faq, config, conventions_profile=conventions_profile,
-            iig_template=iig_template, frd_path=frd_path, base=base_dir),
+        naming_notes=_naming_notes(
+            pipeline_name_provenance(
+                spec, faq, config, conventions_profile=conventions_profile,
+                iig_template=iig_template, frd_path=frd_path, base=base_dir),
+            payload),
         flags=flags,
         checks=checks,
         payload=payload,
@@ -1333,9 +1335,19 @@ def report_section(artefacts: FrameworkArtefacts) -> str:
         # post186 (Lokesh via Soham): every pipeline name sourced, part by part
         lines += ["", "## How the names were built", "",
                   "Each PIPELINE_NAME: how it got there, the naming-standard pattern and "
-                  "its config key, then every part with its value and its source.", ""]
+                  "its config key, then every part with its value and its source; each "
+                  "PROCESS_NAME with the source its cell records.", ""]
         lines += [f"- {note}" for note in naming]
     return "\n".join(lines) + "\n"
+
+
+def _naming_notes(pipeline_lines: list[str], payload: dict | None) -> list[str]:
+    """post186 PIPELINE_NAME lines + post189 PROCESS_NAME lines, then (when any)
+    the one line on how to change a name and rerun (tracker incident 4)."""
+    from codegen.naming_provenance import CHANGE_HINT, process_name_provenance
+
+    lines = [*pipeline_lines, *process_name_provenance(payload)]
+    return [*lines, CHANGE_HINT] if lines else []
 
 
 def derived_line(coverage: dict[str, int]) -> str:

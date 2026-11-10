@@ -24,6 +24,7 @@ source) — the manifest's notebook_emit stage.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -77,6 +78,7 @@ class NotebookV2:
     source: str
     flags: list[str] = field(default_factory=list)
     checks: list = field(default_factory=list)
+    file_name: str = ""   # post190: the naming-standard name ('' = the feed slug)
 
 
 def notebook_version(config, conventions_profile: str | None) -> str:
@@ -547,14 +549,56 @@ def _py(value: Any) -> str:
     raise TypeError(f"no literal for {type(value).__name__}")
 
 
+# post190 (Code Review PY-003): every generated line fits this width.
+LINE_WIDTH = 79
+
+
+def _split_string(value: str, indent: int) -> str:
+    """A long string as adjacent literals inside parentheses, cut after a '/'
+    where one falls (else at the width) - Python joins them, so the value is
+    byte for byte the same."""
+    room = LINE_WIDTH - indent - 2          # the two quotes
+    pieces = re.split(r"(?<=/)", value)
+    chunks: list[str] = []
+    for piece in pieces:
+        while piece:
+            head = chunks[-1] if chunks else None
+            if head is not None and len(json.dumps(head + piece, ensure_ascii=False)) - 2 <= room:
+                chunks[-1] = head + piece
+                piece = ""
+                continue
+            cut = piece
+            while len(json.dumps(cut, ensure_ascii=False)) - 2 > room and len(cut) > 1:
+                cut = cut[:-1]
+            chunks.append(cut)
+            piece = piece[len(cut):]
+    pad = " " * indent
+    inner = "".join(f"{pad}{json.dumps(c, ensure_ascii=False)}\n" for c in chunks)
+    return "(\n" + inner + " " * (indent - 4) + ")"
+
+
+def _item(prefix: str, value: Any, indent: int) -> str:
+    """``prefix`` + the value + ',', the value split when the line would be
+    too long."""
+    text = _nested(value, indent)
+    if "\n" not in text and len(prefix) + len(text) + 1 > LINE_WIDTH:
+        if isinstance(value, str):
+            text = _split_string(value, indent + 4)
+        elif isinstance(value, (list, tuple, dict)) and value:
+            text = _block(value, indent + 4)
+    return f"{prefix}{text},\n"
+
+
 def _block(value: list | dict, indent: int = 4) -> str:
     """A list / dict literal, one item per line (stays under the line length)."""
     pad = " " * indent
     close = " " * (indent - 4)
     if isinstance(value, dict):
-        body = "".join(f"{pad}{_py(k)}: {_nested(v, indent)},\n" for k, v in value.items())
+        body = "".join(_item(f"{pad}{_py(k)}: ", v, indent) for k, v in value.items())
         return "{\n" + body + close + "}" if value else "{}"
-    body = "".join(f"{pad}{_nested(v, indent)},\n" for v in value)
+    body = "".join(_item(pad, v, indent) for v in value)
+    if isinstance(value, tuple):
+        return "(\n" + body + close + ")" if value else "()"
     return "[\n" + body + close + "]" if value else "[]"
 
 
@@ -596,11 +640,23 @@ def untyped_segment_flags(segments: list[dict]) -> list[str]:
             for s in segments if not s["shared"] and not s["detail"] and s["table"]]
 
 
+# post190 (Code Review NB-003): every code cell carries a title.
+CELL_TITLES = {"config": "Config: the IIG rows and the environment",
+               "read": "Read the source files", "drift": "Schema drift",
+               "stage": "Stage load", "recycle": "Recycle",
+               "standard": "Standard load", "dq": "Data quality rules",
+               "run": "Run", "run-report": "Run report"}
+
+
+def _code(env: Environment, name: str, template: str, context: dict) -> nbf.Cell:
+    return nbf.code(name, _render(env, template, context), CELL_TITLES[name])
+
+
 def render_cells(context: dict) -> list[nbf.Cell]:
     env = _environment()
     cells = [nbf.md("title", _render(env, "title.md.j2", context)),
-             nbf.code("config", _render(env, "config.py.j2", context)),
-             nbf.code("read", _render(env, "read.py.j2", context)),
+             _code(env, "config", "config.py.j2", context),
+             _code(env, "read", "read.py.j2", context),
              nbf.md("read-provenance", _render(env, "provenance.md.j2",
                                                {"stage": "Read", **context,
                                                 "lines": context["provenance"]["read"]}))]
@@ -610,19 +666,19 @@ def render_cells(context: dict) -> list[nbf.Cell]:
     cells += _step(env, context, "stage", "Stage")
     if context["recycle"]:
         cells += _step(env, context, "recycle", "Recycle (RECYCL_ENBL_FLG = Y)")
-    cells += [nbf.code("standard", _render(env, "standard.py.j2", context)),
+    cells += [_code(env, "standard", "standard.py.j2", context),
              nbf.md("standard-provenance", _render(env, "provenance.md.j2",
                                                    {"stage": "Standard", **context,
                                                     "lines":
                                                         context["provenance"]["standard"]})),
-             nbf.code("dq", _render(env, "dq.py.j2", context))]
+             _code(env, "dq", "dq.py.j2", context)]
     cells += [nbf.md(f"dq-not-implemented-{m['row']}",
                      _render(env, "rule_missing.md.j2", {"m": m}))
               for m in context["missing_rules"]]
     cells += [nbf.md("dq-provenance", _render(env, "provenance.md.j2",
                                               {"stage": "Data quality", **context,
                                                "lines": context["provenance"]["dq"]})),
-              nbf.code("run", _render(env, "run.py.j2", context))]
+              _code(env, "run", "run.py.j2", context)]
     cells += _step(env, context, "run-report", "Run report", "run_report")
     if context["candidates"]:
         # post76: the TRAILING %md — the only cell the --layer2 mode changes
@@ -657,11 +713,16 @@ def with_review(feed_dir: Path, slug: str, candidates) -> list[Path]:
     byte. Returns the files rewritten ([] when the notebook is not there — a
     blocking line withheld it, a GATE_FAIL moved it)."""
     folder = feed_dir / NOTEBOOK_DIR
-    ipynb, source = folder / f"{slug}.ipynb", folder / f"{slug}.py"
+    # post190: the notebook may carry its naming-standard name, not the slug
+    found = sorted(folder.glob("*.ipynb")) if folder.is_dir() else []
+    ipynb = folder / f"{slug}.ipynb" if (folder / f"{slug}.ipynb").is_file() else (
+        found[0] if len(found) == 1 else folder / f"{slug}.ipynb")
+    source = ipynb.with_suffix(".py")
     if not (ipynb.is_file() and source.is_file()):
         return []
-    cells =[nbf.Cell("markdown" if c["cell_type"] == "markdown" else "code", c["id"],
-                      "".join(c["source"]))
+    cells = [nbf.Cell("markdown" if c["cell_type"] == "markdown" else "code", c["id"],
+                      "".join(c["source"]),
+                      (c.get("metadata") or {}).get(nbf.TITLE_KEY, {}).get("title", ""))
              for c in json.loads(ipynb.read_text(encoding="utf-8"))["cells"]
              if c["id"] != REVIEW_CELL]
     entries = review_entries(candidates)
@@ -675,7 +736,7 @@ def with_review(feed_dir: Path, slug: str, candidates) -> list[Path]:
 def _step(env: Environment, context: dict, name: str, title: str,
           template: str | None = None) -> list[nbf.Cell]:
     """A code cell and its provenance cell."""
-    return [nbf.code(name, _render(env, f"{template or name}.py.j2", context)),
+    return [_code(env, name, f"{template or name}.py.j2", context),
             nbf.md(f"{name}-provenance", _render(env, "provenance.md.j2",
                                                  {"stage": title, **context,
                                                   "lines": context["provenance"][name]}))]
@@ -687,19 +748,25 @@ def build(spec, config, payload: dict, *, candidates, frd_path: Path | None,
     context, flags = build_context(spec, config, payload, candidates=candidates,
                                    frd_path=frd_path, iig_template=iig_template,
                                    feed_index=feed_index, sttm_path=sttm_path)
+    from codegen.emit.context import resolve_notebook_file_name
+
+    file_name, name_flags = resolve_notebook_file_name(spec, config)
+    flags = [*flags, *name_flags]
     cells = render_cells(context)
     ipynb = nbf.ipynb_text(cells)
     source = nbf.databricks_source(cells)
     checks = [nbf.check_nbformat(ipynb), nbf.check_cells_compile(cells),
               nbf.check_ruff(source),
               nbf.check_scrub([ipynb, source], list(config.job.notification_emails))]
-    return NotebookV2(cells=cells, ipynb=ipynb, source=source, flags=flags, checks=checks)
+    return NotebookV2(cells=cells, ipynb=ipynb, source=source, flags=flags, checks=checks,
+                      file_name=file_name)
 
 
 def write(notebook: NotebookV2, feed_dir: Path, slug: str) -> list[Path]:
     folder = feed_dir / NOTEBOOK_DIR
     folder.mkdir(parents=True, exist_ok=True)
-    paths = [folder / f"{slug}.ipynb", folder / f"{slug}.py"]
+    name = notebook.file_name or slug
+    paths = [folder / f"{name}.ipynb", folder / f"{name}.py"]
     paths[0].write_text(notebook.ipynb, encoding="utf-8", newline="\n")
     paths[1].write_text(notebook.source, encoding="utf-8", newline="\n")
     return paths

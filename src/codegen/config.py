@@ -1006,6 +1006,12 @@ class EngineeringStandardsConfig(BaseModel):
     # EDO Databricks naming: NB_<product>_<subproduct>_<domain>_<subdomain>_
     # <functionality>. Empty = legacy "notebook_entrypoint" workspace leaf.
     notebook_name_pattern: str = ""
+    # post190 (Code Review NM-001, Soham's option 1): the notebook-mode FILE name -
+    # every part from the FRD (product / sub-product codes, domain, subdomain,
+    # source); any part open = the feed's name, flagged. Empty = the feed's name.
+    notebook_file_name_pattern: str = ""
+    # A longer name is still written, flagged (Code Review's cap: 30).
+    notebook_name_max_length: int | None = None
     # EDO naming-standard abbreviation tables (3-char product/sub-product
     # codes, source/domain/LOB/frequency abbreviations). Lookups are
     # case-insensitive on the normalized key; an unmapped value falls back to

@@ -4,7 +4,26 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-10 - both Apps' code = post188, both running; everything pushed)
+## Start here (2026-11-10 - dev = post189, staging = post188, both running; everything pushed)
+
+**post189 (2026-11-10, DEV only - staging still post188):** the shared incident tracker's
+CodeGen items (sheet `CodeGen`; exported as JSON by an Office Script, kept out of the repo):
+5 a stated "file pattern" line = the one file; 6 / 7 the ADLS Location's "Raw Path" line =
+the landing, an "N/A - ..." note never a path, a trailing `<File.extn>` dropped; 8
+SRC_COMPRESSION from the Archive Schedule; 4 PROCESS_NAME in "How the names were built".
+Reproduced on the staging Facets Accumulators upload (mock), fixed there. 12-pair check:
+outcomes unchanged (pair_03's FAIL on the old side was the harness's 15-min timeout under
+load - its baseline is GATE_FAIL); every changed cell = a path losing `<File.extn>`. One
+`.venv` test failed under load only (`test_m93_chooser` index-writes; passes alone 3/3 +
+its module). Open from the tracker: incident 2 (external tables - Lokesh's property set
+and how a document marks a table external); incident 3 closed (open item 1).
+**Next: post190** = the notebook against Code Review's exact rules (13 real notebooks, all
+the same 9 template findings): NB_ name = option 1 (`NB_<Prod>_<SubProd>_<Dom>_<Sub>_<SRC>_INGEST`,
+a clash or > 30 chars keeps the feed name + flag), header cell, DBTITLEs, withColumns,
+cache around counts, logging, 79/72 wrap; DL-006 (abfss) waits on Soham (ask ACFC for a
+UC volume?). Code Review's engine: `/Workspace/Users/<owner>/code_review_agent/app_root`,
+`review.py --no_llm` in a scratch venv (nbformat pyyaml sqlglot jsonschema python-dotenv
+databricks-sdk), copies in /tmp only.
 
 **post188 (2026-11-10, both Apps):** inputs are per App (Soham: "my thing doesn't
 interrupt the tester's"). Staging reads / writes `codegen/inputs/codegen-agent-staging/`
@@ -30,11 +49,11 @@ green on both. Later docs-only commits on feature need no deploy. Session log:
 CLAUDE_HISTORY §[H23].
 
 **Open, in order:**
-1. **post185's protocol lines** (Soham's call): the standard TBLPROPERTIES carry
-   `delta.minReaderVersion 1` / `minWriterVersion 2` as he sent them, but a table with
-   deletion vectors / column mapping / v2 checkpoints runs on 3 / 7 (Databricks upgrades
-   it), so the DDL test case "includes delta.minReaderVersion = 1" will not match by eye;
-   `predictiveOptimization` is no Delta property (stored as a label, enables nothing).
+1. **DECIDED (Lokesh via Soham, 2026-11-10): the standard TBLPROPERTIES stay exactly as
+   post185 has them** ("suggested by Databricks") - incl. `delta.minReaderVersion 1` /
+   `minWriterVersion 2` and `predictiveOptimization`; tracker incident 3 closed by that.
+   Do not change them or re-raise the 3 / 7 and label points. Still open from the same
+   ask: incident 2 (external-table properties + how a document marks a table external).
 2. **Ask Lokesh (via Soham), from pair_2's TDD** (`rfc_samples/TDD_Implement_Medicare_
    Growth_Expansion_2025_1003866.docx`). **(a) DECIDED (Soham, 2026-11-10): the Naming
    Standards win** - grand master names keep the product / sub-product codes (post186 as

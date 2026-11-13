@@ -212,6 +212,12 @@ def _lookup(table: dict[str, list[str]]) -> dict[str, str]:
 
 
 def discover_frd(content: DocxContent, config: FrdExtractorConfig) -> FrdLayoutProfile:
+    """The synonyms' profile of a document, then (post192) its single-value fields
+    stated only on a labelled line placed there."""
+    return _place_line_fields(_discover_family(content, config), content, config)
+
+
+def _discover_family(content: DocxContent, config: FrdExtractorConfig) -> FrdLayoutProfile:
     tables = content.tables
     digest = frd_fingerprint(tables)
     sections = _lookup(config.section_titles)
@@ -646,6 +652,84 @@ def _inline_pairs(text: str, config: FrdExtractorConfig) -> list[tuple[str, str]
     return pairs
 
 
+def line_pairs(text: str | None) -> list[tuple[str, str]]:
+    """post192: the ``(label as written, value)`` of every line of a cell that reads
+    ``<label>: <value>`` - the other lines (prose) are no pair."""
+    pairs = []
+    for line in (text or "").splitlines():
+        match = _PAIR_RE.match(line)
+        if match:
+            pairs.append((match.group(1).strip(), match.group(2).strip()))
+    return pairs
+
+
+def labelled_pairs(text: str, config: FrdExtractorConfig) -> list[tuple[str, str]]:
+    """The ``Label: value`` pairs a cell states: its ``;``-separated inline pairs, then
+    (post192) its labelled lines."""
+    return [*_inline_pairs(text, config), *line_pairs(text)]
+
+
+def line_field_labels(config: FrdExtractorConfig) -> dict[str, list[str]]:
+    """post172: every FRD label synonym of a single-value field is a line label too
+    (+ ``extractor.frd.cell_line_labels``) - field -> spellings."""
+    return {field: [*config.cell_line_labels.get(field, []),
+                    *(label for key, synonyms in config.labels.items()
+                      if {**_SCALAR_FIELDS, **_FALLBACK_FIELDS}.get(key) == field
+                      for label in synonyms)]
+            for field in _LINE_FIELDS}
+
+
+def _place_line_fields(profile: FrdLayoutProfile, content: DocxContent,
+                       config: FrdExtractorConfig) -> FrdLayoutProfile:
+    """post192: a single-value field with no row of its own is placed at the ONE line,
+    in any table cell, a label of the field states it on ("File Frequency: Weekly" in a
+    requirement's prose). Single-feed documents only; a cell holding a nested table or a
+    line with no value places nothing; lines that disagree place nothing (a note, the
+    field stays open). The label cell to the line's left is the citation."""
+    feeds = {f.feed_index for f in profile.fields.values()} | {
+        u.feed_index for u in profile.unresolved}
+    if feeds - {0}:
+        return profile
+    blank = {normalize_label(b) for b in config.blank_values}
+    sections = {ref.table: ref.section for ref in profile.sections}
+    fields = dict(profile.fields)
+    confidence = dict(profile.confidence)
+    notes = list(profile.notes)
+    for field, spellings in line_field_labels(config).items():
+        path = f"feeds[0].{field}"
+        if path in fields or f"{path}#fallback" in fields:
+            continue
+        wanted = {normalize_label(s) for s in spellings}
+        hits = []
+        for t, rows in enumerate(content.tables):
+            for r, row in enumerate(rows):
+                for c in range(1, len(row)):
+                    if not row[c - 1].strip() or (t, r, c) in content.nested:
+                        continue
+                    for label, value in line_pairs(row[c]):
+                        if (normalize_label(label) in wanted and value
+                                and normalize_label(value) not in blank):
+                            hits.append((t, r, c, label, value))
+        values = {normalize_label(h[4]) for h in hits}
+        where = ", ".join(f"table {t} row {r} col {c}" for t, r, c, _l, _v in hits)
+        if len(values) > 1:
+            notes.append(f"{path}: {len(hits)} labelled lines state it differently ({where}) "
+                         "- not placed")
+            continue
+        if not hits:
+            continue
+        t, r, c, label, _value = hits[0]
+        fields[path] = FrdFieldSource(table=t, row=r, col=c - 1, value_col=c,
+                                      label=content.tables[t][r][c - 1].strip(),
+                                      section=sections.get(t), inline_label=label,
+                                      feed_index=0)
+        confidence[path] = 1.0
+        notes.append(f"{path}: placed at a labelled line ({where}; line label {label!r})")
+    unresolved = [u for u in profile.unresolved if u.field not in fields]
+    return profile.model_copy(update={"fields": fields, "confidence": confidence,
+                                      "notes": notes, "unresolved": unresolved})
+
+
 _REQUIRED_PATHS = ("feed_name", "source_system", "file_format", "frequency", "lobs", "domain",
                    "stage_target.schema", "stage_target.tables", "stage_target.load_strategy",
                    "standard_target.load_strategy")
@@ -677,7 +761,7 @@ def _value(content: DocxContent, source: FrdFieldSource, config: FrdExtractorCon
         return ""
     text = rows[source.row][source.value_col].strip()
     if source.inline_label is not None:
-        text = next((value for label, value in _inline_pairs(text, config)
+        text = next((value for label, value in labelled_pairs(text, config)
                      if normalize_label(label) == normalize_label(source.inline_label)), "")
     # A placeholder ("None", "N/A" …) is a stated blank, not a value.
     if normalize_label(text) in {normalize_label(b) for b in config.blank_values}:
@@ -1138,13 +1222,7 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
     # (path -> (value, evidence)), and the flags saying which cell was read so
     cell_lines: dict[str, tuple[str, FieldEvidence]] = {}
     line_flags: list[str] = []
-    # post172: every FRD label synonym of a single-value field is a line label too
-    line_labels: dict[str, list[str]] = {
-        field: [*frd_config.cell_line_labels.get(field, []),
-                *(label for key, synonyms in frd_config.labels.items()
-                  if {**_SCALAR_FIELDS, **_FALLBACK_FIELDS}.get(key) == field
-                  for label in synonyms)]
-        for field in _LINE_FIELDS}
+    line_labels = line_field_labels(frd_config)
     blank_words = {normalize_label(b) for b in frd_config.blank_values}
 
     def scan_cell_lines(prefix: str) -> None:
@@ -1205,6 +1283,15 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             section=source.section, inline_label=source.inline_label, source=profile.source)
         clean = path.split("#", 1)[0]
         field = clean.split(".", 1)[1] if "." in clean else clean
+        if source.inline_label is not None and value:
+            cell = content.tables[source.table][source.row][source.value_col or source.col]
+            if normalize_label(source.inline_label) not in {
+                    normalize_label(label) for label, _v in _inline_pairs(cell, frd_config)}:
+                # post192: one labelled line of a longer cell (placed, or answered)
+                line_flags.append(f"frd_line_located:{clean} — read from the table "
+                                  f"{source.table} row {source.row} ({source.label!r}) cell's "
+                                  f"{source.inline_label!r} line; the rest of the cell is "
+                                  "not read for it")
         own = {k for k, v in {**_SCALAR_FIELDS, **_FALLBACK_FIELDS}.items() if v == field}
         if field == "domain":
             own |= {"domain_subdomain", "domain"}

@@ -4,6 +4,36 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post192 — 2026-11-13 (FRD fields stated on a labelled line; the FRD dialog's answers applied)
+
+A staging FRD (2026-11-12, a tester's run left at its layout questions) has no metadata
+row for most fields: its requirement cells mix prose with `<label>: <value>` lines. Seven
+fields were asked, every question offered the same unrelated rows, and an answer could
+not have helped:
+
+1. **The App's FRD answers were dropped without a word.** The dialog posts
+   `{table, row, col, label, source: "user"}`; the field model forbids `source`, and the
+   merge skipped the claim. Kept, it read blank: a pick names the LABEL cell and no value
+   cell was set. Now `source` is the merge's own argument and a picked row reads the cell
+   to its right (`layout.resolve._merge_frd`).
+2. **"File Frequency"** is an FRD label of the frequency (`extractor.frd.labels`; a label
+   a client FRD writes).
+3. **A single-value field with no row of its own** (file format, frequency, source
+   system, delimiter) is placed at the ONE line, in any table cell, a known label of the
+   field states it on - the label cell to its left cited, flag `frd_line_located:` (in
+   the review copy). Single-feed documents only; lines that disagree, a line with no
+   value or a cell holding a nested table place nothing; a field's own row always wins
+   (`frd_docx._place_line_fields`).
+4. **The dialog offers each labelled line as its own choice** ("table 3 row 3:
+   Functional Requirement - line `Load Type: History`"), pre-selected when the line's
+   label is one of the field's; an answered line reads that line only. Reports still name
+   labels only (the line text is shown on screen, never written to them).
+
+On the tester's FRD (mock): frequency is now placed; the other six stay questions, with
+the document's lines to pick from. Open: that FRD mixes F1 section tables (Data Quality,
+Vendor) with F2 Solution Requirement tables; F1 wins, so the requirement tables are
+never read as F2 - a mixed-family reader is not built.
+
 ## 0.5.8.post191 — 2026-11-13 (one notebook comment wrapped to Code Review's width)
 
 The one PY-003 left after post190: a 74-character comment in

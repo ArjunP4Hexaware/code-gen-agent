@@ -71,16 +71,20 @@ def build_frd(files: list[str] | None = None,
               domain_cell: str = "Member / Care Management", *,
               name: str = PROJECT, table: str = TABLE,
               format_cell: str = "Pipe delimited text, first row is a header",
-              frequency: str = "Monthly", adls_location: str = "",
-              inbound_path: str = LOCATION, archive: str | None = None) -> bytes:
+              frequency: str | None = "Monthly", adls_location: str = "",
+              inbound_path: str = LOCATION, archive: str | None = None,
+              requirement_cell: str = "") -> bytes:
     """F1: the project as the feed name, the files in Object Name, ONE table.
     ``domain_cell`` is the "Domain and Subdomain" row (pair_12 CAQH states
     both labels there on two lines); ``format_cell`` the "Object/data Format"
     row (an exchange FRD, 2026-11-04: "File Format: .txt" + "Delimiter: ..."
     lines in one cell). post189: ``adls_location`` / ``inbound_path`` the two landing
-    rows, ``archive`` an Archive Schedule row (none by default - the bytes unchanged)."""
+    rows, ``archive`` an Archive Schedule row (none by default - the bytes unchanged).
+    post192: ``frequency=None`` drops the Frequency row; ``requirement_cell`` is the
+    Structural Metadata "Functional Requirement" text (prose + labelled lines)."""
     files = list(FILES.values()) if files is None else files
     archive_rows = [("SM-12", "Archive Schedule", archive)] if archive is not None else []
+    frequency_rows = [("DM-6", "Frequency", frequency)] if frequency is not None else []
     return docx_bytes([
         _f1("DM", "Descriptive Metadata", [
             ("DM-1", "Name", name),
@@ -88,13 +92,13 @@ def build_frd(files: list[str] | None = None,
             ("DM-3", "Functional Requirement", "Ingest the care management files into stage and standard."),
             ("DM-4", "Data Source", "Northwind Benefits"),
             ("DM-5", "Object Name", "\n".join(files)),
-            ("DM-6", "Frequency", frequency),
+            *frequency_rows,
             ("DM-7", "LOBs", "ALL"),
         ]),
         _f1("SM", "Structural Metadata", [
             ("SM-1", "Name", "Care management structure"),
             ("SM-2", "Description", ""),
-            ("SM-3", "Functional Requirement", ""),
+            ("SM-3", "Functional Requirement", requirement_cell),
             ("SM-4", "Object/data Format", format_cell),
             ("SM-5", "Target Schema", "stg_nb_cm (stage), nb_cm (standard)"),
             ("SM-6", "Target Table Name", table),

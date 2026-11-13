@@ -1097,6 +1097,7 @@ def _frd_questions(profile: FrdLayoutProfile, content, config: Config) -> list[L
             if row[col].strip():
                 candidates.append({"table": ref.table, "row": row_index, "col": col,
                                    "label": row[col].strip(), "section": ref.section})
+    candidates += _frd_line_candidates(profile, content, used)
     questions = []
     for item in profile.unresolved:
         title, hint, suggested = frd_field_help(item.field, candidates, config)
@@ -1113,6 +1114,30 @@ def _frd_questions(profile: FrdLayoutProfile, content, config: Config) -> list[L
                                         title=title, hint=hint, suggested=suggested,
                                         suggested_reason=suggested_reason))
     return questions
+
+
+def _frd_line_candidates(profile: FrdLayoutProfile, content, used: set) -> list[dict]:
+    """post192: every ``<label>: <value>`` line of a table cell (any table; the rows a
+    field already holds excluded) as its own choice - the label cell to its left is the
+    citation, ``inline_label`` the line's label as written, ``line`` the line shown to
+    the person (never written to a report: those name the labels only)."""
+    from codegen.extract.frd_docx import line_pairs
+
+    sections = {ref.table: ref.section for ref in profile.sections}
+    out = []
+    for t, rows in enumerate(content.tables):
+        for r, row in enumerate(rows):
+            if (t, r) in used:
+                continue
+            for c in range(1, len(row)):
+                if not row[c - 1].strip() or (t, r, c) in content.nested:
+                    continue
+                for label, value in line_pairs(row[c]):
+                    if label and value:
+                        out.append({"table": t, "row": r, "col": c - 1, "value_col": c,
+                                    "label": row[c - 1].strip(), "section": sections.get(t),
+                                    "inline_label": label, "line": f"{label}: {value}"})
+    return out
 
 
 # post129 (audit #6): the paths whose DQ-section rows read "<label>: <value>" -
@@ -1177,7 +1202,7 @@ def _model_label_reason(path: str, source: FrdFieldSource, label_cell: str,
 
 def _validate_frd(profile: FrdLayoutProfile, content, config: Config,
                   check_sources: set[str]) -> tuple[FrdLayoutProfile, list[Rejection]]:
-    from codegen.extract.frd_docx import _inline_pairs, normalize_label
+    from codegen.extract.frd_docx import labelled_pairs, normalize_label
 
     sections = {normalize_label(s): key for key, spellings in
                 config.extractor.frd.section_titles.items() for s in spellings}
@@ -1217,7 +1242,7 @@ def _validate_frd(profile: FrdLayoutProfile, content, config: Config,
                 if source.inline_label is not None:
                     text = (row[source.value_col] if source.value_col is not None
                             and source.value_col < len(row) else "")
-                    stated = next((label for label, _value in _inline_pairs(
+                    stated = next((label for label, _value in labelled_pairs(
                         text, config.extractor.frd)
                         if normalize_label(label) == normalize_label(source.inline_label)),
                         None)
@@ -1268,6 +1293,14 @@ def _merge_frd(profile: FrdLayoutProfile, claims: dict[str, dict], source: str,
             continue
         if allowed is not None and path not in allowed:
             continue
+        # post192: the App posts {table, row, col, label, source: "user"} - ``source`` is
+        # the merge's own argument (the field model forbids the key: the answer was
+        # dropped without a word), and a person picks the LABEL row: its value cell is
+        # the one to its right.
+        claim = {k: v for k, v in claim.items() if k != "source"}
+        if source == "user" and claim.get("value_col") is None \
+                and isinstance(claim.get("col"), int):
+            claim["value_col"] = claim["col"] + 1
         try:
             fields[path] = FrdFieldSource.model_validate(claim)
         except ValidationError:

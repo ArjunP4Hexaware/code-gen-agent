@@ -25,6 +25,9 @@ export interface FrdClaim {
   row: number;
   col: number;
   label: string;
+  // post192: a labelled line of the cell (its label as written) and its value cell
+  inline_label?: string;
+  value_col?: number;
 }
 
 export interface GapPick {
@@ -142,7 +145,9 @@ export function pickCandidate(q: LayoutQuestion, c: Candidate | undefined,
     case "frd":
       return c.table !== undefined && c.row !== undefined
         ? { ...picks, frd: { ...picks.frd, [q.key]: {
-            table: c.table, row: c.row, col: c.col ?? 0, label: c.label ?? "" } } }
+            table: c.table, row: c.row, col: c.col ?? 0, label: c.label ?? "",
+            ...(c.inline_label ? { inline_label: c.inline_label, value_col: c.value_col } : {}),
+          } } }
         : null;
     default:
       return c.col !== undefined
@@ -163,7 +168,7 @@ export function isPicked(q: LayoutQuestion, c: Candidate, picks: AnswerPicks): b
     case "frd": {
       const pick = picks.frd[q.key];
       return pick !== undefined && pick.table === c.table && pick.row === c.row
-        && pick.col === (c.col ?? 0);
+        && pick.col === (c.col ?? 0) && (pick.inline_label ?? "") === (c.inline_label ?? "");
     }
     default:
       return c.col !== undefined && picks.columns[q.key] === c.col;
@@ -439,6 +444,7 @@ export function QuestionItem({
                 <>
                   {c.table !== undefined ? `table ${c.table} row ${c.row}: ` : ""}
                   {c.label ?? c.header}
+                  {c.line ? <> — line <code>{c.line}</code></> : null}
                 </>
               ) : (
                 <>

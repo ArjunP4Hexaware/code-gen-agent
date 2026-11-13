@@ -205,6 +205,11 @@ export interface LayoutQuestion {
     table?: number;
     row?: number;
     label?: string;
+    // post192: an FRD labelled-line choice - the line's label as written, its
+    // value cell, and the line shown to the person
+    inline_label?: string;
+    value_col?: number;
+    line?: string;
     // kind "choice" / "layer" candidates
     value?: string;
     source?: string;

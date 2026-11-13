@@ -260,3 +260,16 @@
   replaces the running one.
 - Permanent fix: RESTART.md records the restore-by-sha command; a mistyped (invented) sha
   cost one deploy - look the sha up (`git rev-parse`) before pasting it.
+
+## 2026-11-13: hook (a) on a new post192 test file in its red phase
+- Actual cause: not a spiral. tests/test_frd_line_fields_post192.py (untracked) was written
+  first for post192 (FRD labelled-line fields + the FRD dialog's answers); it was run twice
+  before any src/ change - 5 planned assertion failures (missing label, field not placed, no
+  line candidates, the App-shaped answer dropped), not a retry of any fix. The second run
+  differed only because two tests were corrected to pick a candidate that exists.
+- Pattern: none (not a spiral)
+- Caught by skill: false trigger (diagnostic: `git status` - src/ untouched, the test file
+  untracked; known cause "a brand-new test file in its planned red phase")
+- Earliest signal that would have revealed it: the test file untracked + zero src/ diff.
+- Approx. time lost: ~2 minutes
+- Permanent fix: none - the known cause's hook refinement is still a /spiral-retro proposal.

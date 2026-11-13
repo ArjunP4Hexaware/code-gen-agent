@@ -4731,3 +4731,65 @@ filled with the feed's own values (target table, real location):
   (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), dev deployed + smoked,
   staging merged identical-tree + deployed + smoked on Soham's word.
 
+
+
+## §[H25] Session 2026-11-13: container reset, post191-post192 (Code Review width, FRD labelled lines + the dropped FRD answers)
+
+- **Reset:** `~/bootstrap` green; OAuth by the background-login recipe (Soham's `!` runs
+  broke on the placeholder and a wrapped paste - the login must listen IN the container).
+- **post191:** the 74-char comment wrapped; deployed to staging after the tester's stale
+  paused run (11/12 13:14 UTC, needs_layout, 7 FRD roles) was analysed and cancelled.
+- **The stale run's analysis:** the FRD (F1 DQ / Vendor tables + F2 requirement tables)
+  had no metadata rows; the live model placed none of the 8 FRD roles; every question
+  offered the same unrelated rows; a repro (mock, /tmp) matched. Two pre-existing bugs
+  found while building the fix: the App's FRD answers dropped silently + read blank.
+  Soham chose option (a) (read labelled lines) over (b) (rely on the live line locator);
+  checking first showed (a) as first described filled NOTHING (no known label, the scan
+  only covered placed cells) - re-scoped to 1+2+3 = post192.
+- **Spiral check:** hook (a) fired on the new test file's red phase - a false trigger
+  (logged; known cause "brand-new test file", Seen 2026-11-13; replay scenario added).
+- **The abbreviation list:** traced to the Data Layers Standards V1.1 (not the Naming
+  Standards, as earlier notes said); message for Lokesh drafted (item 2).
+- **Process slips:** a scenario-file rewrite re-indented 256 lines (reverted; re-written in
+  the file's 2-space indent); a pytest run from `tests/` wrote a stray `tests/ui/` state
+  file (deleted) - run pytest from the repo root.
+
+### Retired RESTART.md blocks (2026-11-13 hand-off)
+
+## Start here (session ended 2026-11-10 - dev compute STOPPED; staging = post189; feature = post190, pushed, NOT deployed)
+
+**First check:** `git fetch && git status -sb` = up to date with
+`origin/feature/multi-table` (head = the hand-off docs commit on top of 772c99d, post190).
+- **dev `codegen-agent`:** compute STOPPED (found stopped at the post190 deploy; `ship.sh`
+  refused, as it should). Its last deployment is post189 (fdf7e9f). Starting it bills
+  compute - Soham's call; then `/ship-dev` deploys post190 (health post190 + smoke).
+- **staging `codegen-agent-staging`:** post189, `main` = 1f30078 (identical-tree merge),
+  health + smoke green. post190 goes there only on Soham's word (`/ship-staging`).
+- **post190 is fully checked:** both suites green (2592 / 2243), framework 12-pair check
+  identical (0 REAL changes), the 13 real notebooks under Code Review's `--no_llm` rules:
+  efficiency 100 on all, only DL-006 / NM-001 / NM-004 / PY-006 (known, below) and ONE
+  PY-003 - a 74-character comment at `templates/notebook_v2/run.py.j2:47` (the shared
+  segments' union; wrap it: open item 1).
+- After a container reset: `~/bootstrap`, then the OAuth login (recipe below) - auto-memory
+  does not survive a reset, so anything that must is written here.
+- Session log: CLAUDE_HISTORY §[H24].
+
+
+## State (2026-11-10 — post188 to post190)
+
+- **post188** inputs per App (`CODEGEN_STORAGE_PER_APP: inputs,state,outputs`); staging
+  uses `codegen/inputs/codegen-agent-staging/` (the shared uploads copied there first).
+- **post189** the incident tracker's CodeGen items 4-8 (file pattern line, Raw Path
+  landing, N/A notes never paths, `<File.extn>` dropped, SRC_COMPRESSION from the Archive
+  Schedule, PROCESS_NAME provenance). Tracker: SharePoint `AI_Agent_Incident_tracker.xlsx`,
+  exported as JSON by an Office Script (`/tmp/t/graph/export_incident_tracker.ts` - gone
+  after a reset; the script is in the H24 session's chat) and pasted by Soham.
+- **post190** the notebook vs the Code Review agent's exact rules (see Start here).
+  Code Review's engine: `/Workspace/Users/<owner>/code_review_agent/app_root` (another
+  engineer's folder - read a /tmp copy, never `.git`, never vendored); run
+  `review.py --no_llm --fail_on NONE --outfile <json> <files>` from a scratch venv with
+  `nbformat pyyaml sqlglot jsonschema python-dotenv databricks-sdk` (pins in its
+  `app_root/requirements.txt`).
+- Every version: both suites green, the framework 12-pair check outcomes unchanged
+  (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL).
+

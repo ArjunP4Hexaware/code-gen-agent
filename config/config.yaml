@@ -786,6 +786,11 @@ engineering_standards:
   # EDO Databricks NOTEBOOK convention:
   #   NB_<3 Char Product>_<3 Char Sub-Product>_<Domain>_<Subdomain>_<Functionality>
   notebook_name_pattern: "NB_{product}_{subproduct}_{domain}_{subdomain}_INGEST"
+  # post190 (Code Review NM-001; Soham 2026-11-10, option 1): the notebook-mode file
+  # name adds the source so feeds of one domain differ. Over 30 characters (every
+  # real feed until the Standard Abbreviation List v28 arrives) = written + flagged.
+  notebook_file_name_pattern: "NB_{product}_{subproduct}_{domain}_{subdomain}_{source}_INGEST"
+  notebook_name_max_length: 30
   # post186 (Soham, 2026-11-09): Product / Sub-Product codes READ from the FRD through
   # the Naming Standards' tables 3.2 / 3.3 (codegen.naming_codes) - never a constant
   # (they were DLK / NSP for every feed). Entries + acronyms transcribed from the EDO

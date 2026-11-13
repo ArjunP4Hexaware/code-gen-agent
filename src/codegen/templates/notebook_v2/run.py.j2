@@ -1,11 +1,16 @@
-# Run: read -> stage-leg rules -> stage -> standard -> standard-leg rules ->
-# standard; the processed files are archived (not under dry_run).
-processed: dict[int, list[str]] = {}
-for source in SOURCES:
+# Run: read -> stage-leg rules -> stage -> standard -> standard-leg
+# rules -> standard; the processed files are archived (not under
+# dry_run).
+
+
+def load_source(source: dict) -> list[str]:
+    """One ADLS_DELTA row's files through read, rules and stage ([] = no
+    file). The read records are cached: the count, the rejects and the
+    stage write reuse them instead of reading the files again."""
     files = source_files(source)
     if not files:
-        print(f"{source['file_pattern']}: no file to load")
-        continue
+        LOG.info("%s: no file to load", source["file_pattern"])
+        return []
 {% if drift %}
     if source["schema_drift"]:
         check_drift(files, source)
@@ -15,16 +20,22 @@ for source in SOURCES:
 {% else %}
     frames = {DETAIL_SEGMENT: read_delimited(files, source)}
 {% endif %}
+    cached = [frame.cache() for frame in frames.values()]
+    frames = dict(zip(frames, cached, strict=True))
     tally("read", source["file_pattern"], frames[DETAIL_SEGMENT].count())
 {% if recycle %}
     backlog = recycle_backlog(source) if source["recycle"] else None
     if backlog is not None:
-        tally("recycle: retried from earlier runs", recycle_table(source), backlog.count())
+        backlog = backlog.cache()
+        tally("recycle: retried from earlier runs", recycle_table(source),
+              backlog.count())
         frames[DETAIL_SEGMENT] = frames[DETAIL_SEGMENT].unionByName(
             backlog, allowMissingColumns=True
         )
 {% endif %}
-    detail, rejected = split_mandatory(frames[DETAIL_SEGMENT], source["mandatory"])
+    detail, rejected = split_mandatory(
+        frames[DETAIL_SEGMENT], source["mandatory"]
+    )
     write_rejects(rejected, source)
 {% if recycle %}
     if source["recycle"]:
@@ -33,34 +44,49 @@ for source in SOURCES:
     frames[DETAIL_SEGMENT] = detail
     frames, separate = apply_stage_rules(frames, source)
 {% if fixed_width %}
-    for segment in SEGMENTS:
-        if segment["shared"] and not segment["detail"]:
-            # its records load into the detail's stage table (one shared
-            # table), after the rules on the detail records
-            shared = frames.pop(segment["segment"])
-            frames[DETAIL_SEGMENT] = frames[DETAIL_SEGMENT].unionByName(
-                shared, allowMissingColumns=True
-            )
+    # the shared segments' records load into the detail's stage table
+    # (one shared table), after the rules on the detail records: one
+    # union
+    shared = [frames.pop(s["segment"]) for s in SEGMENTS
+              if s["shared"] and not s["detail"]]
+    frames[DETAIL_SEGMENT] = functools.reduce(
+        lambda left, right: left.unionByName(right, allowMissingColumns=True),
+        shared, frames[DETAIL_SEGMENT])
 {% endif %}
     write_stage(stage_frame(frames[DETAIL_SEGMENT], source), source)
 {% if fixed_width %}
     for segment in SEGMENTS:
         if segment["segment"] in separate and segment["segment"] in frames:
-            catalog, schema, table = ([STAGE_CATALOG, *segment["table"].split(".")])[-3:]
-            records = with_audit(frames[segment["segment"]], source, segment["audit"])
+            parts = [STAGE_CATALOG, *segment["table"].split(".")]
+            catalog, schema, table = parts[-3:]
+            records = with_audit(
+                frames[segment["segment"]], source, segment["audit"]
+            )
             write_table(records, table_name(catalog, schema, table), source)
 {% else %}
     if separate:
         raise ValueError("a header / trailer split rule on a delimited feed")
 {% endif %}
-    processed[source["index"]] = files
+    for frame in cached:
+        frame.unpersist()
+{% if recycle %}
+    if backlog is not None:
+        backlog.unpersist()
+{% endif %}
+    return files
 
+
+processed = {source["index"]: load_source(source) for source in SOURCES}
 loaded = [path for paths in processed.values() for path in paths]
 for standard in STANDARDS:
-    write_standard(apply_standard_rules(build_standard(standard, loaded), standard), standard)
+    records = build_standard(standard, loaded)
+    write_standard(apply_standard_rules(records, standard), standard)
 
 if not DRY_RUN:
     for source in SOURCES:
-        archive = adls_uri(source["landing_container"], source["archive_path"])
+        archive = adls_uri(
+            source["landing_container"], source["archive_path"]
+        ).rstrip("/")
         for path in processed.get(source["index"], []):
-            dbutils.fs.mv(path, archive.rstrip("/") + "/" + path.rsplit("/", 1)[-1])  # noqa: F821
+            moved = archive + "/" + path.rsplit("/", 1)[-1]
+            dbutils.fs.mv(path, moved)  # noqa: F821

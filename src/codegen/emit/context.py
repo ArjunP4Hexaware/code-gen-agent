@@ -320,6 +320,45 @@ def resolve_notebook_name(
     return _collapse_name(standards.notebook_name_pattern.format(**components))
 
 
+NOTEBOOK_NAME_PARTS = ("product", "subproduct", "domain", "subdomain", "source")
+
+
+def resolve_notebook_file_name(spec: ResolvedFeedSpec, config: Config
+                               ) -> tuple[str, list[str]]:
+    """post190 (Code Review NM-001, option 1): (file name, flags) of the notebook-mode
+    notebook - the ``notebook_file_name_pattern`` with every part from the FRD, else
+    the feed's name with a ``notebook_name_open:`` flag naming the open parts; a name
+    over ``notebook_name_max_length`` is written and flagged."""
+    from codegen.naming_codes import spec_codes
+
+    standards = config.engineering_standards
+    pattern = standards.notebook_file_name_pattern
+    if not pattern:
+        return spec.feed_slug, []
+    components = _name_components(
+        standards, LoadPatternFaq(), spec.feed_slug, source=spec.source_system,
+        domain=spec.domain, sub_domain=spec.sub_domain, lobs=spec.lobs,
+        codes=spec_codes(spec, standards))
+    used = re.findall(r"{(\w+)}", pattern)
+    missing = [p for p in used if p in NOTEBOOK_NAME_PARTS and not components.get(p)]
+    if missing:
+        return spec.feed_slug, [
+            f"notebook_name_open:{spec.feed_slug} — the notebook keeps the feed's name: "
+            f"no document states its {', '.join(missing)} for the naming-standard "
+            f"pattern {pattern!r}"]
+    name = _collapse_name(pattern.format(**components))
+    flags = [f"notebook_name_from_standard:{name} — pattern {pattern!r}: "
+             + ", ".join(f"{{{p}}} = {components[p]!r}" for p in used
+                         if p in NOTEBOOK_NAME_PARTS)]
+    cap = standards.notebook_name_max_length
+    if cap and len(name) > cap:
+        flags.append(f"notebook_name_too_long:{name} — {len(name)} characters (the "
+                     f"standard's cap is {cap}); the abbreviation tables shorten no part "
+                     "further - the Standard Abbreviation List the Naming Standards cite "
+                     "is not in the transcribed tables")
+    return name, flags
+
+
 def is_fixed_width(spec: ResolvedFeedSpec, config: Config) -> bool:
     """No delimiter, or a fixed-width token in the file format (the reader the
     generated pipeline uses)."""

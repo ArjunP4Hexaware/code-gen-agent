@@ -4,6 +4,60 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post191 — 2026-11-13 (one notebook comment wrapped to Code Review's width)
+
+The one PY-003 left after post190: a 74-character comment in
+`templates/notebook_v2/run.py.j2` (the shared segments' union, fixed-width feeds only)
+is wrapped to <= 72. `test_the_recycle_and_shared_segment_paths_pass_the_rules` now
+checks line width too (comment <= 72, code <= 79). Notebook mode only, comment text
+only - no code, value or framework artefact changes.
+
+## 0.5.8.post190 — 2026-11-10 (the notebook passes the Code Review agent's exact rules)
+
+The Code Review agent (the next agent in the pipeline) ran its deterministic checks over
+the 13 notebooks the 12 real pairs produce: every one had the same 9 findings, all from the
+notebook v2 templates (Soham: no known issues at the hand-off that can be fixed here).
+Notebook mode only - the framework artefacts ACFC deploys are unchanged.
+
+1. **Name (NM-001, Soham's option 1).** The notebook files are named
+   `NB_<Product>_<SubProduct>_<Domain>_<Subdomain>_<Source>_INGEST`
+   (`engineering_standards.notebook_file_name_pattern`), every part read from the FRD
+   (product / sub-product through the Naming Standards tables, post186) - flag
+   `notebook_name_from_standard:`. A part no document states keeps the feed's name
+   (`notebook_name_open:`). Over the standard's 30 characters
+   (`notebook_name_max_length`) the name is written and flagged
+   `notebook_name_too_long:` - with today's abbreviation tables every real feed is
+   (41-83 characters) until the Standard Abbreviation List v28 the Naming Standards cite
+   is transcribed. Notebooks deploy one folder per feed, so equal names never overwrite.
+2. **Header (NB-001).** The first cell states the Purpose, the Business owner(s) /
+   consumer(s) ("not stated in the FRD or STTM" - no document names one) and the
+   Dependencies (source files, stage / standard tables, the environment profile).
+3. **Cell titles (NB-003).** Every code cell has a title (`# DBTITLE 1,` in the `.py`,
+   the Databricks cell metadata in the `.ipynb`); the Layer-2 review rewrite keeps them.
+4. **Efficiency (PS-009, EFF-004, EFF-012).** Each source's load is one function whose
+   read records are cached (the count, the rejects and the stage write reuse them, then
+   unpersist); rejects and the recycle backlog are cached before they are written and
+   counted; the audit / reason / recycle columns are added with one `withColumns`; the
+   per-file schema-drift header read (one row per file) is its own function; the
+   shared header / trailer segments join the detail in one `functools.reduce` union;
+   the recycle backlog is unpersisted explicitly; `spark.sql` takes its statement from a
+   variable.
+5. **Logging (PY-001).** A `codegen_notebook` logger to the cell output replaces print().
+6. **Line length (PY-003).** Every Python line fits 79 characters, a comment 72: the
+   templates are wrapped and the rule calls take one argument per line; a long IIG value
+   (a path) is written as adjacent string literals - the same value byte for byte, and
+   a list / tuple item that would overflow (a column pair) is broken over lines.
+
+Left: DL-006 (the source files are read by `abfss://` address, not a Unity Catalog
+volume - no document names a volume; Soham's call whether to ask ACFC); NM-001 / NM-004
+(names over 30 characters, domain codes not in the transcribed abbreviation tables -
+both wait on the Standard Abbreviation List v28); PY-006 on a feed with many
+DATA_QUALITY_RULES rows (one call per row makes `apply_stage_rules` long - a
+data-driven rule dispatch would fix it, not built).
+
+Tests: `tests/test_notebook_code_review_post190.py` (pair 4; each fix's tests fail with that
+fix alone reverted). The 13 real notebooks re-checked with Code Review's `--no_llm` review.
+
 ## 0.5.8.post189 — 2026-11-10 (incident tracker, CodeGen items 4-8: file pattern, landing, compression, PROCESS_NAME)
 
 From the shared AI Agent incident tracker (a staging run of an Accumulators pair). All four

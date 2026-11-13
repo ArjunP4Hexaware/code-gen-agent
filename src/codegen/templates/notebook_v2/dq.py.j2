@@ -11,27 +11,41 @@ def rule_lr_trim(df: DataFrame, columns: list[str]) -> DataFrame:
 {% if "data_type_cast" in kinds %}
 
 
-def rule_data_type_cast(df: DataFrame, columns: list[str], types: list[str]) -> DataFrame:
+def rule_data_type_cast(
+    df: DataFrame, columns: list[str], types: list[str]
+) -> DataFrame:
     """DataTypeCastRule: each column to its TGT_DATA_TYPE."""
     return df.withColumns(
-        {c: F.col(c).cast(t) for c, t in zip(columns, types, strict=False) if t}
+        {
+            c: F.col(c).cast(t)
+            for c, t in zip(columns, types, strict=False)
+            if t
+        }
     )
 {% endif %}
 {% if "date_conversion" in kinds %}
 
 
-def rule_date_conversion(df: DataFrame, columns: list[str], formats: list) -> DataFrame:
-    """DateConversionRule: each column parsed as a date in its source format."""
+def rule_date_conversion(
+    df: DataFrame, columns: list[str], formats: list
+) -> DataFrame:
+    """DateConversionRule: each column parsed as a date in its source
+    format."""
     return df.withColumns(
-        {c: F.to_date(F.col(c), source) for c, (source, _target) in zip(columns, formats,
-                                                                        strict=False)}
+        {
+            c: F.to_date(F.col(c), source)
+            for c, (source, _target) in zip(columns, formats, strict=False)
+        }
     )
 {% endif %}
 {% if "date_format" in kinds %}
 
 
-def rule_date_format(df: DataFrame, columns: list[str], formats: list) -> DataFrame:
-    """DateFormatRule: each column re-written from its source to its target format."""
+def rule_date_format(
+    df: DataFrame, columns: list[str], formats: list
+) -> DataFrame:
+    """DateFormatRule: each column re-written from its source to its
+    target format."""
     return df.withColumns(
         {
             c: F.date_format(F.to_date(F.col(c), source), target)
@@ -43,7 +57,8 @@ def rule_date_format(df: DataFrame, columns: list[str], formats: list) -> DataFr
 
 
 def rule_null_check(df: DataFrame, columns: list[str], row: dict) -> DataFrame:
-    """NullCheckRule: a record with any of the columns null or blank is a reject."""
+    """NullCheckRule: a record with any of the columns null or blank is
+    a reject."""
     kept, rejected = split_mandatory(df, columns)
     write_rejects(rejected, row)
     return kept
@@ -62,9 +77,13 @@ def rule_dedup(df: DataFrame, columns: list[str]) -> DataFrame:
 
 
 def rule_add_custom_columns(frames: dict, target: str, literal: str) -> dict:
-    """AddCustomColumnsRule: the header / trailer tables get ``target`` = ``literal``."""
+    """AddCustomColumnsRule: the header / trailer tables get ``target`` =
+    ``literal``."""
     return {
-        name: df if name == DETAIL_SEGMENT else df.withColumn(target, F.lit(literal))
+        name: (
+            df if name == DETAIL_SEGMENT
+            else df.withColumns({target: F.lit(literal)})
+        )
         for name, df in frames.items()
     }
 {% endif %}
@@ -78,12 +97,17 @@ def rule_header_trailer_split(frames: dict) -> list[str]:
 {% endif %}
 
 
-def apply_stage_rules(frames: dict, source: dict) -> tuple[dict, list[str]]:
-    """The stage leg's rows (the ADLS_DELTA objects), on the source's records."""
+def apply_stage_rules(
+    frames: dict, source: dict
+) -> tuple[dict, list[str]]:
+    """The stage leg's rows (the ADLS_DELTA objects), on the source's
+    records."""
     detail = frames[DETAIL_SEGMENT]
     separate: list[str] = []
 {% for call in stage_calls %}
-    # DATA_QUALITY_RULES row {{ call.row }}{% if call.sequence %} (SEQUENCE_NO {{ call.sequence | comment1 }}){% endif %}: {{ call.rule_class | comment1 }}
+    # DATA_QUALITY_RULES row {{ call.row }}{% if call.sequence %} (SEQUENCE_NO
+    # {{ call.sequence | comment1 }}){% endif %}:
+    # {{ call.rule_class | comment1 }}
 {% if call.source is not none %}
     if source["index"] == {{ call.source }}:
 {% set pad = "        " %}
@@ -91,19 +115,45 @@ def apply_stage_rules(frames: dict, source: dict) -> tuple[dict, list[str]]:
 {% set pad = "    " %}
 {% endif %}
 {% if call.kind == "lr_trim" %}
-{{ pad }}detail = rule_lr_trim(detail, {{ call.columns | arg(pad | length) }})
+{{ pad }}detail = rule_lr_trim(
+{{ pad }}    detail,
+{{ pad }}    {{ call.columns | arg(pad | length + 4) }},
+{{ pad }})
 {% elif call.kind == "data_type_cast" %}
-{{ pad }}detail = rule_data_type_cast(detail, {{ call.columns | arg(pad | length) }}, {{ call.types | arg(pad | length) }})
+{{ pad }}detail = rule_data_type_cast(
+{{ pad }}    detail,
+{{ pad }}    {{ call.columns | arg(pad | length + 4) }},
+{{ pad }}    {{ call.types | arg(pad | length + 4) }},
+{{ pad }})
 {% elif call.kind == "date_conversion" %}
-{{ pad }}detail = rule_date_conversion(detail, {{ call.columns | arg(pad | length) }}, {{ call.formats | arg(pad | length) }})
+{{ pad }}detail = rule_date_conversion(
+{{ pad }}    detail,
+{{ pad }}    {{ call.columns | arg(pad | length + 4) }},
+{{ pad }}    {{ call.formats | arg(pad | length + 4) }},
+{{ pad }})
 {% elif call.kind == "date_format" %}
-{{ pad }}detail = rule_date_format(detail, {{ call.columns | arg(pad | length) }}, {{ call.formats | arg(pad | length) }})
+{{ pad }}detail = rule_date_format(
+{{ pad }}    detail,
+{{ pad }}    {{ call.columns | arg(pad | length + 4) }},
+{{ pad }}    {{ call.formats | arg(pad | length + 4) }},
+{{ pad }})
 {% elif call.kind == "null_check" %}
-{{ pad }}detail = rule_null_check(detail, {{ call.columns | arg(pad | length) }}, source)
+{{ pad }}detail = rule_null_check(
+{{ pad }}    detail,
+{{ pad }}    {{ call.columns | arg(pad | length + 4) }},
+{{ pad }}    source,
+{{ pad }})
 {% elif call.kind == "dedup" %}
-{{ pad }}detail = rule_dedup(detail, {{ call.columns | arg(pad | length) }})
+{{ pad }}detail = rule_dedup(
+{{ pad }}    detail,
+{{ pad }}    {{ call.columns | arg(pad | length + 4) }},
+{{ pad }})
 {% elif call.kind == "add_custom_columns" %}
-{{ pad }}frames = rule_add_custom_columns(frames, {{ call.target | py }}, {{ (call.columns | first) | py }})
+{{ pad }}frames = rule_add_custom_columns(
+{{ pad }}    frames,
+{{ pad }}    {{ call.target | py }},
+{{ pad }}    {{ (call.columns | first) | py }},
+{{ pad }})
 {% elif call.kind == "header_trailer_split" %}
 {{ pad }}separate = rule_header_trailer_split(frames)
 {% endif %}
@@ -115,23 +165,49 @@ def apply_stage_rules(frames: dict, source: dict) -> tuple[dict, list[str]]:
 def apply_standard_rules(df: DataFrame, standard: dict) -> DataFrame:
     """The standard leg's rows (STDDelta), on the standard table's records."""
 {% for call in std_calls %}
-    # DATA_QUALITY_RULES row {{ call.row }}{% if call.sequence %} (SEQUENCE_NO {{ call.sequence | comment1 }}){% endif %}: {{ call.rule_class | comment1 }}
+    # DATA_QUALITY_RULES row {{ call.row }}{% if call.sequence %} (SEQUENCE_NO
+    # {{ call.sequence | comment1 }}){% endif %}:
+    # {{ call.rule_class | comment1 }}
     if standard["index"] == {{ call.standard }}:
 {% set pad = "        " %}
 {% if call.kind == "lr_trim" %}
-        df = rule_lr_trim(df, {{ call.columns | arg(pad | length) }})
+        df = rule_lr_trim(
+            df,
+            {{ call.columns | arg(pad | length + 4) }},
+        )
 {% elif call.kind == "data_type_cast" %}
-        df = rule_data_type_cast(df, {{ call.columns | arg(pad | length) }}, {{ call.types | arg(pad | length) }})
+        df = rule_data_type_cast(
+            df,
+            {{ call.columns | arg(pad | length + 4) }},
+            {{ call.types | arg(pad | length + 4) }},
+        )
 {% elif call.kind == "date_conversion" %}
-        df = rule_date_conversion(df, {{ call.columns | arg(pad | length) }}, {{ call.formats | arg(pad | length) }})
+        df = rule_date_conversion(
+            df,
+            {{ call.columns | arg(pad | length + 4) }},
+            {{ call.formats | arg(pad | length + 4) }},
+        )
 {% elif call.kind == "date_format" %}
-        df = rule_date_format(df, {{ call.columns | arg(pad | length) }}, {{ call.formats | arg(pad | length) }})
+        df = rule_date_format(
+            df,
+            {{ call.columns | arg(pad | length + 4) }},
+            {{ call.formats | arg(pad | length + 4) }},
+        )
 {% elif call.kind == "null_check" %}
-        df = rule_null_check(df, {{ call.columns | arg(pad | length) }}, standard)
+        df = rule_null_check(
+            df,
+            {{ call.columns | arg(pad | length + 4) }},
+            standard,
+        )
 {% elif call.kind == "dedup" %}
-        df = rule_dedup(df, {{ call.columns | arg(pad | length) }})
+        df = rule_dedup(
+            df,
+            {{ call.columns | arg(pad | length + 4) }},
+        )
 {% else %}
-        pass  # {{ call.rule_class | comment1 }} applies to the stage leg's segments only
+        # {{ call.rule_class | comment1 }}: the stage leg's
+        # segments only
+        pass
 {% endif %}
 {% endfor %}
     return df

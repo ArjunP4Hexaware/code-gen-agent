@@ -4,57 +4,45 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-10 - dev = post189, staging = post188, both running; everything pushed)
+## Start here (session ended 2026-11-10 - dev compute STOPPED; staging = post189; feature = post190, pushed, NOT deployed)
 
-**post189 (2026-11-10, DEV only - staging still post188):** the shared incident tracker's
-CodeGen items (sheet `CodeGen`; exported as JSON by an Office Script, kept out of the repo):
-5 a stated "file pattern" line = the one file; 6 / 7 the ADLS Location's "Raw Path" line =
-the landing, an "N/A - ..." note never a path, a trailing `<File.extn>` dropped; 8
-SRC_COMPRESSION from the Archive Schedule; 4 PROCESS_NAME in "How the names were built".
-Reproduced on the staging Facets Accumulators upload (mock), fixed there. 12-pair check:
-outcomes unchanged (pair_03's FAIL on the old side was the harness's 15-min timeout under
-load - its baseline is GATE_FAIL); every changed cell = a path losing `<File.extn>`. One
-`.venv` test failed under load only (`test_m93_chooser` index-writes; passes alone 3/3 +
-its module). Open from the tracker: incident 2 (external tables - Lokesh's property set
-and how a document marks a table external); incident 3 closed (open item 1).
-**Next: post190** = the notebook against Code Review's exact rules (13 real notebooks, all
-the same 9 template findings): NB_ name = option 1 (`NB_<Prod>_<SubProd>_<Dom>_<Sub>_<SRC>_INGEST`,
-a clash or > 30 chars keeps the feed name + flag), header cell, DBTITLEs, withColumns,
-cache around counts, logging, 79/72 wrap; DL-006 (abfss) waits on Soham (ask ACFC for a
-UC volume?). Code Review's engine: `/Workspace/Users/<owner>/code_review_agent/app_root`,
-`review.py --no_llm` in a scratch venv (nbformat pyyaml sqlglot jsonschema python-dotenv
-databricks-sdk), copies in /tmp only.
-
-**post188 (2026-11-10, both Apps):** inputs are per App (Soham: "my thing doesn't
-interrupt the tester's"). Staging reads / writes `codegen/inputs/codegen-agent-staging/`
-(its health card shows it); dev keeps `codegen/inputs/`. The 10 files in the shared
-`uploads/` were copied into staging's folder before its deploy (byte-checked), so the
-testers kept their documents; dev's copies stay where they were. main = 229dec3
-(identical-tree merge), dev = 488a6a6; health + smoke green on both. `ship.sh`'s OK line
-now names `origin/<branch>` (it printed main's stale local sha).
-
-**Since the last version (docs / tools only, no bump):** the recipes are tracked in
-`tools/check/` with the skills `/ship-dev`, `/ship-staging`, `/pair-check`, `/handoff`;
-AGENTS.md split verbatim (root 240 lines; the pipeline's rules in `.claude/rules/pipeline.md`,
-procedures in `docs/PROCEDURES.md`); this file trimmed (old blocks in CLAUDE_HISTORY).
-`ship.sh`'s deploy path is not yet exercised end to end (staging needs Soham's word):
-watch its first `/ship-dev`. Dev is running again (2026-11-10: health post187, smoke green
-after the container reset).
-
-**First check:** `git fetch && git status -sb` should say up to date with
-`origin/feature/multi-table`. BOTH Apps on post187: dev from feature 718c4c3 (deployment
-01f1dc902166...), staging from `main` 8fcdea6 (identical-tree merge, deployment
-01f1dc9958511f...); health post187 + smoke (Generate + Results 200, 0 console errors)
-green on both. Later docs-only commits on feature need no deploy. Session log:
-CLAUDE_HISTORY §[H23].
+**First check:** `git fetch && git status -sb` = up to date with
+`origin/feature/multi-table` (head = the hand-off docs commit on top of 772c99d, post190).
+- **dev `codegen-agent`:** compute STOPPED (found stopped at the post190 deploy; `ship.sh`
+  refused, as it should). Its last deployment is post189 (fdf7e9f). Starting it bills
+  compute - Soham's call; then `/ship-dev` deploys post190 (health post190 + smoke).
+- **staging `codegen-agent-staging`:** post189, `main` = 1f30078 (identical-tree merge),
+  health + smoke green. post190 goes there only on Soham's word (`/ship-staging`).
+- **post190 is fully checked:** both suites green (2592 / 2243), framework 12-pair check
+  identical (0 REAL changes), the 13 real notebooks under Code Review's `--no_llm` rules:
+  efficiency 100 on all, only DL-006 / NM-001 / NM-004 / PY-006 (known, below) and ONE
+  PY-003 - a 74-character comment at `templates/notebook_v2/run.py.j2:47` (the shared
+  segments' union; wrap it: open item 1).
+- After a container reset: `~/bootstrap`, then the OAuth login (recipe below) - auto-memory
+  does not survive a reset, so anything that must is written here.
+- Session log: CLAUDE_HISTORY §[H24].
 
 **Open, in order:**
-1. **DECIDED (Lokesh via Soham, 2026-11-10): the standard TBLPROPERTIES stay exactly as
+1. **post191 (small, mine):** wrap the 74-char comment at `run.py.j2:47` (PY-003 on the
+   fixed-width notebooks with shared segments); add that path to
+   `test_the_recycle_and_shared_segment_paths_pass_the_rules` (it checks loops, not line
+   width). Then deploy dev when it is running.
+2. **Ask ACFC (via Soham) for the Standard Abbreviation List v28** the Naming Standards
+   cite: notebook names (NM-001, 41-83 chars vs 30) and domain codes (NM-004) wait on it;
+   the Code Review agent's PRD lists the same gap (its G-1) - one request covers both.
+3. **DL-006 (Soham's call):** the notebook reads source files by `abfss://` address; the
+   standard prefers a Unity Catalog volume. No document names one - ask ACFC whether raw
+   files land in a volume and its name per environment (then one environment-profile key).
+4. **Incident 2 (Lokesh):** external tables - his property set + `LOCATION` format, and
+   which FRD / STTM field marks a table external (message drafted in the session, H24).
+5. **PY-006 on feeds with many DATA_QUALITY_RULES rows** (pair_12: `apply_stage_rules` 261
+   lines): a data-driven rule dispatch would fix it - not built, Soham's call.
+6. **DECIDED (Lokesh via Soham, 2026-11-10): the standard TBLPROPERTIES stay exactly as
    post185 has them** ("suggested by Databricks") - incl. `delta.minReaderVersion 1` /
    `minWriterVersion 2` and `predictiveOptimization`; tracker incident 3 closed by that.
    Do not change them or re-raise the 3 / 7 and label points. Still open from the same
    ask: incident 2 (external-table properties + how a document marks a table external).
-2. **Ask Lokesh (via Soham), from pair_2's TDD** (`rfc_samples/TDD_Implement_Medicare_
+7. **Ask Lokesh (via Soham), from pair_2's TDD** (`rfc_samples/TDD_Implement_Medicare_
    Growth_Expansion_2025_1003866.docx`). **(a) DECIDED (Soham, 2026-11-10): the Naming
    Standards win** - grand master names keep the product / sub-product codes (post186 as
    is). **(c) DECIDED (Lokesh via Soham, 2026-11-10): pair_12 is a Databricks Workflow -
@@ -68,58 +56,52 @@ CLAUDE_HISTORY §[H23].
    (b) most modules REUSE an existing grand master - should a new feed point at one (its
    name from the BSA) instead of the agent always writing a new GMSTR + MSTR? (c) pair_12's
    TDD says "Databricks Workflow Job" yet its prod IIG names are PL_.
-2b. **Also for Lokesh (drafted, acronyms spelled out, H23):** for plain vendor-file
+7b. **Also for Lokesh (drafted, acronyms spelled out, H23):** for plain vendor-file
    ingestion is the sub-product NSP? Is a CDC-via-HVR feed sub-product HVR (pair_06) or
    only the tool? Is a load "for HEDIS consumption" product DLK or HDS (pairs 05 / 07)?
    Any answer is a config change (the 3.2 / 3.3 `stated_as` phrases or a per-feed
    override), no code.
-3. **TDD training** (Venu): only two TDDs exist in `rfc_samples` (pair_2's, pair_12's).
+8. **TDD training** (Venu): only two TDDs exist in `rfc_samples` (pair_2's, pair_12's).
    They link "Generic Pipeline Design Documents" and "Parameterize ADF Workflows" on
    SharePoint (unreachable from here) - copies in the Workspace would be the useful ones.
    A TDD is training material only (AGENTS.md); more TDDs are needed before any convention
    is learned + proven on held-out pairs.
-4. **Tell the tester (via Soham)**: staging has the "Do Not Map" fix (her Accumulators
-   pair ran PASS_WITH_OPEN_INPUTS there), a VDD is optional (no question when none
-   matches), the template TBLPROPERTIES, Naming-Standards codes read from the FRD
-   (+ "How the names were built" in each report / LOG.md) and the Pipeline orchestrator
-   dropdown (Advanced options). Message text drafted in the session (H23).
-5. **A second standard table per stage table** (the 820 pair's `_sumry` tables): a model
+9. **Tell the tester (via Soham)**: staging has post183-189 - the "Do Not Map" fix, a
+   VDD optional, the template TBLPROPERTIES, Naming-Standards codes read from the FRD (+
+   "How the names were built", now with PROCESS_NAME), the PL_ / WF_ orchestrator
+   option, her own uploads kept per App (post188), and her Accumulators incidents 5-8
+   fixed (post189). A message draft was given in the session (H24); not known if sent.
+10. **A second standard table per stage table** (the 820 pair's `_sumry` tables): a model
    change in `metadata_template._table_groups` - Soham's call before any code.
-6. **Rows 3 / 4 of the delegation workbook** (check an existing pipeline / IIG config, the
+11. **Rows 3 / 4 of the delegation workbook** (check an existing pipeline / IIG config, the
    tables in Unity Catalog): need read-only queries beyond the EXPLAIN-only rule - that
    rule changes first (his call).
-7. NO_OF_CYCLE_PER_DAY "1" (corpus 98.2%) is wrong on pairs 11 / 12 - Soham's call.
-8. **`codingapp` deploy** - the bootstrap patch is IMPORTED (CLAUDE_HISTORY, retired block "State (2026-11-04 — cost work, model pilot, App bootstrap patch)");
+12. NO_OF_CYCLE_PER_DAY "1" (corpus 98.2%) is wrong on pairs 11 / 12 - Soham's call.
+13. **`codingapp` deploy** - the bootstrap patch is IMPORTED (CLAUDE_HISTORY, retired block "State (2026-11-04 — cost work, model pilot, App bootstrap patch)");
    `databricks apps deploy codingapp` restarts this container: on Soham's word, last in a
    session. After it: `gh auth login`, `~/bootstrap`, the checks in that block.
-9. Step 3 for the STTM cell locator (`layout/cell_locate.py` reads only FRD cells); ask the
+14. Step 3 for the STTM cell locator (`layout/cell_locate.py` reads only FRD cells); ask the
    BSA about pairs 05 / 11's STTM "DQ rules" sheet and pair_12's recycle days / stage load
    option; the Apps stop / start schedule, Venu's GPT-6.1 Sol answer, the 11-pair layout
    cost, Rama's answers (CLAUDE_HISTORY, the blocks retired 2026-11-10).
 
-## State (2026-11-09 — post183 to post187)
+## State (2026-11-10 — post188 to post190)
 
-- **post183** a "Do Not Map" STTM table / schema cell names no table
-  (`layout.resolve._sttm_facts`; the staging Accumulators pair failed "FRD stage tables not
-  mapped ... ['Do Not Map']"). Live dev run of that pair: PASS_WITH_OPEN_INPUTS, 1 feed
-  PASS_WITH_FLAGS, 0 blocking, no model call; staging re-run (someone else's) the same.
-- **post184** a VDD is optional: no pairing question when no dictionary shares content
-  (`pairing.PairDecision.ambiguous`); AGENTS.md rule.
-- **post185** the standard-table TBLPROPERTIES = the template Soham sent (21 properties,
-  verbatim; zstd dropped). Open item 1 above.
-- **post186** the Naming Standards product (3.2) / sub-product (3.3) codes READ from the
-  FRD (`codegen.naming_codes`, transcribed tables in config; product = what the FRD
-  ingests into, sub-product = a 3.3 entry named, else NSP + flag; none / several = open,
-  asked); every PIPELINE_NAME sourced part by part in the feed report + run LOG.md
-  ("How the names were built", `codegen.naming_provenance`, for Lokesh). 12 pairs: all DLK
-  from an FRD line, pair_06 HVR (a held table-source IIG, so no written name changes).
-- **post187** ADF (`PL_`, default) or Databricks Workflow (`WF_`) - App Advanced options
-  "Pipeline orchestrator" / `generate --orchestrator`; `{pipeline_prefix}` in the ACFC
-  patterns (`codegen.orchestrator`). No FRD / STTM / VDD states it (searched: 12 pairs +
-  15 RFC packages, every prod IIG name PL_).
-- Every one: both suites green, the 12-pair check (mock, framework) outcomes unchanged
-  (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), dev deployed + smoked,
-  staging merged identical-tree + deployed + smoked on Soham's word.
+- **post188** inputs per App (`CODEGEN_STORAGE_PER_APP: inputs,state,outputs`); staging
+  uses `codegen/inputs/codegen-agent-staging/` (the shared uploads copied there first).
+- **post189** the incident tracker's CodeGen items 4-8 (file pattern line, Raw Path
+  landing, N/A notes never paths, `<File.extn>` dropped, SRC_COMPRESSION from the Archive
+  Schedule, PROCESS_NAME provenance). Tracker: SharePoint `AI_Agent_Incident_tracker.xlsx`,
+  exported as JSON by an Office Script (`/tmp/t/graph/export_incident_tracker.ts` - gone
+  after a reset; the script is in the H24 session's chat) and pasted by Soham.
+- **post190** the notebook vs the Code Review agent's exact rules (see Start here).
+  Code Review's engine: `/Workspace/Users/<owner>/code_review_agent/app_root` (another
+  engineer's folder - read a /tmp copy, never `.git`, never vendored); run
+  `review.py --no_llm --fail_on NONE --outfile <json> <files>` from a scratch venv with
+  `nbformat pyyaml sqlglot jsonschema python-dotenv databricks-sdk` (pins in its
+  `app_root/requirements.txt`).
+- Every version: both suites green, the framework 12-pair check outcomes unchanged
+  (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL).
 
 ## Recipes (tracked since 2026-11-10 - `tools/check/`, `/tmp` holds only copies)
 

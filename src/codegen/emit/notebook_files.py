@@ -38,14 +38,19 @@ class Cell:
     kind: str          # "markdown" | "code"
     cell_id: str
     text: str
+    title: str = ""   # post190 (Code Review NB-003): a code cell's DBTITLE
 
 
 def md(cell_id: str, text: str) -> Cell:
     return Cell("markdown", cell_id, text.rstrip("\n") + "\n")
 
 
-def code(cell_id: str, text: str) -> Cell:
-    return Cell("code", cell_id, text.rstrip("\n") + "\n")
+def code(cell_id: str, text: str, title: str = "") -> Cell:
+    return Cell("code", cell_id, text.rstrip("\n") + "\n", title)
+
+
+TITLE_KEY = "application/vnd.databricks.v1+cell"
+DBTITLE = "# DBTITLE 1,"
 
 
 def _lines(text: str) -> list[str]:
@@ -60,7 +65,8 @@ def ipynb_text(cells: list[Cell]) -> str:
             out.append({"cell_type": "markdown", "id": cell.cell_id, "metadata": {},
                         "source": _lines(cell.text)})
         else:
-            out.append({"cell_type": "code", "id": cell.cell_id, "metadata": {},
+            meta = {TITLE_KEY: {"title": cell.title}} if cell.title else {}
+            out.append({"cell_type": "code", "id": cell.cell_id, "metadata": meta,
                         "execution_count": None, "outputs": [],
                         "source": _lines(cell.text)})
     notebook = {
@@ -84,7 +90,8 @@ def databricks_source(cells: list[Cell]) -> str:
             lines = ["%md", *cell.text.rstrip("\n").splitlines()]
             blocks.append("\n".join(f"{MAGIC} {line}".rstrip() for line in lines))
         else:
-            blocks.append(cell.text.rstrip("\n"))
+            text = cell.text.rstrip("\n")
+            blocks.append(f"{DBTITLE}{cell.title}\n{text}" if cell.title else text)
     return f"{DATABRICKS_HEADER}\n" + f"\n\n{COMMAND}\n\n".join(blocks) + "\n"
 
 

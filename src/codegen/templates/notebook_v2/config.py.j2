@@ -1,7 +1,9 @@
 import fnmatch
-{% if needs_reduce %}
+{% if needs_reduce or fixed_width %}
 import functools
 {% endif %}
+import logging
+import sys
 from datetime import datetime
 
 {% if needs_merge %}
@@ -15,45 +17,62 @@ from pyspark.sql import types as T
 
 spark = SparkSession.builder.getOrCreate()
 
-# Widgets: the run date (files that landed that day; blank = every matching
-# file) and dry_run (true: reads stop at DRY_RUN_ROWS rows, writes go to
-# *_dryrun tables / reject paths, nothing is archived).
-dbutils.widgets.text("run_date", "")  # noqa: F821 - dbutils exists on Databricks
+# The run's messages: logging to the cell output (never print).
+LOG = logging.getLogger("codegen_notebook")
+if not LOG.handlers:
+    _handler = logging.StreamHandler(sys.stdout)
+    _handler.setFormatter(logging.Formatter("%(message)s"))
+    LOG.addHandler(_handler)
+    LOG.setLevel(logging.INFO)
+    LOG.propagate = False
+
+# Widgets (dbutils exists on Databricks): the run date (files that
+# landed that day; blank = every matching file) and dry_run (true: reads
+# stop at DRY_RUN_ROWS rows, writes go to *_dryrun tables / reject
+# paths, nothing is archived).
+dbutils.widgets.text("run_date", "")  # noqa: F821
 dbutils.widgets.dropdown("dry_run", "true", ["true", "false"])  # noqa: F821
 RUN_DATE = dbutils.widgets.get("run_date").strip()  # noqa: F821
 DRY_RUN = dbutils.widgets.get("dry_run") != "false"  # noqa: F821
 DRY_RUN_ROWS = {{ dry_run_rows }}
 DRY_RUN_SUFFIX = "_dryrun"
 
-# The run's environment profile{% if env_name %} ({{ env_name | comment1 }}){% endif %}.
+# The run's environment profile{% if env_name %}:
+# {{ env_name | comment1 }}{% endif %}.
 STORAGE_ACCOUNT = {{ storage_account | py }}
 _ADLS_HOST = "dfs.core.windows.net"
 
 # The IIG rows (sheet / row per value: the provenance cells).
-# STGDELTA_STDDELTA_INGESTION_DET SRC_CATALOG_NAME: the stage tables' catalog.
+# STGDELTA_STDDELTA_INGESTION_DET SRC_CATALOG_NAME: the stage tables'
+# catalog.
 STAGE_CATALOG = {{ stage_catalog | py }}
 # One entry per ADLS_DELTA_INGESTION_DETAILS row (one per source file).
 SOURCES = {{ sources | block }}
-# One entry per STGDELTA_STDDELTA_INGESTION_DET row (one per standard table).
+# One entry per STGDELTA_STDDELTA_INGESTION_DET row (one per standard
+# table).
 STANDARDS = {{ standards | block }}
 {% if fixed_width %}
-# ADLS_FIXED_WIDTH_HANDLER rows: (column, 1-based start, length) per segment.
+# ADLS_FIXED_WIDTH_HANDLER rows: (column, 1-based start, length) per
+# segment.
 SEGMENTS = {{ segments | block }}
 DETAIL_SEGMENT = {{ (segments | selectattr("detail") | first).segment | py }}
 {% else %}
 DETAIL_SEGMENT = "Detail"
 {% endif %}
-# ADLS_FIXED_WIDTH_HANDLER RJCT_RSN_COLUMN_NM (blank: rejects carry no reason column).
+# ADLS_FIXED_WIDTH_HANDLER RJCT_RSN_COLUMN_NM (blank: rejects carry no
+# reason column).
 REJECT_REASON_COLUMN = {{ reject_reason_column | py }}
 # The conventions profile's audit columns present in TGT_COLUMN_NAMES.
 AUDIT_COLUMNS = {{ audit | map(attribute="name") | list | block }}
 
-# The run report (the last cell): one row per step, filled by the run cell.
+# The run report (the last cell): one row per step, filled by the run
+# cell.
 FEED_ID = {{ feed.id | py }}
 RUN_REPORT_TABLE = {{ (feed.slug ~ "_run_report") | py }}
 RUN_REPORT: list[dict] = []
 
-# Cells this notebook needs that the IIG leaves open: the run stops here.
+# Cells this notebook needs that the IIG leaves open: the run stops
+# here.
 OPEN_CELLS = {{ open_cells | block }}
 if OPEN_CELLS:
     raise RuntimeError("open in the IIG: " + "; ".join(OPEN_CELLS))
@@ -63,7 +82,8 @@ def adls_uri(container: str, path: str) -> str:
     """The abfss:// address of ``path`` in ``container`` on STORAGE_ACCOUNT."""
     if "://" in path:
         return path
-    return f"abfss://{container}@{STORAGE_ACCOUNT}.{_ADLS_HOST}/{path.lstrip('/')}"
+    host = f"{STORAGE_ACCOUNT}.{_ADLS_HOST}"
+    return f"abfss://{container}@{host}/{path.lstrip('/')}"
 
 
 def tally(step: str, target: str, rows: int) -> None:

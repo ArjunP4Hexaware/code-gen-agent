@@ -190,6 +190,16 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
 - **Client-facing text names no person** (Soham, 2026-10-29): the App, generated files
   and the shared spreadsheet never say whose estimate / ask a thing was ("a conservative
   estimate", not "<name>'s"); the spreadsheet is in Soham's voice ("I", never "Soham").
+- **The hand-off to the Code Review agent** (the third agent; Soham, 2026-11-10: not
+  built into CodeGen, but no known issue at the hand-off that can be fixed here): a
+  notebook-template change is re-checked with Code Review's exact rules (`review.py
+  --no_llm`, its engine read from its owner's Workspace into /tmp, never vendored or
+  committed; recipe in RESTART.md). A finding that needs a value no document states
+  stays a known item, never a made-up value.
+- **The incident tracker** (SharePoint `AI_Agent_Incident_tracker.xlsx`, sheet
+  `CodeGen`) is read as JSON exported by an Office Script Soham runs (Graph is refused);
+  it is client text - never committed; a bug it names is reproduced on the tester's
+  documents (mock, /tmp) before it is fixed.
 - **Never run the CLI from the repo root with outputs in `out/`;** use the harness or a
   scratch output dir. Shareable runs: `export
   CODEGEN_NOTIFICATION_EMAILS=syn.dl.prodsupport@synthetic.example` first (the CLI loads

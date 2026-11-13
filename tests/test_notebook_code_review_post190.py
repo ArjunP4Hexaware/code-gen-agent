@@ -183,3 +183,6 @@ def test_the_recycle_and_shared_segment_paths_pass_the_rules(template, context):
             assert not isinstance(node.args[0], (ast.Constant, ast.JoinedStr))
     if context.get("recycle"):
         assert "backlog.unpersist()" in text
+    long = [(n, len(line)) for n, line in enumerate(text.splitlines(), 1)
+            if len(line) > (72 if line.strip().startswith("#") else 79)]
+    assert long == []  # PY-003

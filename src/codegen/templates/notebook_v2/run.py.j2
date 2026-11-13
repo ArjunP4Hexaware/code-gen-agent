@@ -44,8 +44,9 @@ def load_source(source: dict) -> list[str]:
     frames[DETAIL_SEGMENT] = detail
     frames, separate = apply_stage_rules(frames, source)
 {% if fixed_width %}
-    # the shared segments' records load into the detail's stage table (one
-    # shared table), after the rules on the detail records: one union
+    # the shared segments' records load into the detail's stage table
+    # (one shared table), after the rules on the detail records: one
+    # union
     shared = [frames.pop(s["segment"]) for s in SEGMENTS
               if s["shared"] and not s["detail"]]
     frames[DETAIL_SEGMENT] = functools.reduce(

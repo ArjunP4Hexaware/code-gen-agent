@@ -4,6 +4,14 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post191 — 2026-11-13 (one notebook comment wrapped to Code Review's width)
+
+The one PY-003 left after post190: a 74-character comment in
+`templates/notebook_v2/run.py.j2` (the shared segments' union, fixed-width feeds only)
+is wrapped to <= 72. `test_the_recycle_and_shared_segment_paths_pass_the_rules` now
+checks line width too (comment <= 72, code <= 79). Notebook mode only, comment text
+only - no code, value or framework artefact changes.
+
 ## 0.5.8.post190 — 2026-11-10 (the notebook passes the Code Review agent's exact rules)
 
 The Code Review agent (the next agent in the pipeline) ran its deterministic checks over

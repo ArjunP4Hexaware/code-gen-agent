@@ -134,7 +134,7 @@ Entry format:
 - Check: compare the `cannot import name 'X' from 'M'` lines of the two runs, and whether the
   test file is untracked. A different X (or M) on a new file = planned progression, not a spiral.
 - Pattern: none (not a spiral)
-- Seen: 2026-10-13
+- Seen: 2026-10-13, 2026-11-13 (assertion failures, not an ImportError)
 - Permanent fix: none yet — candidate hook refinement logged for /spiral-retro (proposals.md).
 ## Windows host without symlink privilege (state_mirror tests)
 - Signature: tests/test_state_volume_mirror.py fails with MirrorStatus error 'OSError, error code

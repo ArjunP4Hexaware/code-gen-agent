@@ -186,7 +186,8 @@ def frd_field_help(path: str, candidates: list[dict], config: Config
     frd = config.extractor.frd
     synonyms = [s for key in keys for s in (frd.labels.get(key, []) + frd.fixed_rows.get(key, []))]
     normalized = [_norm(s) for s in synonyms]
-    labels = [_norm(c.get("label") or "") for c in candidates]
+    # post192: a labelled-line choice is matched by its line's label
+    labels = [_norm(c.get("inline_label") or c.get("label") or "") for c in candidates]
     for i, label in enumerate(labels):
         if label and label in normalized:
             return title, hint, i

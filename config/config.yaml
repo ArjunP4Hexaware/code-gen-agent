@@ -387,7 +387,7 @@ extractor:
       # Descriptive
       data_source: ["Data Source"]
       object_name: ["Object Name"]
-      frequency: ["Frequency"]
+      frequency: ["Frequency", "File Frequency"]   # post192: a label a client FRD writes
       lobs: ["LOBs"]
       solution_acceptance_criteria: ["Solution Acceptance Criteria"]
       traced_requirements: ["Traced/Related Requirements", "Traced Requirements"]
@@ -1599,7 +1599,7 @@ iig_review:
   review_flag_prefixes: ["layout_model_placed:", "frd_crosscheck:", "layout_crosscheck:",
                          "frd_tables_set_aside:", "iig_dq_not_generated:",
                          "frd_cell_line_ignored:", "frd_cell_line_conflict:",
-                         "frd_model_located:"]
+                         "frd_model_located:", "frd_line_located:"]
   review_flag_label: "check before approving (layout / cross-document)"
   review_flag_owner: "engineer + BSA"
   owners:

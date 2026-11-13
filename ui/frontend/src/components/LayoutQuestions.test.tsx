@@ -336,3 +336,28 @@ describe("a typed question with a suggestion (post95 / post96)", () => {
     expect(host.textContent).toContain("What format are the source files in?");
   });
 });
+
+describe("post192: an FRD labelled-line choice", () => {
+  const q: LayoutQuestion = {
+    document: "frd", key: "feeds[0].frequency", sheet: null, layer: null,
+    role: "feeds[0].frequency", kind: "role", reason: "unplaced", header: [],
+    candidates: [
+      { table: 3, row: 3, col: 0, label: "Functional Requirement" },
+      { table: 3, row: 3, col: 0, value_col: 1, label: "Functional Requirement",
+        inline_label: "File Frequency", line: "File Frequency: Weekly" },
+    ],
+    title: "Load frequency", suggested: 1,
+  };
+
+  it("posts the line's label and value cell, and is told apart from its row", () => {
+    const picks = suggestedPicks([q]);
+    expect(answersPayload([q], picks).frd).toEqual({
+      "feeds[0].frequency": { table: 3, row: 3, col: 0, label: "Functional Requirement",
+                              inline_label: "File Frequency", value_col: 1, source: "user" },
+    });
+    render(<QuestionItem q={q} picks={picks} onChange={() => {}} />);
+    const radios = [...host.querySelectorAll("input[type=radio]")] as HTMLInputElement[];
+    expect(radios.slice(0, 2).map((r) => r.checked)).toEqual([false, true]);
+    expect(host.textContent).toContain("line File Frequency: Weekly");
+  });
+});

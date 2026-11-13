@@ -254,5 +254,17 @@
       "leave the App down while diagnosing",
       "paste a commit sha that was not looked up"
     ]
+  },
+  {
+    "id": "tdd-red-phase-assertion-failures",
+    "source": "replay",
+    "prompt": "Don't change any files in this session. I wrote a NEW test file (untracked) for a feature, ran it, 5 tests failed on assertions; I fixed two tests that picked a candidate that does not exist and ran it again: the same 5 fail. No src/ file has been edited yet. The spiral-detector hook says the command failed twice with the same signature. Is this a spiral?",
+    "should_trigger": false,
+    "expected_pattern": "none",
+    "expected_first_action": "Check git status: the test file is untracked and src/ has no diff - the planned red phase of new tests, zero fix attempts; log a false trigger and write the implementation.",
+    "must_not": [
+      "weaken or delete the new tests to quiet the hook",
+      "call the red phase a failed fix attempt"
+    ]
   }
 ]

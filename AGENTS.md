@@ -150,6 +150,11 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   script, before its cleanup (kinds and counts only; a changed contract moves every
   banner sha256, so separate "sha only" from real changes). A notebook change runs the
   check in notebook mode (`--output-mode notebook`).
+- **Every bug fix gets a `docs/acfc/BUG_FIX_LOG.md` entry before the push** (Soham,
+  2026-11-16: a fix that moves the flow is how new bugs are made): root cause, the exact
+  change (file :: function / config key), its reach in the 12-pair check (pairs, sheets,
+  columns, counts), side effects, what it deliberately leaves unchanged, the tests, how to
+  revert it. Template and rules (no client values) at the top of that file.
 - **Working while a suite runs:** never edit `src/` or `tests/` under a running suite.
   Develop the next fix in a worktree (`git worktree add -b wip/<x> /tmp/t/<x> HEAD`, run
   with `PYTHONPATH=/tmp/t/<x>/src` and `-p no:cacheprovider`), then cherry-pick it onto

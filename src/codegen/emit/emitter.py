@@ -18,8 +18,8 @@ from typing import Any
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
+from codegen.emit.comment_text import comment1
 from codegen.emit.context import TemplateGapError
-from codegen.emit.metadata_inserts import comment1
 from codegen.emit.notebook import build_notebook
 from codegen.run_errors import Coord, located
 

@@ -45,13 +45,7 @@ def test_adls_file_header_flag_by_format_and_file_metadata_decided_blank(generat
     notes = [f for f in gate.flags
              if f.startswith("iig_derived:ADLS_DELTA_INGESTION_DETAILS.FILE_HEADER_FLAG")]
     assert len(notes) == 1 and "delimited file -> 'Y'" in notes[0]
-    # FILE_METADATA is decided blank: NULL in the database script, never a placeholder
-    sql = (xlsx.parent / "metadata_inserts.sql").read_text(encoding="utf-8")
-    adls_inserts = [line for line in sql.splitlines()
-                    if line.startswith("INSERT INTO") and "ADLS_DELTA_INGESTION_DETAILS" in line]
-    assert adls_inserts and all("[FILE_METADATA])" in line for line in adls_inserts)
-    assert all(line.rstrip().endswith("NULL);") for line in adls_inserts)
-    assert "FILE_METADATA#" not in sql
+    # FILE_METADATA is decided blank (post194: no metadata_inserts.sql to write it as NULL)
 
 
 def test_stgdelta_containers_and_base_source_data_types(generated):

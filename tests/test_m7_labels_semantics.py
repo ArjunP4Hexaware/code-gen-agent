@@ -14,7 +14,6 @@ from openpyxl import load_workbook
 from codegen.emit.framework import (
     DDL_TARGET_HEADER,
     TARGET_DDL,
-    TARGET_DML,
     TARGET_REVIEW,
     artefact_group,
     artefact_groups,
@@ -31,33 +30,27 @@ FAQ = LoadPatternFaq(
 
 
 def test_artefact_groups_by_target_system():
-    # metadata_inserts.sql is the client's "DDL" (the rows that define the
-    # tables); the DML group is the runner notebooks only (2026-10-08).
-    names = ["ACCUM_DDL.txt", "x_stage_table_creation.txt", "metadata_inserts.sql",
-             "Insert_scripts_config_table_q1.py", "config_rows.xlsx", "config_inserts.xlsx",
-             "notes.md"]
+    # post194: metadata_inserts.sql and the DML runner notebooks are retired - no DML group
+    names = ["ACCUM_DDL.txt", "x_stage_table_creation.txt", "config_rows.xlsx",
+             "config_inserts.xlsx", "notes.md"]
     assert [artefact_group(n) for n in names] == [
-        TARGET_DDL, TARGET_DDL, TARGET_DDL, TARGET_DML, TARGET_REVIEW, TARGET_REVIEW, "Notes"]
+        TARGET_DDL, TARGET_DDL, TARGET_REVIEW, TARGET_REVIEW, "Notes"]
     groups = artefact_groups([Path(n) for n in names])
-    assert list(groups) == [TARGET_DDL, TARGET_DML, TARGET_REVIEW, "Notes"]
-    assert groups[TARGET_DDL] == ["ACCUM_DDL.txt", "x_stage_table_creation.txt",
-                                  "metadata_inserts.sql"]
-    assert groups[TARGET_DML] == ["Insert_scripts_config_table_q1.py"]
+    assert list(groups) == [TARGET_DDL, TARGET_REVIEW, "Notes"]
+    assert groups[TARGET_DDL] == ["ACCUM_DDL.txt", "x_stage_table_creation.txt"]
 
 
 def test_framework_labels_groups_and_readme(pair1_config, pair1_spec, tmp_path):
     framework = emit_framework(pair1_spec, FAQ, [], with_dml(pair1_config), tmp_path,
                                conventions_profile="acfc_prx", iig_template="iig_v2")
-    # post178: no "Notes" group - its one file, ADDITION.md, is retired
-    assert set(framework.groups) == {TARGET_DDL, TARGET_DML, TARGET_REVIEW}
-    assert len(framework.groups[TARGET_DML]) == 3          # one runner notebook per env
-    assert "metadata_inserts.sql" in framework.groups[TARGET_DDL]
+    # post178: no "Notes" group - its one file, ADDITION.md, is retired; post194: the DML
+    # switches on still write NO metadata_inserts.sql / runner notebook / README sheet
+    assert set(framework.groups) == {TARGET_DDL, TARGET_REVIEW}
     framework_dir = tmp_path / pair1_spec.feed_slug / "framework"
     assert not (framework_dir / "ADDITION.md").exists()
-    wb = load_workbook(framework_dir / "config_inserts.xlsx")
-    assert wb.sheetnames[0] == "README"
-    assert wb["README"]["A1"].value.startswith(
-        "review copy — executable script is metadata_inserts.sql")
+    assert not (framework_dir / "metadata_inserts.sql").exists()
+    assert not list(framework_dir.glob("Insert_scripts_config_table_*.py"))
+    assert "README" not in load_workbook(framework_dir / "config_inserts.xlsx").sheetnames
     # the DDL file itself carries NO header line (golden byte-identity; knob off)
     ddl = (framework_dir / "ACCUM_DDL.txt").read_text(encoding="utf-8")
     assert DDL_TARGET_HEADER not in ddl
@@ -80,7 +73,7 @@ def test_reference_profile_output_carries_no_labels(pair1_config, pair1_spec, tm
     framework_dir = tmp_path / pair1_spec.feed_slug / "framework"
     assert not (framework_dir / "ADDITION.md").exists()
     assert load_workbook(framework_dir / "config_inserts.xlsx").sheetnames[0] != "README"
-    assert TARGET_DML not in framework.groups
+    assert set(framework.groups) <= {TARGET_DDL, TARGET_REVIEW, "Notes"}
 
 
 def test_manifest_groups_files_by_target_system(pair1_config, pair1_spec, tmp_path):
@@ -92,13 +85,9 @@ def test_manifest_groups_files_by_target_system(pair1_config, pair1_spec, tmp_pa
     text = (rfc.package_dir / "MANIFEST.md").read_text(encoding="utf-8")
     assert "Artefacts by target system:" in text
     assert f"- **{TARGET_DDL}**: `ACCUM_DDL.txt`" in text
-    assert f"- **{TARGET_DML}**:" in text and "`Insert_scripts_config_table_prod.py`" in text
+    assert "Insert_scripts_config_table_" not in text      # post194: retired
     assert "| File | Target system | Source artefact | Flags that apply |" in text
-    assert (f"| `metadata_inserts.sql` | {TARGET_DDL} | framework/metadata_inserts.sql |"
-            in text)
-    # the FAQ answers the RFC number: only @SRC_HOST_NAME is left unassigned
-    row = next(line for line in text.splitlines() if line.startswith("| `metadata_inserts.sql`"))
-    assert "`dml_unassigned`;" in row and "`dml_not_described` ×5" in row
+    assert "metadata_inserts.sql" not in text
     assert "Review sheets (people)" in text
 
 

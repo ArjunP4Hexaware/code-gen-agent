@@ -7,7 +7,7 @@ load_config applies it first for the App and EVERY CLI run).
   -> the shipped edo_sfmc / iig_v1;
 * a plain ``codegen generate`` (no --profile / --iig-template) under the
   overlay writes the acfc_prx / iig_v2 artefacts (the one combined DDL file,
-  the 8-sheet IIG, metadata_inserts.sql);
+  the 8-sheet IIG; post194: no metadata_inserts.sql);
 * every CLI command's first line and ``codegen doctor`` name the active
   profile and template, so a surprised local run is explained in line one;
 * the App's selectors offer the overlay's values as their defaults.
@@ -124,8 +124,8 @@ def test_a_plain_generate_under_the_overlay_writes_the_acfc_prx_iig_v2_artefacts
     # iig_v2: the 8-sheet IIG (iig_v1 is the 7-tab SFMC layout)
     clean = load_workbook(framework / f"{pair4_nb.FEED}_IIG.xlsx")
     assert clean.sheetnames == list(config.metadata.templates["iig_v2"].tabs)
-    sql = (framework / "metadata_inserts.sql").read_text(encoding="utf-8")
-    assert "INSERT INTO [dbo].[stg_delta_stddelta_ingestion_details] (" in sql
+    assert "metadata_inserts.sql" not in names      # post194: retired
+    assert not [n for n in names if n.startswith("Insert_scripts_config_table_")]
 
 
 def test_the_app_selectors_default_to_the_overlay(monkeypatch):

@@ -4,6 +4,28 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post194 — 2026-11-16 (metadata_inserts.sql retired)
+
+Soham, 2026-11-16: `metadata_inserts.sql` is deprecated - the App never offered it
+(`output.app_files`: DDL, DDL test cases, IIG, log) and the IIG workbook is the framework
+hand-over. Retired in code:
+
+1. **Not written any more:** `framework/metadata_inserts.sql` and the DML runner notebooks
+   that executed it (`Insert_scripts_config_table_<env>.py`, already off by default:
+   `emit_dml: false`). `emit/metadata_inserts.py` and `emit/dml.py` are deleted; their gate
+   check `metadata_inserts` and flags `dml_unassigned` / `dml_not_described` /
+   `dml_unconfirmed` go with them (no outcome rested on them: both GATE_FAIL pairs fail on
+   the DDL checks). `config_inserts.xlsx` loses the README sheet that pointed at the script.
+2. **Kept, so nothing else moves:** `config_rows.xlsx` and `config_inserts.xlsx`; the
+   `dml:` config section and `emit_dml` stay ACCEPTED (an overlay may set them) and read
+   by nothing; the banner helper `comment1` moved verbatim to `emit/comment_text.py`.
+3. **The App:** the "Metadata inserts" flag group is gone (no flag feeds it); `dist`
+   rebuilt. Docs: AGENTS.md, `.claude/rules/pipeline.md`, config comments.
+
+Tests: `test_metadata_inserts.py` / `test_dml_emit.py` deleted; 12 files re-pinned (file
+lists, the pair-1 flag list, the RFC package); checks that read the SQL now read the IIG
+workbook (the WF_ names) or assert the file is absent.
+
 ## 0.5.8.post193 — 2026-11-16 (tracker incidents 11-13: no-rejection feeds, true duplicates, SRC_DATA_TYPE base types)
 
 The incident tracker's new CodeGen items (11-17, a staging Accumulators run) were first

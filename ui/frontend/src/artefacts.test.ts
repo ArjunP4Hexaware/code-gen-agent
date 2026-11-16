@@ -10,7 +10,6 @@ describe("presentedArtefacts", () => {
       "CV_RISK_DDL.txt",
       "cv_risk_IIG_REVIEW.xlsx",
       "cv_risk_IIG.xlsx",
-      "metadata_inserts.sql",
     ];
     expect(presentedArtefacts(written)).toEqual([
       "CV_RISK_DDL.txt",

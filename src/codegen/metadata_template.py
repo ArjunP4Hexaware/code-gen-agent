@@ -1869,8 +1869,8 @@ def _note_shared_object_ids(object_ids: list[tuple[_TableGroup, dict]]) -> None:
         note = (f"stgdelta_object_id_shared:{tables} — one file feeds {len(entries)} tables, so "
                 f"each STGDELTA row takes its ADLS OBJECT_ID {number} (per (group, file)); "
                 "under one GROUP_ID + PIPELINE_ID the key (GROUP_ID, OBJECT_ID, PIPELINE_ID) "
-                "repeats and a unique key rejects the second INSERT (metadata_inserts.sql "
-                "rolls back) — engineer: a group / pipeline per table, or confirm OBJECT_ID "
+                "repeats and a unique key rejects the second row when the framework loads "
+                "the IIG — engineer: a group / pipeline per table, or confirm OBJECT_ID "
                 "per table (Friday checklist 13)")
         for _group, cell in entries:
             cell["badge_entry"]["note"] = note
@@ -3034,7 +3034,7 @@ def template_tab_rows(tab: str, feed: FrdFeed, config: Config, spec: ResolvedFee
 PLACEHOLDER_ID_NOTE = ("iig_placeholder_id:{tab}.PIPELINE_ID — placeholder flow IDs (grand "
                        "master 0, master 1, children on): they show which pipeline runs "
                        "which row; replace them with the framework's IDs before deploying "
-                       "(metadata_inserts.sql keeps <<PIPELINE_ID#n>>)")
+                       "(the framework assigns the real IDs)")
 
 
 def _row_roles(tab: str, tpl: MetadataTemplateConfig, count: int) -> list[str | None]:

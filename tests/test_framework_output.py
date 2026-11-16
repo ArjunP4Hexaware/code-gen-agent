@@ -107,8 +107,8 @@ def test_framework_mode_tree_and_verdicts(config, framework_run, tmp_path):
         assert names == ["config_inserts.xlsx",   # post178: no ADDITION.md
                          "config_rows.xlsx",
                          f"{spec.feed_slug}_stage_table_creation.txt",
-                         f"{spec.feed_slug}_standard_table_creation.txt",
-                         "metadata_inserts.sql"]   # always, framework mode (2026-10-08)
+                         f"{spec.feed_slug}_standard_table_creation.txt"]
+        # post194: metadata_inserts.sql is retired
 
 
 @needs_demo_pair
@@ -344,12 +344,11 @@ def test_the_report_section_matches_the_artefacts_panel():
     from codegen.emit.framework import FrameworkArtefacts, report_section
 
     written = ["SYN_DDL.txt", "config_rows.xlsx", "config_inserts.xlsx",
-               "metadata_inserts.sql", "syn_IIG_REVIEW.xlsx", "syn_IIG.xlsx", "notes.md"]
+               "syn_IIG_REVIEW.xlsx", "syn_IIG.xlsx", "notes.md"]
     section = report_section(FrameworkArtefacts(
         files=[Path("framework") / name for name in written],
         row_counts={"ADLS_DELTA_INGESTION_DETAILS": 2},
-        coverage={"derived": 3, "synthetic": 0, "needs_template": 1, "total": 4},
-        dml_disabled_reason="conventions profile 'acfc_prx' has emit_dml: false"))
+        coverage={"derived": 3, "synthetic": 0, "needs_template": 1, "total": 4}))
     assert "## Framework artefacts" in section
     assert ("The BSA-annotated IIG is the approval artefact; the CI/CD pipeline\n"
             "applies the DDL after approval.") in section

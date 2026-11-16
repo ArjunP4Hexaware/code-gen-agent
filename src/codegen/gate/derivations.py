@@ -398,7 +398,7 @@ def path_whitespace_flags(payload: dict, cfg: DerivationsConfig) -> list[str]:
 # ------------------------------------------------- single-line IIG cells ---
 # 2026-10-13 (pair_12, CAQH on D1): a two-line FRD cell reached 22 SUBDOMAIN
 # cells. Every IIG cell is ONE line: the payload is normalised at the emitter
-# boundary (before any workbook or metadata_inserts.sql is written), each
+# boundary (before any workbook is written), each
 # change a flag naming the cell; the written workbooks are then checked, and a
 # line break that slips through FAILS with its address.
 

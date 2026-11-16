@@ -551,7 +551,7 @@ metadata:
       # per flow row (per_flow; the notebook row of a flow takes the same answer).
       # post166 (Soham, 2026-11-04): placeholder PIPELINE_IDs showing the flow (grand
       # master 0 with a blank parent, master 1, each feed's children on, parent = the
-      # master) in the IIG workbook; metadata_inserts.sql keeps <<PIPELINE_ID#n>>.
+      # master) in the IIG workbook only (metadata_inserts.sql is retired, post194).
       placeholder_pipeline_ids: true
       pipeline_roles:
         # post102: ONE grand master + master per run; the children keep their feed's
@@ -657,7 +657,7 @@ metadata:
       # has a 55th column, FILE_METADATA - NULL on every SD prod row, blank in the
       # SFMC / CAQH IIGs; the iig_v2 template (from the pair-1 RFC package) lacks
       # it, so every row scored missing. The ACFC sheet carries it, decided blank
-      # (metadata_inserts.sql writes NULL). A list replaces: the shipped headers +
+      # (a decided blank). A list replaces: the shipped headers +
       # FILE_METADATA.
       # 2026-10-14 (D1 post44 items 1 / 3): the corpus's DATA_FACTORY_PIPELINE_SCHEDULE
       # and EMAIL_TEMPLATE_CONFIG column sets (patterns.md): the schedule's PROCESS_NAME

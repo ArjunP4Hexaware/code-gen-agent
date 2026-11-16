@@ -240,7 +240,7 @@ def test_the_compile_check_reads_every_py_and_every_code_cell(tmp_path):
 
 
 def test_comment1_keeps_a_clean_value_and_collapses_a_break():
-    from codegen.emit.metadata_inserts import comment1
+    from codegen.emit.comment_text import comment1  # post194: moved here
 
     for clean in ("FEED_2 Claims", "a  b ", "x y", "", "Données"):
         assert comment1(clean) == clean

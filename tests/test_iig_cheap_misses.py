@@ -54,7 +54,7 @@ def test_adls_file_header_flag_by_format_and_file_metadata_decided_blank(generat
     assert "FILE_METADATA#" not in sql
 
 
-def test_stgdelta_containers_and_full_data_types(generated):
+def test_stgdelta_containers_and_base_source_data_types(generated):
     _spec, _gate, xlsx = generated
     rows = _rows(xlsx, STG)
     assert rows
@@ -62,9 +62,11 @@ def test_stgdelta_containers_and_full_data_types(generated):
     for row in rows:
         assert {row["SRC_CONTAINER_NAME"][0]} == adls_tgt          # the stage container in
         assert row["TGT_CONTAINER_NAME"][0].endswith("-std-01")   # the standard container out
-        # the standard side as the STTM states it (precision kept): the pairs'
-        # right-hand sides are TGT_DATA_TYPE, type for type
+        # post193 (tracker incident 12): SRC_DATA_TYPE in base types - the standard load
+        # splits it on commas - its right-hand sides TGT_DATA_TYPE's types, type for
+        # type; TGT_DATA_TYPE keeps the precision the STTM states (post43 kept it in both)
         src, tgt = row["SRC_DATA_TYPE"][0], row["TGT_DATA_TYPE"][0]
-        right_sides = re.sub(r"(^|,)[^,:()]+(?:\([^)]*\))?:", r"\1", src)
-        assert right_sides == tgt
-        assert "(" in tgt                     # the fixture states a precision
+        right_sides = re.sub(r"(^|,)[^,:]+:", r"\1", src)
+        assert right_sides == re.sub(r"\(\d+(?:,\d+)?\)", "", tgt)
+        assert "(" not in src                 # one comma piece per column
+        assert "(" in tgt                    # the fixture states a precision

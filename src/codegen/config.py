@@ -2013,6 +2013,12 @@ class MetadataTemplateConfig(BaseModel):
     dq_frd_check_labels: dict[Literal["dedup", "null_check"], list[str]] = Field(
         default_factory=dict)
     dq_no_check_words: list[str] = Field(default_factory=list)
+    # post193 (tracker incidents 11 / 13): the incomplete-record row's values that state NO
+    # record is rejected (first words) - ADLS MANDATORY_FIELD_LIST is then left empty; the
+    # duplicate row's words naming a TRUE duplicate (every field equal) - the
+    # DeDuplicationRule then lists every data column, not the STTM Primary Key
+    dq_no_rejection_words: list[str] = Field(default_factory=list)
+    dq_true_duplicate_words: list[str] = Field(default_factory=list)
     # the STTM DQ rules sheet's null-check values (as the client STTM writes them)
     dq_sheet_null_values: list[str] = Field(default_factory=list)
     # that sheet's field-name and rule column headers (as the client STTM writes them)

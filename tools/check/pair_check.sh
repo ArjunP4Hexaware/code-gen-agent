@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The 12-pair check (AGENTS.md "Proving a fix"): the container harness, MOCK, framework
-# mode, on every real pair - the old tree vs the new one, comparing outcomes and the
+# mode (PAIR_CHECK_MODE=notebook for a notebook change), on every real pair - the old tree vs the new one, comparing outcomes and the
 # artefacts' hashes. Kinds and counts only are printed; the client copies stay under
 # $PAIR_CHECK_DIR (default /tmp/t/pairs) and `cleanup` deletes them.
 #
@@ -20,10 +20,12 @@ RP="${PAIR_CHECK_DIR:-/tmp/t/pairs}"
 PY="$REPO/.venv-d1/bin/python"
 TOOLS="$REPO/tools/check"
 PAIRS="${PAIR_CHECK_PAIRS:-1,2,3,4,5,6,7,8,9,10,11,12}"
+MODE="${PAIR_CHECK_MODE:-framework}"           # framework | notebook (one --output-mode)
 PROFILE="${DATABRICKS_PROFILE_ARG:-}"         # e.g. "--profile DEFAULT"; empty = the default
 
 tree_key() {   # the code tree a run depends on (docs-only commits share a key)
-  git -C "$1" rev-parse "HEAD:src" "HEAD:config" "HEAD:scripts" | sha1sum | cut -c1-16
+  { git -C "$1" rev-parse "HEAD:src" "HEAD:config" "HEAD:scripts"; [ "$MODE" = framework ] || echo "$MODE"; } \
+    | sha1sum | cut -c1-16
 }
 
 prepare() {
@@ -55,7 +57,7 @@ run_side() {   # run_side <side> <tree dir>; reuses the cache for that tree
     ( cd /tmp && PYTHONUTF8=1 CODEGEN_NOTIFICATION_EMAILS=syn.dl.prodsupport@synthetic.example \
         "$PY" "$tree/scripts/container_harness.py" --pairs-dir "$RP/pairs" \
         --state-dir "$RP/state_$side" --out "$RP/out_$side" --work "$RP/work_$side" \
-        --pairs "$pairs" --dry-run --output-mode framework ) > "$RP/harness_${side}_$pass.log" 2>&1 \
+        --pairs "$pairs" --dry-run --output-mode "$MODE" ) > "$RP/harness_${side}_$pass.log" 2>&1 \
         || echo "harness $side $pass exit $? (see $RP/harness_${side}_$pass.log)"
   done
   mkdir -p "$RP/cache/$key"; rm -rf "$RP/cache/$key/work" "$RP/cache/$key/out"

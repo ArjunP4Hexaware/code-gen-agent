@@ -29,6 +29,62 @@ number.
 
 ---
 
+## 0.5.8.post196 — tester's paused run: requirement tables of a mixed FRD never read
+
+- **Symptom:** after post195, the run still asked the stage / standard load strategy and
+  the file format (and LOBs / domain) although the FRD's Solution Requirements state the
+  strategies and the file names.
+- **Reproduced:** the tester's staging pair, mock, post195, staging's layout cache:
+  layout asked load strategy + format + LOBs (+ domain live); extraction asked the format
+  of each of the 4 feeds.
+- **Root cause:** `extract/frd_docx.py :: _discover_family` takes F1 as soon as one F1
+  section table exists (here Data Quality + Vendor Metadata), so the Solution Requirement
+  tables are never read; and no reader knew their shape - values as lines of the
+  Functional Requirement cell (a "Load Type:" block with STG / STD sub-lines, the file
+  name in angle brackets on the first line). `_discover_f2` would not read it either (it
+  wants a metadata-section row). With no file pattern, `layout/resolve.py ::
+  _FeedGapFiller.run` had nothing to take a format from.
+- **Change:**
+  - `extract/frd_docx.py`: new `load_type_block`, `canonical_strategy`,
+    `_place_load_type_blocks` (chained after `_place_line_fields` in `discover_frd`),
+    `requirement_file_names`; `_value` reads a `block_layer` source; `_strategy` uses
+    `canonical_strategy`; `read_frd` takes the requirement file names (single-feed, no
+    pattern) and reads a block strategy with the leading-word rule + a citation flag.
+  - `layout/frd_profile.py :: FrdFieldSource.block_layer` (new, default None).
+  - `config.py` + `config/config.yaml`: `extractor.frd.load_type_block_labels`,
+    `requirement_file_name_labels` (empty default = off).
+  - `layout/resolve.py :: _FeedGapFiller.run` step b: no statement -> the extension.
+- **Reach:** 12-pair check (framework, mock, post195 vs post196): outcomes unchanged
+  (5 PASS_WITH_OPEN_INPUTS, 2 GATE_FAIL, 2 FAIL, 3 NEEDS_ANSWERS), 295 / 295 files, no
+  DDL / IIG / workbook cell moved; no pair takes a new reader (no `frd_load_type_block` /
+  `frd_requirement_file_names` / extension-only format flag). Only diffs: the build
+  stamp and each report's version / environment-path lines. The tester's pair (mock):
+  layout questions 7 -> 4 (LOBs, domain, the file of 2 tables); load strategy and
+  format no longer asked; generate then asks the primary key per feed.
+- **Side effects:** the new `block_layer` field first serialised as `null` in every FRD
+  profile (the tracked-fixture test caught it: `frd_f1_pair_1.layout.json drifted`);
+  fixed in the same version - `FrdFieldSource` writes `block_layer` only when set, so
+  every profile without a Load Type block is byte-identical to post195.
+- **Unchanged:** F1 / F2 family choice itself (the section tables still decide the
+  family); LOBs / domain (not stated - still asked); two files whose names match no
+  table stay a choice question (never paired by elimination of 2+); the upsert keys of
+  a Load Type line (differ per requirement; not read - post197 candidate); a strategy
+  cell outside a Load Type block keeps the exact-match rule (no leading-word reading).
+- **Tests:** `tests/test_frd_requirement_blocks_post196.py` (5);
+  `tests/test_format_from_extension.py :: test_no_format_anywhere_the_extension_decides`,
+  `test_no_format_and_two_extensions_is_asked`, `test_no_format_and_a_txt_name_stays_the_
+  ordinary_question`; `tests/test_layout_resolution.py ::
+  test_tracked_layout_profiles_equal_a_fresh_build` guards the serialisation. Revert proof: with the two config labels emptied, the two reading
+  tests failed on assertions; with `resolve.py` from post195, the two extension tests
+  failed.
+- **Verified:** `.venv-d1` 2242 passed; `.venv` 2590 passed + the known load-sensitive
+  `test_m93_chooser::test_index_writes_never_run_inside_a_selection_step` (both suites in
+  parallel; 3/3 alone); ruff clean; scrub check clean; 12-pair check run alone.
+- **Revert:** empty `load_type_block_labels` / `requirement_file_name_labels` in
+  config.yaml (the readers switch off); revert the step-b block in `resolve.py` for the
+  format fallback; or `git revert` the post196 commit.
+- **Deployed:** not yet.
+
 ## 0.5.8.post195 — tester's paused run: source field name UNRESOLVED on a multi-sheet STTM
 
 - **Symptom:** a staging run paused on 5 `UNRESOLVED sheets[<i>]/source/field_name` lines,

@@ -273,3 +273,16 @@
 - Earliest signal that would have revealed it: the test file untracked + zero src/ diff.
 - Approx. time lost: ~2 minutes
 - Permanent fix: none - the known cause's hook refinement is still a /spiral-retro proposal.
+
+## 2026-11-17: hook (b) on post195's planned red test while building post196
+- Actual cause: not a spiral. `tests/test_sttm_fieldname_header.py` was run once RED on
+  purpose (post195, before the `fieldname` synonym); it passed right after, in both full
+  suites and the 12-pair check. The 4 counted edits to `extract/frd_docx.py` were post196's
+  new FRD reader code (Load Type blocks, requirement file names), not retries of a fix.
+- Pattern: none (not a spiral)
+- Caught by skill: false trigger (diagnostic: re-ran the exact command - 2 passed, exit 0;
+  known cause "Hook (b) false positive: the failing command later passed ...")
+- Earliest signal that would have revealed it: the quoted command's last run was BEFORE the
+  committed fix (post195, pushed, CI green).
+- Approx. time lost: ~3 minutes
+- Permanent fix: none - the known cause's hook refinement is still a /spiral-retro proposal.

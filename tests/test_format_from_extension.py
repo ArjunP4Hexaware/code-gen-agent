@@ -115,3 +115,27 @@ def test_an_empty_token_list_keeps_the_old_reading():
     ("Delimited", None), ("Fixed width, 120 bytes", None), ("File Data Ingestion", None)])
 def test_format_delimiter(config, text, char):
     assert format_delimiter(text, config.extractor.delimiter_words) == char
+
+
+# post196 (Soham, 2026-11-17: "use CSV"): NO document states a format - the extension
+# of the feed's file name decides, a NOTE; two extensions ask; a .txt name says nothing.
+def test_no_format_anywhere_the_extension_decides(config):
+    result = _fill(config, None, ["SYN_Enrollment_MMDDYYYY_HHMMSS.csv"])
+    assert _format_questions(result) == []
+    assert result.contract.feeds[0].file_format == "csv"
+    flag = next(f for f in result.flags if f.startswith("format_from_extension:"))
+    assert "no document states the file format" in flag
+    assert "(extension .csv)" in flag
+
+
+def test_no_format_and_two_extensions_is_asked(config):
+    result = _fill(config, None, ["a_YYYYMMDD.csv", "b_YYYYMMDD.psv"])
+    [question] = _format_questions(result)
+    assert [c["value"] for c in question.candidates] == ["csv", "psv"]
+    assert result.contract.feeds[0].file_format is None
+
+
+def test_no_format_and_a_txt_name_stays_the_ordinary_question(config):
+    result = _fill(config, None, ["a_YYYYMMDD.txt"])
+    assert result.contract.feeds[0].file_format is None
+    assert not any(f.startswith("format_from_extension:") for f in result.flags)

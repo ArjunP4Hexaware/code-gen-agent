@@ -214,7 +214,8 @@ def _lookup(table: dict[str, list[str]]) -> dict[str, str]:
 def discover_frd(content: DocxContent, config: FrdExtractorConfig) -> FrdLayoutProfile:
     """The synonyms' profile of a document, then (post192) its single-value fields
     stated only on a labelled line placed there."""
-    return _place_line_fields(_discover_family(content, config), content, config)
+    profile = _place_line_fields(_discover_family(content, config), content, config)
+    return _place_load_type_blocks(profile, content, config)
 
 
 def _discover_family(content: DocxContent, config: FrdExtractorConfig) -> FrdLayoutProfile:
@@ -730,6 +731,188 @@ def _place_line_fields(profile: FrdLayoutProfile, content: DocxContent,
                                       "notes": notes, "unresolved": unresolved})
 
 
+_HEADING_TAIL_RE = re.compile(r"[\s:\-\u2013\u2014]+$")
+
+
+def _layer_heading(line: str, markers: dict[str, str]) -> str | None:
+    """The layer a heading line names ("STG:-", "STD:", "Stage -"), else None."""
+    return markers.get(normalize_label(_HEADING_TAIL_RE.sub("", line)))
+
+
+def _block_line_value(line: str) -> str:
+    """A strategy line's value: after its label ("Incremental:- Truncate & load" ->
+    "Truncate & load"), else the line as written."""
+    pair = _PAIR_RE.match(line)
+    if pair is not None:
+        value = pair.group(2).strip().lstrip("-\u2013\u2014").strip()
+        if value:
+            return value
+    return line.strip()
+
+
+def load_type_block(text: str | None, labels: set[str], markers: dict[str, str]
+                    ) -> dict[str, tuple[str, str]] | None:
+    """post196: ``{layer: (value, next line)}`` for a cell holding ONE "<label>:" line
+    (no value) followed by layer headings, each with its strategy on the next non-empty
+    line; ``next line`` is the line right after that value ("" at a blank / heading /
+    the end), so a caller can refuse a layer stating two strategies. None = no block, or
+    the cell states the block or a layer twice."""
+    lines = [line.strip() for line in (text or "").split("\n")]
+    starts = [i for i, line in enumerate(lines)
+              if (pair := _PAIR_RE.match(line)) is not None
+              and normalize_label(pair.group(1)) in labels
+              and not pair.group(2).strip().strip("-\u2013\u2014").strip()]
+    if len(starts) != 1:
+        return None
+    out: dict[str, tuple[str, str]] = {}
+    current: str | None = None
+    i = starts[0] + 1
+    while i < len(lines):
+        line = lines[i]
+        if not line:
+            i += 1
+            continue
+        layer = _layer_heading(line, markers)
+        if layer is not None:
+            if layer in out or current is not None:
+                return None             # a layer twice, or a heading with no line
+            current = layer
+            i += 1
+            continue
+        if current is None:
+            break                       # the block ended
+        following = lines[i + 1] if i + 1 < len(lines) else ""
+        if following and _layer_heading(following, markers) is not None:
+            following = ""
+        out[current] = (_block_line_value(line), following)
+        current = None
+        i += 1
+    return out or None
+
+
+def canonical_strategy(value: str, synonyms: dict[str, str] | None,
+                       leading: bool = False) -> tuple[str | None, str]:
+    """``(strategy, rest)``: the cell as one of the canonical strategies or a configured
+    synonym (the cell as written, or without a trailing parenthetical); with
+    ``leading`` (post196, a Load Type block line) also a value that STARTS with one
+    ("Upsert using keys ..." -> Upsert, rest "using keys ..."). (None, "") otherwise."""
+    if not value:
+        return None, ""
+    spelled = {normalize_label(k): v for k, v in (synonyms or {}).items()}
+    known = {normalize_label(literal): literal for literal in _LOAD_STRATEGIES}
+    known.update(spelled)
+    stripped = _TRAILING_PARENTHETICAL.sub("", value).strip()
+    for text in dict.fromkeys([value, stripped]):
+        label = normalize_label(text)
+        if label in known:
+            return known[label], ""
+    if leading:
+        written = value.split()
+        for spelling in sorted(known, key=len, reverse=True):
+            count = len(spelling.split())
+            if len(written) > count and normalize_label(" ".join(written[:count])) == spelling:
+                return known[spelling], " ".join(written[count:])
+    return None, ""
+
+
+def _place_load_type_blocks(profile: FrdLayoutProfile, content: DocxContent,
+                            config: FrdExtractorConfig) -> FrdLayoutProfile:
+    """post196: a single-feed FRD whose Solution Requirements state the load strategy in
+    a "Load Type:" block (``load_type_block_labels``; STG / STD headings,
+    ``target_schema_markers``) - the stage / standard strategy is placed at the first
+    requirement stating it when EVERY requirement stating it reads the same strategy;
+    disagreeing requirements, or a layer with two strategy lines, place nothing (a
+    note, the field stays open). Never over a field another label placed."""
+    labels = {normalize_label(label) for label in config.load_type_block_labels}
+    feeds = {f.feed_index for f in profile.fields.values()} | {
+        u.feed_index for u in profile.unresolved}
+    if not labels or feeds - {0}:
+        return profile
+    markers = {normalize_label(m): layer for layer, spellings in
+               config.target_schema_markers.items() for m in spellings}
+    sections = {ref.table: ref.section for ref in profile.sections}
+    fields = dict(profile.fields)
+    confidence = dict(profile.confidence)
+    notes = list(profile.notes)
+    for layer in ("stage", "standard"):
+        path = f"feeds[0].{layer}_target.load_strategy"
+        if path in fields:
+            continue
+        hits = []
+        refused = []
+        for t, rows in enumerate(content.tables):
+            if sr_signal(t, rows, content, config) is None:
+                continue
+            for r, row in enumerate(rows):
+                for c in range(1, len(row)):
+                    if not row[c - 1].strip() or (t, r, c) in content.nested:
+                        continue
+                    block = load_type_block(row[c], labels, markers)
+                    if block is None or layer not in block:
+                        continue
+                    value, following = block[layer]
+                    strategy, _rest = canonical_strategy(
+                        value, config.load_strategy_synonyms, leading=True)
+                    again, _r = canonical_strategy(
+                        _block_line_value(following) if following else "",
+                        config.load_strategy_synonyms, leading=True)
+                    if strategy is None or again is not None:
+                        refused.append((t, r, c))
+                        continue
+                    hits.append((t, r, c, strategy))
+        where = ", ".join(f"table {t} row {r} col {c}" for t, r, c, *_x in hits + refused)
+        if refused or len({h[3] for h in hits}) > 1:
+            notes.append(f"{path}: {len(hits) + len(refused)} Load Type block(s) state it "
+                         f"differently or unreadably ({where}) - not placed")
+            continue
+        if not hits:
+            continue
+        t, r, c, _strategy_read = hits[0]
+        label = next(pair.group(1).strip() for line in content.tables[t][r][c].split("\n")
+                     if (pair := _PAIR_RE.match(line.strip())) is not None
+                     and normalize_label(pair.group(1)) in labels)
+        fields[path] = FrdFieldSource(table=t, row=r, col=c - 1, value_col=c,
+                                      label=content.tables[t][r][c - 1].strip(),
+                                      section=sections.get(t), inline_label=label,
+                                      block_layer=layer, feed_index=0)
+        confidence[path] = 1.0
+        notes.append(f"{path}: placed at a Load Type block ({where}; {len(hits)} "
+                     "requirement(s) agree)")
+    unresolved = [u for u in profile.unresolved if u.field not in fields]
+    return profile.model_copy(update={"fields": fields, "confidence": confidence,
+                                      "notes": notes, "unresolved": unresolved})
+
+
+_ANGLE_NAME_RE = re.compile(r"^<\s*([^<>\n]+?)\s*>")
+_EXTENSION_RE = re.compile(r"\.[A-Za-z0-9]{2,4}$")
+
+
+def requirement_file_names(content: DocxContent, config: FrdExtractorConfig
+                           ) -> list[tuple[str, int, int]]:
+    """post196: ``(name, table, row)`` per Solution Requirement table whose
+    ``requirement_file_name_labels`` row's cell OPENS with an angle-bracketed file name
+    ending in an extension ("<NAME_MMDDYYYY.csv> will be received ..."); the name as
+    written between the brackets. A requirement with two such rows names none."""
+    wanted = {normalize_label(label) for label in config.requirement_file_name_labels}
+    out: list[tuple[str, int, int]] = []
+    if not wanted:
+        return out
+    for t, rows in enumerate(content.tables):
+        if sr_signal(t, rows, content, config) is None:
+            continue
+        found = []
+        for r, row in enumerate(rows):
+            if len(row) < 2 or normalize_label(row[0]) not in wanted:
+                continue
+            first = next((line.strip() for line in row[1].split("\n") if line.strip()), "")
+            match = _ANGLE_NAME_RE.match(first)
+            if match and _EXTENSION_RE.search(match.group(1)):
+                found.append((match.group(1), t, r))
+        if len(found) == 1:
+            out.append(found[0])
+    return out
+
+
 _REQUIRED_PATHS = ("feed_name", "source_system", "file_format", "frequency", "lobs", "domain",
                    "stage_target.schema", "stage_target.tables", "stage_target.load_strategy",
                    "standard_target.load_strategy")
@@ -760,6 +943,11 @@ def _value(content: DocxContent, source: FrdFieldSource, config: FrdExtractorCon
     if source.value_col is None or source.value_col >= len(rows[source.row]):
         return ""
     text = rows[source.row][source.value_col].strip()
+    if source.block_layer is not None:
+        markers = {normalize_label(m): layer for layer, spellings in
+                   config.target_schema_markers.items() for m in spellings}
+        block = load_type_block(text, {normalize_label(source.inline_label or "")}, markers)
+        return (block or {}).get(source.block_layer, ("", ""))[0]
     if source.inline_label is not None:
         text = next((value for label, value in labelled_pairs(text, config)
                      if normalize_label(label) == normalize_label(source.inline_label)), "")
@@ -1568,6 +1756,21 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                     f"{cell_of(f'{prefix}.feed_name')} cell contains "
                     f"{len(file_name_patterns)} file pattern(s): "
                     f"{file_name_patterns}")
+        if not file_name_patterns and max(profile.feed_count, 1) == 1:
+            # post196: a single-feed FRD whose Solution Requirements each open their
+            # Functional Requirement cell with "<file name.ext>" - those are its files
+            named_files = requirement_file_names(content, frd_config)
+            names = list(dict.fromkeys(name for name, _t, _r in named_files))
+            if names:
+                file_name_patterns = names
+                cells = ", ".join(f"table {t} row {r}" for _n, t, r in named_files)
+                flags.append(f"frd_requirement_file_names:{prefix} — {len(named_files)} "
+                             f"Solution Requirement cell(s) ({cells}) open with a file name "
+                             f"in angle brackets; taken as the file name patterns {names}")
+                if any(any(ch.isspace() for ch in name) for name in names):
+                    flags.append(f"frd_file_name_whitespace:{prefix} — a file name as the FRD "
+                                 "writes it holds a space; kept as written (check the real "
+                                 "file name)")
         rules = []
         n = 0
         while f"{prefix}.validation_rules[{n}]" in profile.fields:
@@ -1576,12 +1779,27 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             if value:
                 rules.append(f"{source.label}: {value}" if source.labelled_rule else value)
             n += 1
-        stage_strategy = _strategy(get(f"{prefix}.stage_target.load_strategy"),
-                                   f"{prefix}.stage_target.load_strategy", ambiguities,
-                                   frd_config.load_strategy_synonyms)
-        std_strategy = _strategy(get(f"{prefix}.standard_target.load_strategy"),
-                                 f"{prefix}.standard_target.load_strategy", ambiguities,
-                                 frd_config.load_strategy_synonyms)
+        strategies = {}
+        for layer in ("stage", "standard"):
+            path = f"{prefix}.{layer}_target.load_strategy"
+            source = profile.fields.get(path)
+            value = get(path)
+            if source is not None and source.block_layer is not None and value:
+                # post196: the strategy line of a requirement's Load Type block
+                strategy, rest = canonical_strategy(
+                    value, frd_config.load_strategy_synonyms, leading=True)
+                flags.append(f"frd_load_type_block:{path} — the table {source.table} row "
+                             f"{source.row} ({source.label!r}) cell's {source.inline_label!r} "
+                             f"block, {layer} line {value!r}: read as {strategy!r}"
+                             + (f"; the rest ({rest!r}) is not read" if rest else ""))
+                if strategy is None:
+                    ambiguities.append(f"{path}: load strategy {value!r} is not one of "
+                                       f"{list(_LOAD_STRATEGIES)}; left null")
+                strategies[layer] = strategy
+            else:
+                strategies[layer] = _strategy(value, path, ambiguities,
+                                              frd_config.load_strategy_synonyms)
+        stage_strategy, std_strategy = strategies["stage"], strategies["standard"]
         if std_strategy is not None and tables and not standard_tables:
             # post118 (codeflow audit #1): layer scope comes from Load Strategy
             # (CLAUDE.md) — an STD load strategy makes the feed two-layer even when
@@ -1859,15 +2077,9 @@ def _strategy(value: str, path: str, ambiguities: list[str],
     explanation ('Truncate & Load (Delete existing records ...)')."""
     if not value:
         return None
-    spelled = {normalize_label(k): v for k, v in (synonyms or {}).items()}
-    stripped = _TRAILING_PARENTHETICAL.sub("", value).strip()
-    for text in dict.fromkeys([value, stripped]):
-        label = normalize_label(text)
-        for literal in _LOAD_STRATEGIES:
-            if label == normalize_label(literal):
-                return literal
-        if label in spelled:
-            return spelled[label]
+    strategy, _rest = canonical_strategy(value, synonyms)
+    if strategy is not None:
+        return strategy
     ambiguities.append(f"{path}: load strategy {value!r} is not one of {list(_LOAD_STRATEGIES)}; "
                        "left null")
     return None

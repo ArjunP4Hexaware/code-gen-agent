@@ -212,7 +212,8 @@ def _answered_unstated(frd_feed: FrdFeed, gaps: dict[str, str] | None, feed_inde
         elif kind == "strategy":
             # post115 (codeflow audit #17): an answer that names no load strategy
             # used to be written as typed - an invalid literal in the contract
-            value = canonical_strategy(answer)
+            value = canonical_strategy(
+                answer, config.extractor.frd.load_strategy_synonyms if config else {})
             if value is None:
                 from codegen.layout.answers import AnswersFileError
                 from codegen.resolve.gapfill import LOAD_STRATEGIES
@@ -651,7 +652,8 @@ def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd,
             update={"catalog": ref.catalog})})
         flags.append(fill_flag(f"{layer}_target.catalog", statement))
     parsed = parse_load_strategy_text(meta.get("load_strategy"),
-                                      config.extractor.frd.target_schema_markers)
+                                      config.extractor.frd.target_schema_markers,
+                                      config.extractor.frd.load_strategy_synonyms)
     cell = f"{sheet} meta row 'load_strategy'"
     if feed.stage_target.load_strategy is None:
         if parsed.get("stage"):

@@ -29,6 +29,38 @@ number.
 
 ---
 
+## 0.5.8.post199 — generic: one load-strategy alias table (the same word read differently by document)
+
+- **Symptom (class):** a load-strategy word read differently by which document stated
+  it ("Merge" = Upsert in an STTM meta row, null + ambiguity in an FRD); "Incremental"
+  (a load TYPE) read as Append on the STTM / answers side.
+- **Reproduced:** the two readers side by side on the same words (the new test's table).
+- **Root cause:** two readers - `resolve/gapfill.py :: canonical_strategy` with a code
+  table `_STRATEGY_ALIASES`, `extract/frd_docx.py :: canonical_strategy` with the config
+  table only - and different normalisation (punctuation-free vs label form).
+- **Change:** `resolve/gapfill.py :: strategy_reading` (new, the one reader);
+  `canonical_strategy(text, synonyms)` and `parse_load_strategy_text(text, markers,
+  synonyms)` take the table (callers: `resolver._answered_unstated`, the resolver's STTM
+  meta step, `layout/resolve._FeedGapFiller.run` step c); `_STRATEGY_ALIASES` removed;
+  `frd_docx.canonical_strategy` delegates; `config/config.yaml ::
+  extractor.frd.load_strategy_synonyms` holds every alias, "Incremental" dropped.
+- **Reach:** 12-pair check (framework, mock, post198 vs post199): outcomes unchanged,
+  295 / 295 files, no artefact cell moved, all 28 FRD / STTM contracts byte-identical -
+  no pair's load strategy reads differently (none writes "Incremental" in an STTM or
+  "Merge" / "Full Load" in an FRD). Only diff: the build stamp.
+- **Side effects:** none found.
+- **Unchanged:** the three canonical strategies; the leading-word rule stays opt-in (Load
+  Type block lines only); the post197 key phrase reading; an answer that names no
+  strategy is still refused loudly (post115).
+- **Tests:** `tests/test_strategy_aliases_post199.py` (the alias table set back to its
+  single entry -> 7 failed; "Incremental" put back -> the drop test failed);
+  `tests/test_frd_gapfill.py :: test_load_strategy_text_parsing` passes the table.
+- **Verified:** `.venv-d1` 2260 passed; `.venv` 2609 passed; ruff clean; 12-pair check
+  alone.
+- **Revert:** `git revert` (code + config move together); to restore only "Incremental"
+  add `"Incremental": "Append"` to the table.
+- **Deployed:** not yet.
+
 ## 0.5.8.post198 — generic: STTM / VDD headers match synonyms with spaces ignored (the post195 class)
 
 - **Symptom (class):** a header written without its space ("FieldName") matched no role

@@ -796,23 +796,9 @@ def canonical_strategy(value: str, synonyms: dict[str, str] | None,
     synonym (the cell as written, or without a trailing parenthetical); with
     ``leading`` (post196, a Load Type block line) also a value that STARTS with one
     ("Upsert using keys ..." -> Upsert, rest "using keys ..."). (None, "") otherwise."""
-    if not value:
-        return None, ""
-    spelled = {normalize_label(k): v for k, v in (synonyms or {}).items()}
-    known = {normalize_label(literal): literal for literal in _LOAD_STRATEGIES}
-    known.update(spelled)
-    stripped = _TRAILING_PARENTHETICAL.sub("", value).strip()
-    for text in dict.fromkeys([value, stripped]):
-        label = normalize_label(text)
-        if label in known:
-            return known[label], ""
-    if leading:
-        written = value.split()
-        for spelling in sorted(known, key=len, reverse=True):
-            count = len(spelling.split())
-            if len(written) > count and normalize_label(" ".join(written[:count])) == spelling:
-                return known[spelling], " ".join(written[count:])
-    return None, ""
+    from codegen.resolve.gapfill import strategy_reading
+
+    return strategy_reading(value, synonyms or {}, leading=leading)
 
 
 def _place_load_type_blocks(profile: FrdLayoutProfile, content: DocxContent,
@@ -2135,7 +2121,6 @@ def is_unnamed_feed(feed_name: str) -> bool:
     return feed_name.endswith(_UNNAMED_SUFFIX)
 
 
-_TRAILING_PARENTHETICAL = re.compile(r"\s*\([^()]*\)\s*$")
 
 
 def _strategy(value: str, path: str, ambiguities: list[str],

@@ -369,8 +369,20 @@ extractor:
   frd:
     # post94 (pair_03): the FRD's own spelling (the EDO Naming Standards' Load Strategy
     # table writes it so too - engineering_standards.load_strategy_abbreviations)
+    # post199: THE load-strategy alias table for every document and answer (FRD, STTM
+    # meta rows, the answers file) - was split between this key (FRD) and a code table
+    # in resolve/gapfill.py (STTM / answers). Compared punctuation-free. "Incremental"
+    # is NOT a strategy (Soham, 2026-11-17: dropped) - FRDs write it as the load TYPE
+    # in front of both "Truncate & load" and "Upsert".
     load_strategy_synonyms:
       "Truncate & Load": "Truncate and Load"
+      "Truncate Load": "Truncate and Load"
+      "Truncate Reload": "Truncate and Load"
+      "Full Load": "Truncate and Load"
+      "Overwrite": "Truncate and Load"
+      "Insert": "Append"
+      "Merge": "Upsert"
+      "Merge on Keys": "Upsert"
     section_titles:
       descriptive: ["Descriptive Metadata"]
       structural: ["Structural Metadata"]

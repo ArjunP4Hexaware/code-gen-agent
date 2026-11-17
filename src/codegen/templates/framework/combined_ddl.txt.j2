@@ -1,6 +1,6 @@
 {#- Combined deployment DDL for a "combined" conventions profile (acfc_prx) —
-    the CREATE TABLE REFERENCE text (the client's "DDL" is the metadata
-    INSERT rows, metadata_inserts.sql; MULTI_TABLE_DESIGN rule 8).
+    the CREATE TABLE text (MULTI_TABLE_DESIGN rule 8; the metadata INSERT
+    rows it named are retired, post194).
     One block per table and layer (multi-table step 6): each block is its
     banner ('--stage table' / '--standard table'), a blank line, the CREATE
     line naming the table by its MAPPED three-part name, '(', one bare

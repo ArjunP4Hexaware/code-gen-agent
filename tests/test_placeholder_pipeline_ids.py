@@ -5,16 +5,16 @@ Under the ACFC overlay (``placeholder_pipeline_ids: true``) the IIG workbook num
 1 (parent 0), File-to-Stage 2 and Stage-to-Standard 3 (both parent 1: children of one
 master share it). The other sheets name the pipeline that runs their rows: the ADLS /
 file-copy / fixed-width rows File-to-Stage's id, the STGDELTA rows Stage-to-Standard's,
-each notebook row its flow's. Workbook only: metadata_inserts.sql keeps the open
-``<<PIPELINE_ID#n>>`` markers. In the combined IIG each feed's own children follow the
-previous feeds' (the shared grand master / master stay 0 / 1). Synthetic pair 11 shapes
+each notebook row its flow's. Workbook only (post194: metadata_inserts.sql, which kept
+the open ``<<PIPELINE_ID#n>>`` markers, is retired). In the combined IIG each feed's
+own children follow the previous feeds' (the shared grand master / master stay 0 / 1).
+Synthetic pair 11 shapes
 (test_iig_v2_derivations).
 """
 
 from __future__ import annotations
 
 from codegen.config import load_config
-from codegen.emit.metadata_inserts import cell_sql
 from codegen.run_artefacts import merge_payloads
 from test_derivations import FRD
 from test_iig_v2_derivations import ACFC_OVERLAY, REPO, _rows, _run
@@ -45,12 +45,6 @@ def test_the_other_sheets_name_the_pipeline_that_runs_them(tmp_path):
     _spec, _gate, xlsx = _run_acfc(tmp_path)
     assert set(_ids(_rows(xlsx, ADLS))) == {"2"}                        # File to Stage
     assert set(_ids(_rows(xlsx, STG))) == {"3"}                         # Stage to Standard
-
-
-def test_the_insert_sql_keeps_the_open_marker():
-    entry = {"badge": "synthetic", "placeholder_id": True, "convention": True}
-    assert cell_sql("PIPELINE_ID", "2", entry, 4) == "<<PIPELINE_ID#4>>"
-    assert cell_sql("PIPELINE_ID", "2", {"badge": "synthetic"}, 4) == "N'2'"   # a real value
 
 
 def test_off_without_the_overlay(tmp_path):

@@ -4,7 +4,6 @@ import { flagCode, groupFlags } from "./flagGroups";
 const FLAGS = [
   "frd_unstated:stage_target_catalog source_used:STTM stage band",
   "ddl_comment_blank:stage nb_report_hdr — 11 column(s) without a COMMENT",
-  "dml_not_described:QUALITY_RULES — written from the IIG cells",
   "iig_corpus:PIPELINE_SCHEDULE.ACTIVE_FLAG — 'Y' in 99% of rows",
   "environment:D1 (complete, from the environment profile)",
   "generated tests were skipped — PASS cannot be claimed",
@@ -33,7 +32,7 @@ describe("groupFlags", () => {
     expect(byId.documents.flags.some((f) => f.startsWith("table_description_differs"))).toBe(true);
     expect(byId.documents.flags[0]).toMatch(/^frd_unstated/);
     expect(byId.ddl.flags[0]).toMatch(/^ddl_comment_blank/);
-    expect(byId.inserts.flags[0]).toMatch(/^dml_/);
+    expect(byId.inserts).toBeUndefined();   // post194: metadata_inserts.sql retired
     expect(byId.iig.flags[0]).toMatch(/^iig_corpus/);
     expect(byId.environment.flags[0]).toMatch(/^environment/);
     expect(byId.tooling.flags[0]).toMatch(/^generated/);

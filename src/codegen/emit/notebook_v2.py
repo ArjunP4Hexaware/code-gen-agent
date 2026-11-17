@@ -32,7 +32,7 @@ from typing import Any
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from codegen.emit import notebook_files as nbf
-from codegen.emit.metadata_inserts import comment1
+from codegen.emit.comment_text import comment1
 
 NOTEBOOK_DIR = "notebook"
 ADLS = "ADLS_DELTA_INGESTION_DETAILS"

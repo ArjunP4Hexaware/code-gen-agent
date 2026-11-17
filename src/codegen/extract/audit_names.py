@@ -4,8 +4,7 @@ An STTM audit row may annotate its stage column — "LOB(Hardcod to MIDS)". The
 contract carries the COLUMN (LOB); the note is a hardcode hint, kept as an
 extraction flag citing the STTM cell (value MIDS). Every reader builds its
 AuditColumn through ``clean_audit_column``, so no annotated name reaches the
-contract — and through it the DDL, the IIG, the notebook pipeline or
-metadata_inserts.sql.
+contract — and through it the DDL, the IIG or the notebook pipeline.
 """
 
 from __future__ import annotations

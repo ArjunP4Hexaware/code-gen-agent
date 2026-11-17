@@ -1707,7 +1707,20 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
         if spec.delimiter:
             cells["SRC_FILE_DELIMITER"] = _cell(spec.delimiter, "from_frd")
         cells.update(_header_flag_cells(spec, faq, tpl))
-        if spec.not_null_columns:
+        no_rejection = frd_states_no_rejection(spec.validation_rules, tpl)
+        if spec.not_null_columns and no_rejection is not None:
+            # post193 (tracker incident 11): the stage load rejects a row with ANY listed
+            # field null, so a feed the FRD loads as-is gets an EMPTY list (never "NA" -
+            # the notebook would read it as a column name)
+            label, value = no_rejection
+            cell = _cell(
+                "", "from_frd",
+                f"left empty: the FRD's {label!r} row states {value!r} - no record is "
+                f"rejected (the STTM marks {len(spec.not_null_columns)} required column(s))")
+            # decided blank by the FRD: no open cell in the review copy, NULL in the inserts
+            cell["badge_entry"]["deliberate_blank"] = True
+            cells["MANDATORY_FIELD_LIST"] = cell
+        elif spec.not_null_columns:
             cells["MANDATORY_FIELD_LIST"] = _cell(",".join(spec.not_null_columns), "from_sttm")
         key = _key_cell(tab, config, spec, faq, tpl, stage.table, fields, "stage", True,
                         spec.stage_load_strategy)
@@ -1856,8 +1869,8 @@ def _note_shared_object_ids(object_ids: list[tuple[_TableGroup, dict]]) -> None:
         note = (f"stgdelta_object_id_shared:{tables} — one file feeds {len(entries)} tables, so "
                 f"each STGDELTA row takes its ADLS OBJECT_ID {number} (per (group, file)); "
                 "under one GROUP_ID + PIPELINE_ID the key (GROUP_ID, OBJECT_ID, PIPELINE_ID) "
-                "repeats and a unique key rejects the second INSERT (metadata_inserts.sql "
-                "rolls back) — engineer: a group / pipeline per table, or confirm OBJECT_ID "
+                "repeats and a unique key rejects the second row when the framework loads "
+                "the IIG — engineer: a group / pipeline per table, or confirm OBJECT_ID "
                 "per table (Friday checklist 13)")
         for _group, cell in entries:
             cell["badge_entry"]["note"] = note
@@ -2629,21 +2642,51 @@ def _dq_words(text) -> str:
     return " ".join(re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).split())
 
 
-def frd_dq_check(rules: list[str], tpl: MetadataTemplateConfig, kind: str) -> str | None:
-    """post171: what the FRD's DQ-section row for ``kind`` states (the reader writes a
-    positional DQ row as "<row label>: <value>") - None when no row is labelled so, or
-    its value states no check ("NA", "None", "No rejection ..." - dq_no_check_words)."""
+def _frd_dq_row(rules: list[str], tpl: MetadataTemplateConfig,
+                kind: str) -> tuple[str, str] | None:
+    """(row label, value) of the FRD's DQ-section row for ``kind`` (the reader writes a
+    positional DQ row as "<row label>: <value>"), or None when no row is labelled so."""
     labels = [_dq_words(label) for label in tpl.dq_frd_check_labels.get(kind, [])]
-    no_check = [_dq_words(word) for word in tpl.dq_no_check_words]
     for rule in rules or []:
         head, sep, value = rule.partition(": ")
-        if not sep or not any(label and label in _dq_words(head) for label in labels):
-            continue
-        words = _dq_words(value)
-        if not words or any(words == w or words.startswith(w + " ") for w in no_check if w):
-            return None
-        return value.strip()
+        if sep and any(label and label in _dq_words(head) for label in labels):
+            return head.strip(), value.strip()
     return None
+
+
+def _starts_with_any(value: str, words: list[str]) -> bool:
+    text = _dq_words(value)
+    return any(text == w or text.startswith(w + " ")
+               for w in (_dq_words(word) for word in words) if w)
+
+
+def frd_dq_check(rules: list[str], tpl: MetadataTemplateConfig, kind: str) -> str | None:
+    """post171: what the FRD's DQ-section row for ``kind`` states - None when no row is
+    labelled so, or its value states no check ("NA", "None", "No rejection ..." -
+    dq_no_check_words)."""
+    row = _frd_dq_row(rules, tpl, kind)
+    if row is None or not _dq_words(row[1]) or _starts_with_any(row[1], tpl.dq_no_check_words):
+        return None
+    return row[1]
+
+
+def frd_states_no_rejection(rules: list[str],
+                            tpl: MetadataTemplateConfig) -> tuple[str, str] | None:
+    """post193 (tracker incident 11): (row label, value) when the FRD's incomplete-record
+    row SAYS no record is rejected (``dq_no_rejection_words``, e.g. "No Rejection (Load
+    As-IS)") - a blank / "NA" row states nothing and returns None."""
+    row = _frd_dq_row(rules, tpl, "null_check")
+    if row is None or not _starts_with_any(row[1], tpl.dq_no_rejection_words):
+        return None
+    return row
+
+
+def frd_states_true_duplicates(stated: str | None, tpl: MetadataTemplateConfig) -> bool:
+    """post193 (tracker incident 13): the FRD's stated duplicate check names a TRUE
+    duplicate (``dq_true_duplicate_words``: every field equal), on word boundaries."""
+    text = f" {_dq_words(stated)} "
+    return bool(stated) and any(f" {w} " in text for w in
+                                (_dq_words(word) for word in tpl.dq_true_duplicate_words) if w)
 
 
 def sttm_dq_null_columns(spec: ResolvedFeedSpec, fields: list,
@@ -2690,6 +2733,18 @@ def _stated_key_rules(kind: str, tpl: MetadataTemplateConfig, config: Config,
     stated = frd_dq_check(spec.validation_rules, tpl, "dedup")
     if stated is None:
         return []
+    if frd_states_true_duplicates(stated, tpl):
+        # post193 (tracker incident 13): a true duplicate = every field equal - the
+        # detail table's data columns (audit columns are not fields), never its key: a
+        # key rejects the valid records that share it
+        columns = [f.stage_column for f in fields if f.stage_column]
+        if columns:
+            why = (f"the FRD states only true duplicates are rejected "
+                   f"({stated.splitlines()[0].strip()!r}): every data column of the detail "
+                   "table, audit columns left out")
+            return [{**_columns_rule(tpl, kind, columns, why,
+                                     INPUT_PARAM=_target_fqn_cell(config, stage)),
+                     "_per_feed": True}]
     columns = _primary_key(fields, "stage")
     if columns:
         return [{**_columns_rule(tpl, kind, columns,
@@ -2979,7 +3034,7 @@ def template_tab_rows(tab: str, feed: FrdFeed, config: Config, spec: ResolvedFee
 PLACEHOLDER_ID_NOTE = ("iig_placeholder_id:{tab}.PIPELINE_ID — placeholder flow IDs (grand "
                        "master 0, master 1, children on): they show which pipeline runs "
                        "which row; replace them with the framework's IDs before deploying "
-                       "(metadata_inserts.sql keeps <<PIPELINE_ID#n>>)")
+                       "(the framework assigns the real IDs)")
 
 
 def _row_roles(tab: str, tpl: MetadataTemplateConfig, count: int) -> list[str | None]:

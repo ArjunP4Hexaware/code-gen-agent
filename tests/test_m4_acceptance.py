@@ -192,13 +192,8 @@ PAIR1_GATE_FLAG_KINDS = {
     **{kind: 1 for kind in PAIR1_PROVENANCE_KINDS},
     "drag_fill_suspect": 1,
     "iig_blank": 8,
-    # 2026-10-08: metadata_inserts.sql replaces config_inserts_<env>.sql — the
-    # engineer ids are one <<COLUMN#n>> placeholder per row, so only the two
-    # script variables the FAQ leaves open are flagged (@RFC_NUMBER,
-    # @SRC_HOST_NAME); the old script flagged ten @-variables.
-    "dml_unassigned": 2,
-    "dml_not_described": 5,
-    "dml_unconfirmed": 1,
+    # post194: metadata_inserts.sql is retired - its dml_unassigned / dml_not_described /
+    # dml_unconfirmed flags are gone with it
     "faq_unanswered": 6,
     "load_mode_not_enforced": 1,
     "Layer-2": 6,                  # "Layer-2 candidate pending engineer approval: …"
@@ -597,7 +592,7 @@ def test_pair1_default_profile_writes_two_files_and_no_combined_ddl(pair1_config
     framework_dir = tmp_path / "out" / pair1_spec.feed_slug / "framework"
     names = sorted(p.name for p in framework_dir.iterdir())
     assert names == ["config_inserts.xlsx", "config_rows.xlsx",   # post178: no ADDITION.md
-                     "metadata_inserts.sql",       # always, framework mode (2026-10-08)
+                     # post194: no metadata_inserts.sql
                      "vnd_p_accum_client_stage_table_creation.txt",
                      "vnd_p_accum_client_standard_table_creation.txt"]   # no notebook (M7)
     # iig_v1: the 7-tab reference layout, no blank-and-flag flags.

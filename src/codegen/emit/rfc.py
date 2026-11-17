@@ -96,10 +96,10 @@ def _answer(faq: LoadPatternFaq, name: str) -> str | None:
 
 def _target_system(name: str) -> str:
     """M7 §4: the system a package file runs against / is read on."""
-    from codegen.emit.framework import TARGET_DDL, TARGET_DML, TARGET_REVIEW, artefact_group
+    from codegen.emit.framework import TARGET_DDL, TARGET_REVIEW, artefact_group
 
     group = artefact_group(name)
-    if group in (TARGET_DDL, TARGET_DML):
+    if group == TARGET_DDL:
         return group
     if group == TARGET_REVIEW or name.endswith("_Deployment_Playbook.xlsx"):
         return "Review sheets (people)"
@@ -339,23 +339,6 @@ def emit_rfc_package(
             "drag_fill_suspect", "segments_from_sttm", "file_pattern_from_sttm",
             "ddl_file_name_from_slug", "rfc_feed_name_from_slug"))
     tokens["ddl_files"] = ", ".join(ddl_names)
-
-    # 1b. The metadata rows (metadata_inserts.sql — the client's "DDL") and,
-    # with the DML switches on, the notebooks that run it (the per-environment
-    # config_inserts_<env>.sql is retired, 2026-10-08).
-    for path in framework.files:
-        if not (path.name == "metadata_inserts.sql"
-                or (path.name.startswith("Insert_scripts_config_table_")
-                    and path.suffix == ".py")) or not path.is_file():
-            continue
-        target = package_dir / path.name
-        shutil.copyfile(path, target)
-        files.append(target)
-        sources[path.name] = f"framework/{path.name}"
-        applies[path.name] = _rfc_flags_for(
-            path.name, [*flags_so_far, *flags],
-            ("dml_unassigned", "dml_unconfirmed", "dml_not_described")
-            if path.name == "metadata_inserts.sql" else ())
 
     # 2. IIG: the template sheets only (provenance stays in config_rows.xlsx).
     rows_path = next((p for p in framework.files if p.name == "config_rows.xlsx"), None)

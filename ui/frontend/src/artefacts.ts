@@ -3,9 +3,9 @@ import type { Layer2State } from "./api";
 /* The framework artefacts the App presents per feed (2026-10-16 demo cleanup):
    exactly <FEED>_DDL.txt, its test cases, <feed>_IIG.xlsx and
    <feed>_IIG_REVIEW.xlsx, in that order (post178: ADDITION.md is retired - the
-   run's LOG.md replaces it). The generator still writes metadata_inserts.sql,
-   config_rows.xlsx and config_inserts.xlsx (the CLI, the harness and the DML
-   stage use them); the App just does not list them.
+   run's LOG.md replaces it). The generator still writes config_rows.xlsx and
+   config_inserts.xlsx (the CLI and the harness use them); the App just does not
+   list them. post194: metadata_inserts.sql is retired.
    post98: `shown` = the backend's output.app_files (the kinds the App lists; the
    IIG review workbook is hidden as shipped); absent = every kind. */
 

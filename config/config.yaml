@@ -1486,7 +1486,10 @@ rfc:
     - "[UPDATED_DATE] [datetime] NOT NULL"
 
 dml:
-  # The SQL Server metadata-DB runner (emit/dml.py). The metadata rows are
+  # RETIRED (post194, Soham 2026-11-16): metadata_inserts.sql and the runner
+  # notebooks are no longer written; this section is still accepted (an overlay may
+  # set it) and read by nothing. What it was: the SQL Server metadata-DB runner
+  # (emit/dml.py). The metadata rows were
   # framework/metadata_inserts.sql — the client's "DDL" — written on EVERY
   # framework run from the same cells as the IIG (2026-10-08). These switches
   # (with the profile's emit_dml) gate only the per-environment Databricks

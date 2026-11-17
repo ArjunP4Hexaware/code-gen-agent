@@ -13,17 +13,12 @@ named by ``framework.metadata_layout``) is the single source of truth — the
 same tabs, headers, provenance badges and coverage the preview panel shows
 are what gets approved and inserted. Framework-assigned ID columns
 (``always_blank``) render as ``framework.id_placeholder`` and are flagged,
-never invented. DDL stays engineer-run: nothing here creates tables, and
-the inserts are plain INSERTs — idempotency belongs to the framework's own
-load path.
+never invented. DDL stays engineer-run: nothing here creates tables.
 
 Multi-table step 6: the combined CREATE text is one block per table and
-layer (``table_definitions``), and ``metadata_inserts.sql``
-(``codegen.emit.metadata_inserts``) carries the metadata rows that define those
-tables — the client's "DDL" — from the same payload as the IIG, on EVERY
-framework run (2026-10-08). The profile's ``emit_dml`` + ``dml.enabled``
-switches now gate only the runner notebooks that execute it; the
-per-environment ``config_inserts_<env>.sql`` it replaced is retired.
+layer (``table_definitions``). post194: ``metadata_inserts.sql`` (the metadata
+INSERT rows) and the DML runner notebooks that executed it are retired - the IIG
+workbook is the framework hand-over.
 """
 
 from __future__ import annotations
@@ -36,8 +31,6 @@ from pathlib import Path
 from codegen.config import Config, ConventionsProfileConfig
 from codegen.contracts.frd import stated_source
 from codegen.contracts.resolved import ResolvedFeedSpec, ResolvedTable
-from codegen.emit.metadata_inserts import FILE_NAME as METADATA_INSERTS_FILE
-from codegen.emit.metadata_inserts import emit_metadata_inserts
 from codegen.faq import LoadPatternFaq, summarize
 from codegen.gate.ddl_names import TYPE_NOT_WRITTEN, check_ddl_identifiers, check_ddl_types
 from codegen.gate.ddl_parse import check_ddl_parses, check_ddl_tests_read_only
@@ -63,7 +56,6 @@ from codegen.metadata_sheet import (
 
 # M7 §4: artefacts labelled by the system they run against.
 TARGET_DDL = "DDL — Databricks (Unity Catalog)"
-TARGET_DML = "DML — SQL Server metadata DB (run from notebook)"
 TARGET_REVIEW = "Review sheets"
 TARGET_NOTES = "Notes"
 TARGET_TESTS = "DDL test cases — run by the engineer after the DDL (read-only)"
@@ -102,12 +94,6 @@ def artefact_group(name: str) -> str:
         return TARGET_TESTS
     if name.endswith("_table_creation.txt") or name.endswith("_DDL.txt"):
         return TARGET_DDL
-    if name == METADATA_INSERTS_FILE:
-        # Multi-table step 6: the client's "DDL" (rule 8) — the metadata rows
-        # that define the Unity Catalog tables, beside their CREATE reference.
-        return TARGET_DDL
-    if name.startswith("Insert_scripts_config_table_") and name.endswith(".py"):
-        return TARGET_DML
     if name.endswith(".xlsx"):
         return TARGET_REVIEW
     return TARGET_NOTES
@@ -116,7 +102,7 @@ def artefact_group(name: str) -> str:
 def artefact_groups(files: list[Path]) -> dict[str, list[str]]:
     """target system -> file names, groups in a fixed order."""
     out: dict[str, list[str]] = {}
-    for group in (TARGET_DDL, TARGET_DML, TARGET_REVIEW, TARGET_NOTES):
+    for group in (TARGET_DDL, TARGET_REVIEW, TARGET_NOTES):
         names = [p.name for p in files if artefact_group(p.name) == group]
         if names:
             out[group] = names
@@ -148,8 +134,6 @@ class FrameworkArtefacts:
     payload: dict | None = None
     # M7 §4: file names grouped by target system (artefact_groups).
     groups: dict[str, list[str]] = field(default_factory=dict)
-    # IIG-first: why no DML was written (None = it was). Shown in the report.
-    dml_disabled_reason: str | None = None
     # post66: IIG sheets left empty BY RULE -> the reason (MFT / delimited),
     # in sheet order — the App's review summary lists them.
     empty_by_rule: dict[str, str] = field(default_factory=dict)
@@ -527,8 +511,8 @@ def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None 
                        config: Config | None = None,
                        definitions: list[TableDefinition] | None = None) -> str | None:
     """The combined-layout deployment DDL (M4, ``acfc_prx``) — the CREATE
-    TABLE REFERENCE text (the client's "DDL" is the metadata INSERT rows,
-    ``metadata_inserts.sql``; MULTI_TABLE_DESIGN rule 8).
+    TABLE text (MULTI_TABLE_DESIGN rule 8; the metadata INSERT rows it named are
+    retired, post194).
 
     Multi-table step 6: ONE CREATE block per table and layer, each named by
     its mapped three-part name and carrying its own columns from its own
@@ -945,7 +929,7 @@ def emit_framework(
     )
     payload = _filter_payload_for_feed(payload, spec.feed_slug)
     # 2026-10-13 (pair_12): every IIG cell is ONE line before anything is written
-    # from the payload (workbooks, metadata_inserts.sql); each change is a flag.
+    # from the payload (the workbooks); each change is a flag.
     flags.extend(normalise_iig_line_breaks(payload))
     # post57 (D1 post55 pair_01): whitespace in a stated path is kept byte for
     # byte; under path_whitespace: keep each path cell gets ONE flag (coordinates
@@ -1080,7 +1064,6 @@ def emit_framework(
             files.append(txt_path)
             ddl_names.append(txt_path.name)
         definitions = None
-    dml_disabled_reason = _dml_disabled_reason(config, profile, conventions_profile)
     # post155: a table-sourced feed writes its DDL + test cases and holds the IIG
     table_source = is_table_source(spec, config)
     checks: list[GateCheck] = []
@@ -1108,31 +1091,10 @@ def emit_framework(
             checks.append(GateCheck(name="qualified_names", passed=False,
                                     details="; ".join(unqualified)))
         checks.extend(ddl_checks)
-        return _held_iig_artefacts(files, flags, checks, held, dml_disabled_reason,
-                                   empty_by_rule)
-    # Multi-table step 6 (2026-10-08: on EVERY framework run): the metadata
-    # INSERT rows that define the tables — the client's "DDL", rule 8 — from
-    # the same payload as the IIG. The table index reuses the CREATE text's
-    # definitions (flags raised once); another layout computes them for the
-    # index only, its flags discarded (its own DDL path raised them).
-    metadata_inserts = emit_metadata_inserts(
-        spec, payload, definitions, config, framework_dir, banner,
-        ddl_name=" / ".join(ddl_names) or None, faq=faq)
-    files.append(metadata_inserts.path)
-    flags.extend(metadata_inserts.flags)
-    # M7 §3, retired SQL 2026-10-08: behind the DML switches, only the runner
-    # notebooks that execute metadata_inserts.sql over JDBC.
-    dml_artefacts = None
-    if dml_disabled_reason is None:
-        from codegen.emit.dml import emit_dml
-
-        dml_artefacts = emit_dml(config, framework_dir, metadata_inserts.path.name)
-        files.extend(dml_artefacts.files)
-        flags.extend(dml_artefacts.flags)
-    # M7 gate checks: unstated catalog / schema is a FAIL, not a flag.
-    if dml_artefacts is not None:
-        checks.extend(dml_artefacts.checks)
-    checks.append(metadata_inserts.check)
+        return _held_iig_artefacts(files, flags, checks, held, empty_by_rule)
+    # post194 (Soham, 2026-11-16): metadata_inserts.sql and the DML runner notebooks
+    # that executed it are RETIRED - the IIG workbook is the framework hand-over.
+    # Unstated catalog / schema stays a FAIL, not a flag.
     unqualified = [f for f in flags if f.startswith(("catalog_unstated:", "schema_unstated:"))]
     if unqualified:
         checks.append(GateCheck(name="qualified_names", passed=False,
@@ -1151,17 +1113,6 @@ def emit_framework(
 
     inserts_path = framework_dir / "config_inserts.xlsx"
     inserts_workbook = _config_inserts_workbook(payload, spec, config, banner)
-    if dml_disabled_reason is None:
-        # M7 §4: sheet 1 says this workbook is the REVIEW copy; the executable
-        # script is metadata_inserts.sql next to it (config_inserts_<env>.sql
-        # retired 2026-10-08).
-        readme = inserts_workbook.create_sheet(title="README", index=0)
-        readme.append([f"review copy — executable script is {metadata_inserts.path.name} "
-                       "(fill every <<COLUMN#n>> placeholder first); run it from "
-                       f"{config.dml.notebook_file_name_pattern.format(env='<env>')} "
-                       f"(environments: {', '.join(config.dml.environments)}) against the SQL "
-                       "Server metadata DB after the config rows are approved"])
-        readme.column_dimensions["A"].width = 140
     inserts_path.write_bytes(stable_workbook_bytes(inserts_workbook))
     files.append(inserts_path)
 
@@ -1233,14 +1184,12 @@ def emit_framework(
         checks=checks,
         payload=payload,
         groups=artefact_groups(files),
-        dml_disabled_reason=dml_disabled_reason,
         empty_by_rule=empty_by_rule,
         review_flags=to_review,
     )
 
 
-def _held_iig_artefacts(files, flags, checks, held, dml_disabled_reason,
-                        empty_by_rule) -> FrameworkArtefacts:
+def _held_iig_artefacts(files, flags, checks, held, empty_by_rule) -> FrameworkArtefacts:
     """post155: a table-sourced feed's framework output - the DDL and its test
     cases (already written); the hold and why travel as ``held_back`` (the run's
     LOG.md and the feed's report say it; post178: no ADDITION.md). No payload
@@ -1253,8 +1202,7 @@ def _held_iig_artefacts(files, flags, checks, held, dml_disabled_reason,
     return FrameworkArtefacts(
         files=files, row_counts={}, coverage={}, flagged_blank_columns=[],
         assumed_notes=[], held_back=held_back, flags=flags, checks=checks, payload=None,
-        groups=artefact_groups(files), dml_disabled_reason=dml_disabled_reason,
-        empty_by_rule=empty_by_rule,
+        groups=artefact_groups(files), empty_by_rule=empty_by_rule,
     )
 
 
@@ -1271,17 +1219,6 @@ def _review_flow(ddl_list: str, review_name: str, clean_name: str) -> str:
     third = (f"3. **CI/CD applies the DDL** — after approval, the CI/CD pipeline applies "
              f"{ddl_list} and loads the approved IIG. Nothing is applied before approval.")
     return "\n".join([first, second, third])
-
-
-def _dml_disabled_reason(config: Config, profile, profile_name: str | None) -> str | None:
-    """None when the runner notebooks are written; else which switch is off.
-    ``metadata_inserts.sql`` is written regardless (2026-10-08)."""
-    if not config.dml.enabled:
-        return "dml.enabled is false"
-    if not profile.emit_dml:
-        name = profile_name or config.conventions.profile
-        return f"conventions profile {name!r} has emit_dml: false"
-    return None
 
 
 def presented_files(files: list[Path]) -> list[Path]:

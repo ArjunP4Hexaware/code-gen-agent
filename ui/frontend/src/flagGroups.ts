@@ -59,11 +59,6 @@ const RULES: SectionRule[] = [
     match: starts("ddl_", "sql_"),
   },
   {
-    id: "inserts", title: "Metadata inserts",
-    hint: "Values in metadata_inserts.sql that are open or not yet confirmed.",
-    match: starts("dml_", "metadata_", "config_"),
-  },
-  {
     id: "environment", title: "Environment",
     hint: "Values taken from the environment profile (D1 / A2 / PR).",
     match: starts("environment", "env_", "connection"),

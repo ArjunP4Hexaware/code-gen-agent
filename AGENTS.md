@@ -7,7 +7,7 @@ Session state goes elsewhere:
 - **Where the work is now** (state, next up, open items, container recipes):
   `docs/RESTART.md` — read it first, update it at the end of a session.
 - **What each version did:** `CHANGELOG_ACFC.md`.
-- **Older notes, verbatim:** `docs/CLAUDE_HISTORY.md` (§[H2]–§[H12]; §[H9] = everything
+- **Older notes, verbatim:** `docs/CLAUDE_HISTORY.md` (§[H2]–§[H26], one per session; §[H9] = everything
   this file carried before the 2026-10-23 clean-up, §[H10] = retired RESTART.md blocks).
   The pre-clean-up file itself: `git show fa79a28:CLAUDE.md`.
 
@@ -60,8 +60,8 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   blank. The one exception (Soham, 2026-11-04, post166): under
   `placeholder_pipeline_ids` the IIG WORKBOOK shows placeholder PIPELINE_IDs that only
   show the flow (grand master 0 with a blank parent - NULL, Soham's decision, not 0 - master 1, children on, parent =
-  their master), flagged `iig_placeholder_id`; `metadata_inserts.sql` never carries
-  them (open `<<PIPELINE_ID#n>>`). Connection IDs come from the environment profile, never guessed. A `SYN_`
+  their master), flagged `iig_placeholder_id`; no other artefact carries them
+  (`metadata_inserts.sql` is retired, post194). Connection IDs come from the environment profile, never guessed. A `SYN_`
   template is never written.
 - **The agent never creates tables, never runs jobs, never writes back** beyond the
   confirm-gated artefact publish. The only SQL the Databricks seam may send is `EXPLAIN`
@@ -149,7 +149,15 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   differing file before the copies are deleted — run the classifier INSIDE the check
   script, before its cleanup (kinds and counts only; a changed contract moves every
   banner sha256, so separate "sha only" from real changes). A notebook change runs the
-  check in notebook mode (`--output-mode notebook`).
+  check in notebook mode (`PAIR_CHECK_MODE=notebook tools/check/pair_check.sh run`).
+  Reproduce a tester's bug on THEIR documents first (mock, /tmp); a pair worth keeping
+  for re-tests goes to the Workspace `frd_sttm_pairs/pair_<n>` with a README (pair_13 =
+  2026-11-16), never the repo.
+- **Every bug fix gets a `docs/acfc/BUG_FIX_LOG.md` entry before the push** (Soham,
+  2026-11-16: a fix that moves the flow is how new bugs are made): root cause, the exact
+  change (file :: function / config key), its reach in the 12-pair check (pairs, sheets,
+  columns, counts), side effects, what it deliberately leaves unchanged, the tests, how to
+  revert it. Template and rules (no client values) at the top of that file.
 - **Working while a suite runs:** never edit `src/` or `tests/` under a running suite.
   Develop the next fix in a worktree (`git worktree add -b wip/<x> /tmp/t/<x> HEAD`, run
   with `PYTHONPATH=/tmp/t/<x>/src` and `-p no:cacheprovider`), then cherry-pick it onto

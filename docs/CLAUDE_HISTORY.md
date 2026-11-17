@@ -4731,3 +4731,231 @@ filled with the feed's own values (target table, real location):
   (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), dev deployed + smoked,
   staging merged identical-tree + deployed + smoked on Soham's word.
 
+
+
+## §[H25] Session 2026-11-13: container reset, post191-post192 (Code Review width, FRD labelled lines + the dropped FRD answers)
+
+- **Reset:** `~/bootstrap` green; OAuth by the background-login recipe (Soham's `!` runs
+  broke on the placeholder and a wrapped paste - the login must listen IN the container).
+- **post191:** the 74-char comment wrapped; deployed to staging after the tester's stale
+  paused run (11/12 13:14 UTC, needs_layout, 7 FRD roles) was analysed and cancelled.
+- **The stale run's analysis:** the FRD (F1 DQ / Vendor tables + F2 requirement tables)
+  had no metadata rows; the live model placed none of the 8 FRD roles; every question
+  offered the same unrelated rows; a repro (mock, /tmp) matched. Two pre-existing bugs
+  found while building the fix: the App's FRD answers dropped silently + read blank.
+  Soham chose option (a) (read labelled lines) over (b) (rely on the live line locator);
+  checking first showed (a) as first described filled NOTHING (no known label, the scan
+  only covered placed cells) - re-scoped to 1+2+3 = post192.
+- **Spiral check:** hook (a) fired on the new test file's red phase - a false trigger
+  (logged; known cause "brand-new test file", Seen 2026-11-13; replay scenario added).
+- **The abbreviation list:** traced to the Data Layers Standards V1.1 (not the Naming
+  Standards, as earlier notes said); message for Lokesh drafted (item 2).
+- **Process slips:** a scenario-file rewrite re-indented 256 lines (reverted; re-written in
+  the file's 2-space indent); a pytest run from `tests/` wrote a stray `tests/ui/` state
+  file (deleted) - run pytest from the repo root.
+
+### Retired RESTART.md blocks (2026-11-13 hand-off)
+
+## Start here (session ended 2026-11-10 - dev compute STOPPED; staging = post189; feature = post190, pushed, NOT deployed)
+
+**First check:** `git fetch && git status -sb` = up to date with
+`origin/feature/multi-table` (head = the hand-off docs commit on top of 772c99d, post190).
+- **dev `codegen-agent`:** compute STOPPED (found stopped at the post190 deploy; `ship.sh`
+  refused, as it should). Its last deployment is post189 (fdf7e9f). Starting it bills
+  compute - Soham's call; then `/ship-dev` deploys post190 (health post190 + smoke).
+- **staging `codegen-agent-staging`:** post189, `main` = 1f30078 (identical-tree merge),
+  health + smoke green. post190 goes there only on Soham's word (`/ship-staging`).
+- **post190 is fully checked:** both suites green (2592 / 2243), framework 12-pair check
+  identical (0 REAL changes), the 13 real notebooks under Code Review's `--no_llm` rules:
+  efficiency 100 on all, only DL-006 / NM-001 / NM-004 / PY-006 (known, below) and ONE
+  PY-003 - a 74-character comment at `templates/notebook_v2/run.py.j2:47` (the shared
+  segments' union; wrap it: open item 1).
+- After a container reset: `~/bootstrap`, then the OAuth login (recipe below) - auto-memory
+  does not survive a reset, so anything that must is written here.
+- Session log: CLAUDE_HISTORY §[H24].
+
+
+## State (2026-11-10 — post188 to post190)
+
+- **post188** inputs per App (`CODEGEN_STORAGE_PER_APP: inputs,state,outputs`); staging
+  uses `codegen/inputs/codegen-agent-staging/` (the shared uploads copied there first).
+- **post189** the incident tracker's CodeGen items 4-8 (file pattern line, Raw Path
+  landing, N/A notes never paths, `<File.extn>` dropped, SRC_COMPRESSION from the Archive
+  Schedule, PROCESS_NAME provenance). Tracker: SharePoint `AI_Agent_Incident_tracker.xlsx`,
+  exported as JSON by an Office Script (`/tmp/t/graph/export_incident_tracker.ts` - gone
+  after a reset; the script is in the H24 session's chat) and pasted by Soham.
+- **post190** the notebook vs the Code Review agent's exact rules (see Start here).
+  Code Review's engine: `/Workspace/Users/<owner>/code_review_agent/app_root` (another
+  engineer's folder - read a /tmp copy, never `.git`, never vendored); run
+  `review.py --no_llm --fail_on NONE --outfile <json> <files>` from a scratch venv with
+  `nbformat pyyaml sqlglot jsonschema python-dotenv databricks-sdk` (pins in its
+  `app_root/requirements.txt`).
+- Every version: both suites green, the framework 12-pair check outcomes unchanged
+  (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL).
+
+
+
+## §[H26] Session 2026-11-16: container reset, post193-post194 (tracker incidents 11-13, the bug-fix log, metadata_inserts.sql retired)
+
+- **Reset:** `~/bootstrap` green (venvs, Chromium, hooks, feature branch, gh push); OAuth
+  `codegen-oaut` by the background-login recipe (Soham pasted the callback URL; curl'd in
+  the container). No MLflow Stop hook came back.
+- **Manager deck:** a 43-slide codebase walkthrough on the WSR deck's ACFC masters (theme,
+  photo cover, logo dividers / closing), one slide per key file + summary + speaker notes;
+  python-pptx in a /tmp venv, Carlito-metric fit check + PIL mock-ups (LibreOffice from
+  apt debs crashed headless - not needed). Saved to the Workspace next to the WSR deck;
+  the clone copy is gitignored (`*.pptx`). Soham asked to drop metadata_inserts.sql from
+  it ("deprecated") - that became post194.
+- **Incident tracker:** a new Office Script exported the `CodeGen` sheet as JSON into a
+  `_JSON_EXPORT` sheet (read only; Soham deletes the sheet after). The script, for next
+  time: reads `SHEETS = ["CodeGen"]`, header = first row with 2+ filled cells, one JSON
+  line per cell in column A as text, dates as ISO, `_row` per record. 17 incidents: 8
+  resolved, 9 open (2, 9-14, 16, 17). A second Office Script appended "Update 16-Nov:"
+  lines to Incident Solution by Incident No (DRY_RUN first, idempotent); #17 Resolved, the
+  rest Open until staging has post193. Both scripts were given in the chat only (untested
+  here - Office Scripts cannot run in the container).
+- **Reproduction first (AGENTS.md):** the tester's uploads (staging inputs) hashed - none
+  of the 12 pairs; the newest STTM + its FRD run through the container harness (mock,
+  /tmp, staging's own layout cache + the App's state): post192 reproduced #11 (list
+  filled), #12 (80 pieces / 74 columns), #13 (4 key columns); #9's claim was half wrong
+  (handler rows exist; SRC_FORMAT blank, not TXT).
+- **post193** (#11 / #12 / #13). The 12-pair check caught a side effect of #11: pair_01's
+  review copy listed the empty list as "no document states it" (858 cell diffs = one new
+  row shifting the rest) - fixed with `deliberate_blank`. One existing test pinned post43's
+  `full` types - re-pinned. Dev deploy + a live run of the tester's pair green.
+- **Soham's ask: a log of what each fix touched** ("affecting the flow and creating new
+  bugs") -> `docs/acfc/BUG_FIX_LOG.md` (template, per-fix reach from the 12-pair check,
+  side effects, revert) + the AGENTS.md rule.
+- **History check:** local / origin / main / CI / App deployments all agree; two
+  cancelled CI runs were superseded by a docs push on the same tree; main gets no CI by
+  design (`on.push.branches`).
+- **Notebook-mode 12-pair check** (post193): `pair_check.sh` gained `PAIR_CHECK_MODE`;
+  clean (pair_01 loads as-is, no reject split; the leftover `raise` is unreachable).
+- **post194:** metadata_inserts.sql retired in code (Soham: "retire it in the code too");
+  done in a worktree while the notebook check ran from the checkout. 12-pair: IIG cells
+  unchanged everywhere, 13 .sql files gone, one review-copy note reworded.
+- **Staging NOT deployed:** a tester run was paused in `needs_answers` all session.
+  Message drafted for her (in Soham's voice): the fixes, that her paused run would be
+  cleared, re-run the Accumulators pair, WF_ under Advanced options, metadata_inserts.sql
+  no longer produced.
+- **Stored for re-testing (Soham):** the tester's pair as `frd_sttm_pairs/pair_13`.
+- **Process slips:** a revert-proof script failed on a non-unique match (re-done with an
+  anchored block); `app_api.py` truncates at 4000 chars by default (`APP_API_CHARS`).
+- **Cleanup at hand-off:** the /tmp client copies (`/tmp/t/repro`, `/tmp/t/pairs`,
+  `/tmp/t/pairs_nb`) deleted with `pair_check.sh cleanup`; the worktree removed.
+
+### Retired RESTART.md blocks (2026-11-16 hand-off)
+
+## Start here (session ended 2026-11-13 - dev compute STOPPED; staging = post192; feature = post192, pushed)
+
+**First check:** `git fetch && git status -sb` = up to date with
+`origin/feature/multi-table` (head = the hand-off docs commit on top of 9b23113, post192).
+- **dev `codegen-agent`:** compute STOPPED, last deployment post189 (fdf7e9f). Starting it
+  bills compute - Soham's call; then `/ship-dev` deploys post192.
+- **staging `codegen-agent-staging`:** post192, `main` = 820047f (identical-tree merge),
+  health + smoke green. The tester's paused run (11/12, needs_layout) was CANCELLED on
+  Soham's word before the post191 deploy (folder `demo_20261112_131457` kept).
+- **post191 + post192 fully checked:** both suites green (post192: 2600 / 2251), the
+  framework 12-pair check outcomes unchanged; post192's REAL changes = pair_10's frequency
+  now read from a "File Frequency:" line (flagged `frd_line_located:`) + the new line
+  choices in the open questions' reports - no DDL / IIG / SQL / notebook changed. The
+  post191 notebook-mode 12-pair check was NOT run (comment-only change, Soham's call).
+- **Before a deploy, check staging's stored runs** (`GET /api/demo/runs`, `/api/demo/status`
+  through `tools/check/app_api.py`, `APP_API_CHARS=100000000` for the full JSON) and analyse
+  them - Soham asks for it (2026-11-13). A deploy kills a paused run: cancel it first
+  (`POST /api/demo/cancel`) on his word.
+- After a container reset: `~/bootstrap`, then the OAuth login (recipe below) - auto-memory
+  does not survive a reset, so anything that must is written here.
+- Session log: CLAUDE_HISTORY §[H25].
+
+**Open, in order:**
+1. **Tell the tester (via Soham):** staging has post190-192 - her 11/12 run was cancelled
+   for the deploy; re-run that FRD: frequency now fills itself, each open question offers
+   the document's own labelled lines, and FRD answers are APPLIED (they were dropped
+   silently before post192). Watch that run's next stored status.
+1b. **A mixed-family FRD reader (not built, Soham's call):** the tester's FRD has F1
+   section tables (Data Quality, Vendor Metadata) AND F2 Solution Requirement tables;
+   `discover_frd` takes F1 as soon as one F1 table exists, so the requirement tables are
+   never read as F2 - 6 questions stay open on it (format in a nested table, LOBs / domain
+   in prose, Load Type with two values on following lines).
+1c. **Small, mine:** the unresolved-questions report names a line choice by its row label
+   only (`answers.unresolved_report`) - add the `inline_label` (a structural label) so the
+   choices differ there; the live layout model's STTM answer had an invalid `source`
+   value (refused by the schema, 4 of 4 sheets kept) - tighten the prompt / schema text.
+2. **The Standard Abbreviation List v28 - ASKED (Lokesh, via Soham, 2026-11-13; message
+   drafted in the session, not known if sent):** it is cited as
+   `Standard_Abbreviation_List_modified_v28.csv` in the Data Lakehouse Data Layers
+   Standards V1.1 "Reference Documents" (a COLUMN abbreviation list - it may not shorten
+   notebook name parts; asked); the Naming Standards' "Abbreviations" section points at an
+   attachment missing from our copy. Same ask: Data Domains - SOR SOT.xlsx, the Data
+   Modelling Guidelines, an IIG Framework sample (the Code Review PRD's G-1). Files land
+   in the Workspace `standards_docs` folder. Waiting on it: NM-001 (names 41-83 vs 30
+   chars), NM-004, Code Review's NM-006.
+3. **DL-006 (Soham's call):** the notebook reads source files by `abfss://` address; the
+   standard prefers a Unity Catalog volume. No document names one - ask ACFC whether raw
+   files land in a volume and its name per environment (then one environment-profile key).
+4. **Incident 2 (Lokesh):** external tables - his property set + `LOCATION` format, and
+   which FRD / STTM field marks a table external (message drafted in the session, H24).
+5. **PY-006 on feeds with many DATA_QUALITY_RULES rows** (pair_12: `apply_stage_rules` 261
+   lines): a data-driven rule dispatch would fix it - not built, Soham's call.
+6. **DECIDED (Lokesh via Soham, 2026-11-10): the standard TBLPROPERTIES stay exactly as
+   post185 has them** ("suggested by Databricks") - incl. `delta.minReaderVersion 1` /
+   `minWriterVersion 2` and `predictiveOptimization`; tracker incident 3 closed by that.
+   Do not change them or re-raise the 3 / 7 and label points. Still open from the same
+   ask: incident 2 (external-table properties + how a document marks a table external).
+7. **Ask Lokesh (via Soham), from pair_2's TDD** (`rfc_samples/TDD_Implement_Medicare_
+   Growth_Expansion_2025_1003866.docx`). **(a) DECIDED (Soham, 2026-11-10): the Naming
+   Standards win** - grand master names keep the product / sub-product codes (post186 as
+   is). **(c) DECIDED (Lokesh via Soham, 2026-11-10): pair_12 is a Databricks Workflow -
+   its names are `WF_`; its prod IIG's `PL_` names are wrong** (choose "Databricks
+   Workflow (WF_)" in Advanced options for pair_12; a WF_ run scores as a PIPELINE_NAME
+   mismatch against that golden - the golden is wrong, never "fix" it back; the RFC's TDD
+   is where the orchestrator is stated). (b) explained to Soham, still open. Background:
+   (a) prod grand master names are
+   `PL_GMSTR_<source>_<subject>_<LOB>_<freq>` WITHOUT product / sub-product codes (pair_11's
+   prod IIG too) - the Naming Standards pattern post186 follows has them; which wins?
+   (b) most modules REUSE an existing grand master - should a new feed point at one (its
+   name from the BSA) instead of the agent always writing a new GMSTR + MSTR? (c) pair_12's
+   TDD says "Databricks Workflow Job" yet its prod IIG names are PL_.
+7b. **Also for Lokesh (drafted, acronyms spelled out, H23):** for plain vendor-file
+   ingestion is the sub-product NSP? Is a CDC-via-HVR feed sub-product HVR (pair_06) or
+   only the tool? Is a load "for HEDIS consumption" product DLK or HDS (pairs 05 / 07)?
+   Any answer is a config change (the 3.2 / 3.3 `stated_as` phrases or a per-feed
+   override), no code.
+8. **TDD training** (Venu): only two TDDs exist in `rfc_samples` (pair_2's, pair_12's).
+   They link "Generic Pipeline Design Documents" and "Parameterize ADF Workflows" on
+   SharePoint (unreachable from here) - copies in the Workspace would be the useful ones.
+   A TDD is training material only (AGENTS.md); more TDDs are needed before any convention
+   is learned + proven on held-out pairs.
+10. **A second standard table per stage table** (the 820 pair's `_sumry` tables): a model
+   change in `metadata_template._table_groups` - Soham's call before any code.
+11. **Rows 3 / 4 of the delegation workbook** (check an existing pipeline / IIG config, the
+   tables in Unity Catalog): need read-only queries beyond the EXPLAIN-only rule - that
+   rule changes first (his call).
+12. NO_OF_CYCLE_PER_DAY "1" (corpus 98.2%) is wrong on pairs 11 / 12 - Soham's call.
+13. **`codingapp` deploy** - the bootstrap patch is IMPORTED (CLAUDE_HISTORY, retired block "State (2026-11-04 — cost work, model pilot, App bootstrap patch)");
+   `databricks apps deploy codingapp` restarts this container: on Soham's word, last in a
+   session. After it: `gh auth login`, `~/bootstrap`, the checks in that block.
+14. Step 3 for the STTM cell locator (`layout/cell_locate.py` reads only FRD cells); ask the
+   BSA about pairs 05 / 11's STTM "DQ rules" sheet and pair_12's recycle days / stage load
+   option; the Apps stop / start schedule, Venu's GPT-6.1 Sol answer, the 11-pair layout
+   cost, Rama's answers (CLAUDE_HISTORY, the blocks retired 2026-11-10).
+
+## State (2026-11-13 — post191, post192)
+
+- **post191** the last PY-003: the 74-char comment in `templates/notebook_v2/run.py.j2`
+  wrapped; the recycle / shared-segment template test checks line width too.
+- **post192** a staging FRD (no metadata rows; prose cells with `<label>: <value>` lines):
+  (1) the App's FRD answers were dropped silently (`source` key forbidden by
+  `FrdFieldSource`) and read blank (no value cell) - `_merge_frd` fixed; (2) "File
+  Frequency" a frequency label; (3) `frd_docx._place_line_fields`: a single-value field
+  with no row placed at its ONE labelled line (single-feed docs; disagreeing lines place
+  nothing; `frd_line_located:` in the review copy); (4) `resolve._frd_line_candidates`:
+  every labelled line a dialog choice (`inline_label`, `value_col`, `line` - the line text
+  is UI-only, never in a report). Tests: `tests/test_frd_line_fields_post192.py` + the
+  LayoutQuestions vitest.
+- Slide 4 of the 11/13 WSR deck (Soham's Workspace) - CodeGen card rewritten in the deck's
+  bullet style; the original is only in `/tmp/wsr/` (gone after a reset).
+- Every version: both suites green, the framework 12-pair check outcomes unchanged
+  (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL).
+

@@ -148,7 +148,7 @@ class LoadPatternFaq(BaseModel):
     # M7 companions (NOT questions): the engineer-assigned framework ids the
     # DML variables block carries (METADATA_DB_SEMANTICS §2, §5) and the
     # source connection's host. (They fed the retired config_inserts_<env>.sql
-    # variables block; metadata_inserts.sql leaves the ids as placeholders.)
+    # variables block; the framework assigns the ids.)
     pipeline_id: FaqAnswer = FaqAnswer(value="unknown")
     parent_pipeline_id: FaqAnswer = FaqAnswer(value="unknown")
     group_id: FaqAnswer = FaqAnswer(value="unknown")

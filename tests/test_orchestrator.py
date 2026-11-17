@@ -79,8 +79,13 @@ def test_generate_orchestrator_flag_names_and_sources_the_prefix(tmp_path):
         assert "= `WF_CHLD_DLK_NSP_RAW_TO_STG_" in line
         assert "{pipeline_prefix} = `WF` ← the run's pipeline orchestrator: Databricks " \
                "Workflow (WF_)" in section
-    iig = "".join(p.read_text("utf-8") for p in (tmp_path / "out").rglob("metadata_inserts.sql"))
-    assert "'WF_CHLD_DLK_NSP_RAW_TO_STG_" in iig and "'PL_CHLD_" not in iig
+    from openpyxl import load_workbook  # post194: the IIG, not the retired SQL
+
+    names = [str(cell) for p in (tmp_path / "out").rglob("*_IIG.xlsx")
+             for ws in load_workbook(p, read_only=True) for row in ws.iter_rows(values_only=True)
+             for cell in row if cell]
+    assert any(n.startswith("WF_CHLD_DLK_NSP_RAW_TO_STG_") for n in names)
+    assert not any(n.startswith("PL_CHLD_") for n in names)
 
 
 def test_an_unknown_orchestrator_stops_generate_before_anything_is_written(tmp_path):

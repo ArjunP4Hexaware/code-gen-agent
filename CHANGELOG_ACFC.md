@@ -4,6 +4,61 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post194 — 2026-11-16 (metadata_inserts.sql retired)
+
+Soham, 2026-11-16: `metadata_inserts.sql` is deprecated - the App never offered it
+(`output.app_files`: DDL, DDL test cases, IIG, log) and the IIG workbook is the framework
+hand-over. Retired in code:
+
+1. **Not written any more:** `framework/metadata_inserts.sql` and the DML runner notebooks
+   that executed it (`Insert_scripts_config_table_<env>.py`, already off by default:
+   `emit_dml: false`). `emit/metadata_inserts.py` and `emit/dml.py` are deleted; their gate
+   check `metadata_inserts` and flags `dml_unassigned` / `dml_not_described` /
+   `dml_unconfirmed` go with them (no outcome rested on them: both GATE_FAIL pairs fail on
+   the DDL checks). `config_inserts.xlsx` loses the README sheet that pointed at the script.
+2. **Kept, so nothing else moves:** `config_rows.xlsx` and `config_inserts.xlsx`; the
+   `dml:` config section and `emit_dml` stay ACCEPTED (an overlay may set them) and read
+   by nothing; the banner helper `comment1` moved verbatim to `emit/comment_text.py`.
+3. **The App:** the "Metadata inserts" flag group is gone (no flag feeds it); `dist`
+   rebuilt. Docs: AGENTS.md, `.claude/rules/pipeline.md`, config comments.
+
+Tests: `test_metadata_inserts.py` / `test_dml_emit.py` deleted; 12 files re-pinned (file
+lists, the pair-1 flag list, the RFC package); checks that read the SQL now read the IIG
+workbook (the WF_ names) or assert the file is absent.
+
+## 0.5.8.post193 — 2026-11-16 (tracker incidents 11-13: no-rejection feeds, true duplicates, SRC_DATA_TYPE base types)
+
+The incident tracker's new CodeGen items (11-17, a staging Accumulators run) were first
+reproduced on the tester's own documents (mock, /tmp; post192 had every one). Three are
+fixed here, each from what the FRD states or the framework's own parser:
+
+1. **Incident 11 - a feed loaded as-is gets no mandatory list.** The stage load rejects
+   any row with a `MANDATORY_FIELD_LIST` field null, so header / trailer rows and valid
+   records with an optional blank were rejected although the FRD's incomplete-record row
+   says "No Rejection (Load As-IS)". When that row starts with a
+   `dq_no_rejection_words` phrase, the cell is EMPTY (never "NA" - the notebook reads it
+   as a column name), badged `from_frd`, the reason quoting the row
+   (`metadata_template.frd_states_no_rejection`), and marked a decided blank: the review
+   copy does not ask the BSA for it (the 12-pair check caught "no document states it" on
+   pair_01) and `metadata_inserts.sql` writes `NULL`. A blank / "NA" row states nothing:
+   the STTM's required columns stay.
+2. **Incident 13 - true duplicates mean every field.** A FRD duplicate row that rejects
+   only "True Duplicate" records (`dq_true_duplicate_words`, word boundaries) now builds
+   the DeDuplicationRule on every data column of the detail table (audit columns are not
+   fields) - the STTM key rejected a member's valid records. A plain duplicate check keeps
+   the key (`frd_states_true_duplicates`).
+3. **Incident 12 - STGDELTA `SRC_DATA_TYPE` in base types.** The standard load splits the
+   list on commas, so `String:Decimal(12,2)` misaligned every type after it. The ACFC
+   overlay's `data_type_style` is `base` (`String:Decimal`, the pair-1 golden's form;
+   post43 chose `full` from one SD prod row). `TGT_DATA_TYPE` keeps the precision (the
+   pair-1 golden's `Decimal(17,2)`) and the DDL is unchanged - whether the framework
+   needs a precision-free TGT list too is asked.
+
+Not changed, by decision: incident 14 (a DataTypeCastRule; post171 writes none), 16 (no
+grand master for a Workflow run), 9 / 10 (fixed-width `SRC_FORMAT = CSV` and the pipe
+delimiter - framework conventions to confirm), 17 (`WF_` is already a run choice,
+post187). Tests: `tests/test_tracker_incidents_post193.py` (fail with the fix reverted).
+
 ## 0.5.8.post192 — 2026-11-13 (FRD fields stated on a labelled line; the FRD dialog's answers applied)
 
 A staging FRD (2026-11-12, a tester's run left at its layout questions) has no metadata

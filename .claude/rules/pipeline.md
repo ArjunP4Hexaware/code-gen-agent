@@ -178,11 +178,10 @@ bend, working rules, tests) stay in the root `AGENTS.md`. Moved here verbatim fr
 - **Framework mode is what ACFC deploys:** an ADDITION to the client's existing
   metadata-driven framework. A feed whose FRD states a database-table source
   (`framework.table_source_formats`) is table ingestion, not built yet (the RDMS sheet):
-  it writes its DDL + test cases and HOLDS the IIG (no IIG / review / config rows /
-  inserts; a flag, a HELD BACK line, one non-blocking NOTE) - never file-ingestion rows
+  it writes its DDL + test cases and HOLDS the IIG (no IIG / review / config rows;
+  a flag, a HELD BACK line, one non-blocking NOTE) - never file-ingestion rows
   for a table (post155). Per feed: the deployment DDL (per conventions profile),
-  the IIG workbook + its BSA review copy, `framework/metadata_inserts.sql` (one INSERT
-  per IIG row; an open cell = unquoted `<<COLUMN#n>>`), `config_rows.xlsx`, and
+  the IIG workbook + its BSA review copy, `config_rows.xlsx`, and
   (acfc_prx) the DDL test cases `<ABBREV>_DDL_TestCases.txt` — a
   SEPARATE file, never inside the DDL (Venu): read-only SQL the engineer runs after the
   DDL, gate `ddl_tests_read_only`; the same cases as `<ABBREV>_DDL_TestCases.xlsx` in the
@@ -245,9 +244,20 @@ bend, working rules, tests) stay in the root `AGENTS.md`. Moved here verbatim fr
   an overlay; pin headers + blank list in a test. **DATA_QUALITY_RULES only where a
   document states the rule** (post171, Soham: "if we're arguing about things in the prod
   IIG that's automatically wrong"; `dq_stated_only` in the ACFC overlay): DeDup only on an
-  FRD-stated duplicate check (STTM Primary Key columns), NullCheck on the fields the STTM
-  names for a DQ check (the STTM wins over an FRD "NA"), no cast rule; whatever is only
-  derivable is an `iig_dq_not_generated:` suggestion in the review copy, never a row.
+  FRD-stated duplicate check (STTM Primary Key columns; every data column when the FRD
+  rejects only TRUE duplicates - `dq_true_duplicate_words`, post193), NullCheck on the
+  fields the STTM names for a DQ check (the STTM wins over an FRD "NA"), no cast rule;
+  whatever is only derivable is an `iig_dq_not_generated:` suggestion in the review copy,
+  never a row. An FRD incomplete-record row stating NO rejection
+  (`dq_no_rejection_words`, post193) leaves ADLS `MANDATORY_FIELD_LIST` empty, a decided
+  blank (`deliberate_blank`) - never "NA". A cell left empty on purpose always carries
+  `deliberate_blank`, or the review copy / notebook read it as missing.
+  **`metadata_inserts.sql` and the DML runner notebooks are RETIRED** (post194, Soham
+  2026-11-16): never re-add them; the IIG workbook is the framework hand-over. The
+  `dml:` config section and `emit_dml` stay ACCEPTED (an overlay may set them) but
+  nothing reads them.
+  STGDELTA `SRC_DATA_TYPE` is base types under ACFC (the standard load splits it on
+  commas; post193).
 - **Scoring vs prod goldens:** `tools/iig_diff.py --golden <xlsx> --agent <every feed's
   *_IIG.xlsx>` with the default `--pair-mode identity` (`--pair-mode key` never for a
   score); `score.json` / `diff.xlsx` / `routing.csv` carry prod text and are never

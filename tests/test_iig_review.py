@@ -171,7 +171,7 @@ def test_no_per_feed_addition_md_is_written(pair1_dirs, pair1_spec):
     assert not (framework / "ADDITION.md").exists()
     assert (framework / f"{slug}_IIG.xlsx").is_file()
     assert (framework / f"{slug}_IIG_REVIEW.xlsx").is_file()
-    assert (framework / "metadata_inserts.sql").is_file()
+    assert not (framework / "metadata_inserts.sql").exists()       # post194: retired
     assert (framework / "config_rows.xlsx").is_file()
 
 

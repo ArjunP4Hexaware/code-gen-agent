@@ -2013,6 +2013,12 @@ class MetadataTemplateConfig(BaseModel):
     dq_frd_check_labels: dict[Literal["dedup", "null_check"], list[str]] = Field(
         default_factory=dict)
     dq_no_check_words: list[str] = Field(default_factory=list)
+    # post193 (tracker incidents 11 / 13): the incomplete-record row's values that state NO
+    # record is rejected (first words) - ADLS MANDATORY_FIELD_LIST is then left empty; the
+    # duplicate row's words naming a TRUE duplicate (every field equal) - the
+    # DeDuplicationRule then lists every data column, not the STTM Primary Key
+    dq_no_rejection_words: list[str] = Field(default_factory=list)
+    dq_true_duplicate_words: list[str] = Field(default_factory=list)
     # the STTM DQ rules sheet's null-check values (as the client STTM writes them)
     dq_sheet_null_values: list[str] = Field(default_factory=list)
     # that sheet's field-name and rule column headers (as the client STTM writes them)
@@ -2145,7 +2151,7 @@ class MetadataTemplateConfig(BaseModel):
     # NOTE per column (iig_pending:<TAB>.<HEADER>).
     pending_cells: dict[str, dict[str, str]] = Field(default_factory=dict)
     # 2026-10-14 (D1 post43 item 4): columns DECIDED blank — tab -> header ->
-    # citation. The cell is blank and not open (metadata_inserts.sql writes NULL),
+    # citation. The cell is blank and not open (a decided blank),
     # e.g. ADLS FILE_METADATA: NULL on every prod row.
     deliberate_blanks: dict[str, dict[str, str]] = Field(default_factory=dict)
     # 2026-10-14: ADLS FILE_HEADER_FLAG by the file's format when no FAQ
@@ -2169,7 +2175,7 @@ class MetadataTemplateConfig(BaseModel):
     # post166 (Soham, 2026-11-04): placeholder PIPELINE_IDs that show the flow - each
     # pipeline_roles entry numbered from 0 in order (grand master 0, master 1, the
     # children on), PARENT_PIPELINE_ID its parent's id, the top one's parent blank.
-    # Workbook only: metadata_inserts.sql keeps <<PIPELINE_ID#n>>. Off = the IDs stay
+    # Workbook only (no other artefact carries them). Off = the IDs stay
     # always_blank. pipeline_id_roles: a non-schedule sheet -> the role whose pipeline
     # runs its rows (the notebook sheet takes each template row's _pipeline_role).
     placeholder_pipeline_ids: bool = False
@@ -2357,9 +2363,10 @@ class DmlTableNameConfig(BaseModel):
 
 
 class DmlConfig(BaseModel):
-    """The SQL Server metadata DB side of ``metadata_inserts.sql`` (written on
-    every framework run since 2026-10-08) and the runner notebooks that
-    execute it (``emit_dml`` + ``enabled`` gate only those). The DB-side
+    """RETIRED (post194, Soham 2026-11-16): ``metadata_inserts.sql`` and the DML
+    runner notebooks are no longer written, so nothing reads this section. It is
+    still ACCEPTED so an overlay that sets it keeps loading; it used to be the SQL
+    Server metadata DB side of that script (``emit_dml`` + ``enabled``). The DB-side
     knowledge of the retired ``config_inserts_<env>.sql`` lives on here:
     workbook -> DB value maps, DB expressions for blank cells, DB NULL
     columns, the described tables and the connection table
@@ -2372,7 +2379,7 @@ class DmlConfig(BaseModel):
     notebook_file_name_pattern: str = "Insert_scripts_config_table_{env}.py"
     # the metadata DB schema; YAML key ``schema``
     db_schema: str = Field(default="dbo", alias="schema")
-    # §9 dependency order of the INSERT blocks in metadata_inserts.sql (tables
+    # §9 dependency order of the INSERT blocks (retired; tables
     # absent from the IIG payload are skipped).
     table_order: list[str] = Field(default_factory=lambda: [
         "DATA_FACTORY_PIPELINE_SCHEDULE", "FILE_ADLS_INGESTION_DETAILS",
@@ -2387,7 +2394,7 @@ class DmlConfig(BaseModel):
     # IIG sheet -> its metadata-DB table, CONFIRMED (2026-10-09; the values live
     # in config.yaml). A sheet not listed inserts into a table named after the
     # sheet (framework.tables may override) and its block is marked
-    # "-- unconfirmed" in metadata_inserts.sql.
+    # "-- unconfirmed" (retired).
     table_names: dict[str, DmlTableNameConfig] = Field(default_factory=dict)
     # Workbook value -> the value the framework reads, per column: the IIG keeps
     # what humans hand over, the SQL writes what the DB needs (§1: the framework

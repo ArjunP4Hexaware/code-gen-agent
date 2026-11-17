@@ -3556,6 +3556,24 @@ class _FeedGapFiller:
                                                 words)],
                              "the documents disagree — choose the value to use")
                 continue
+            if not others and dotted == "file_format":
+                # post196 (Soham, 2026-11-17: "use CSV"): no document states a format -
+                # the extension of THIS feed's file name patterns decides (.csv / .psv /
+                # .tsv; a .txt / .dat name says nothing about the layout), a NOTE
+                exts = self._extension_formats()
+                if len(exts) == 1:
+                    self.record_fill(dotted, exts[0])
+                    self.result.flags.append(
+                        f"format_from_extension:{prefix}file_format {exts[0].cell} -> "
+                        f"{exts[0].value!r}; no document states the file format")
+                    continue
+                if len(exts) > 1:
+                    self.ask(dotted, "choice",
+                             [{"value": s.value, "source": s.source, "cell": s.cell}
+                              for s in exts],
+                             "no document states the format and the file names' extensions "
+                             "differ; choose the format to use")
+                    continue
             if len(others) == 1:
                 self.record_fill(dotted, others[0])
             elif len(others) > 1:

@@ -207,7 +207,9 @@ extractor:
     roles:
       source:
         ordinal: ["s no", "sl no", "sr no", "field id", "column no", "position", "field no"]
-        field_name: ["field name", "database column name", "database name", "client data table column name", "column name", "columnname"]
+        # post195: "fieldname" - a tester's multi-sheet STTM writes the header as one
+        # word (2026-11-17); every mapping sheet asked source/field_name without it.
+        field_name: ["field name", "database column name", "database name", "client data table column name", "column name", "columnname", "fieldname"]
         # "format": the source-type column of the real pair-1 sheet (M9 —
         # PAIR1_HEADERS.md row 15, column E); without it the sheet's source
         # types read "unstated" and nothing asks (the role is optional).
@@ -432,6 +434,11 @@ extractor:
     # landing line, read per requirement when the ADLS Location cell lists several
     requirement_landing_labels: ["Raw ADLS Location", "ADLS Location"]
     inline_pair_separators: [";"]
+    # post196 (a staging FRD, 2026-11-17, the labels as it writes them): a requirement's
+    # "Load Type:" block (STG / STD headings, one strategy line each) and the requirement
+    # row whose cell opens with "<file name.ext>"
+    load_type_block_labels: ["Load Type"]
+    requirement_file_name_labels: ["Functional Requirement"]
     # post168 (an exchange FRD, 2026-11-04, the labels as it writes them): a cell whose
     # every line is "<label>: <value>" with these labels is read line by line - the
     # Object/data Format row's "File Format: .txt" + "Delimiter: Pipe Delimited". Any

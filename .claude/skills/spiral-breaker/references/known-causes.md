@@ -99,7 +99,9 @@ Entry format:
   2026-10-18 (post68: a pinned "notebook owes nothing" assertion fixed once inside a
   multi-file run; the counted edits added one test block per item to a new test file);
   2026-11-04 (post167: a planned RED `-k` run, green under the whole-file run; the
-  counted edits were to another module for the next task)
+  counted edits were to another module for the next task); 2026-11-17 (post195's
+  planned RED run of a new test, green right after the one-line config fix and in both
+  full suites; the counted edits were post196's FRD reader feature in another module)
 - Permanent fix: none yet — candidate hook refinement logged for /spiral-retro.
 
 ## Hook (a) false positive: one test name, a different failure each run

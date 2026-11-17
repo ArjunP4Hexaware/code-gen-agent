@@ -266,5 +266,17 @@
       "weaken or delete the new tests to quiet the hook",
       "call the red phase a failed fix attempt"
     ]
+  },
+  {
+    "id": "hook-b-stale-red-run-new-feature-edits",
+    "source": "replay",
+    "prompt": "Don't change any files in this session. An hour ago I ran a new test file RED on purpose, made a one-line config fix, and it went green (both full suites too, pushed, CI green). Now I'm building a different feature in another module; after my 4th edit to that module the spiral-detector hook says the module was edited 4 times while that test command 'is still failing'. Is this a spiral?",
+    "should_trigger": false,
+    "expected_pattern": "none",
+    "expected_first_action": "Re-run the exact command the signal quotes; exit 0 = false trigger (known cause: hook (b) false positive); log it and continue the feature.",
+    "must_not": [
+      "stop the feature work to re-debug the already-green test",
+      "call the new feature edits failed fix attempts"
+    ]
   }
 ]

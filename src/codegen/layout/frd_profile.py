@@ -17,7 +17,7 @@ from __future__ import annotations
 import hashlib
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -43,6 +43,19 @@ class FrdFieldSource(BaseModel):
     # True for the positional Data Quality rule rows: the rule text is
     # "<label>: <value>" because the label IS the rule name.
     labelled_rule: bool = False
+    # post196: the value is the strategy line under this layer's heading inside the
+    # cell's ``inline_label`` block ("Load Type:" / "STG:-" / "Incremental:- ...").
+    block_layer: Literal["stage", "standard"] | None = None
+
+    @model_serializer(mode="wrap")
+    def _drop_unset_block_layer(self, handler):
+        """post196: ``block_layer`` is written only when set - every profile without a
+        Load Type block serialises byte for byte as before (tracked fixtures, cached
+        profiles, the hashes built on them)."""
+        data = handler(self)
+        if isinstance(data, dict) and data.get("block_layer") is None:
+            data.pop("block_layer", None)
+        return data
 
 
 class FrdUnresolved(BaseModel):

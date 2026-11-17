@@ -477,6 +477,16 @@ class FrdExtractorConfig(BaseModel):
     requirement_landing_labels: list[str] = Field(default_factory=lambda: [
         "Raw ADLS Location", "ADLS Location"])
     inline_pair_separators: list[str] = Field(default_factory=lambda: [";"])
+    # post196 (a staging FRD, 2026-11-17): a Solution Requirement cell's "<label>:" line
+    # (no value) followed by layer headings ("STG:-" / "STD:-", target_schema_markers)
+    # each with ONE strategy line under it ("Incremental:- Truncate & load") states the
+    # stage / standard load strategy - placed only when every requirement stating it
+    # agrees. Empty = never read.
+    load_type_block_labels: list[str] = Field(default_factory=list)
+    # post196: the Solution Requirement row whose cell OPENS with "<file name.ext>" names
+    # that requirement's file - the requirements' names are the feed's file patterns when
+    # no metadata cell states any (single-feed FRDs). Empty = never read.
+    requirement_file_name_labels: list[str] = Field(default_factory=list)
     # post189 (tracker incidents 6 / 7): the labels an ADLS Location cell states the
     # feed's landing under ("Raw Path:" then the path, on the same or the next line)
     # when the cell holds several labelled paths - the labelled line is read, the

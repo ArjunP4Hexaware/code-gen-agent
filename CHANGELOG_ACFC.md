@@ -4,6 +4,57 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post196 — 2026-11-17 (an FRD's Solution Requirements: Load Type blocks, file names; format from the extension)
+
+The tester's paused staging run (after post195's field-name fix) still asked the load
+strategy, the file format, LOBs and domain. Her FRD has two F1 section tables (Data
+Quality, Vendor Metadata) next to Solution Requirement tables; `discover_frd` takes F1 as
+soon as one F1 table exists, so the requirement tables were never read - and they state
+what they state as lines of the Functional Requirement cell. Reproduced on her documents
+(mock, staging's layout cache, post195).
+
+1. **Load Type blocks** (`frd_docx._place_load_type_blocks`, config
+   `extractor.frd.load_type_block_labels: ["Load Type"]`): a requirement cell's
+   "Load Type:" line, then STG / STD headings (`target_schema_markers`) each with ONE
+   strategy line ("Incremental:- Truncate & load", "Incremental:- Upsert using keys ...")
+   places the stage / standard load strategy - single-feed FRDs, only when every
+   requirement stating it agrees; a layer with two strategy lines or disagreeing
+   requirements places nothing (a note). A block line may START with the strategy
+   (`canonical_strategy(..., leading=True)`): read as that strategy, the rest named in
+   `frd_load_type_block:` and not read. New `FrdFieldSource.block_layer`.
+2. **Requirement file names** (`frd_docx.requirement_file_names`, config
+   `requirement_file_name_labels: ["Functional Requirement"]`): each requirement whose
+   cell opens with `<file name.ext>` names a file; a single-feed FRD with no file pattern
+   takes them (`frd_requirement_file_names:`; a name holding a space is kept as written,
+   `frd_file_name_whitespace:`). The split step pairs them to the STTM sheets as before
+   (name match, else a choice question).
+3. **Format from the extension when nothing states one** (Soham: "use CSV";
+   `resolve._FeedGapFiller.run` step b): no FRD / STTM / VDD format -> the feed's file
+   name extension (.csv / .psv / .tsv) decides, `format_from_extension:` (a NOTE); two
+   extensions ask; a .txt / .dat name stays the ordinary question.
+
+Not changed: LOBs and domain (her FRD states neither - the questions are right); the
+upsert keys a Load Type line names (they differ per requirement - post197 candidate).
+
+Tests: `tests/test_frd_requirement_blocks_post196.py`, 3 new cases in
+`tests/test_format_from_extension.py` (each failed with only its fix switched off).
+
+## 0.5.8.post195 — 2026-11-17 (STTM source header "FieldName" read as the field name)
+
+A tester's paused staging run asked `UNRESOLVED sheets[<i>]/source/field_name` on every
+mapping sheet of a multi-sheet STTM: the source band writes its field-name header as one
+word (`FieldName`), which normalizes to `fieldname` - not in the synonym table (`field
+name`, `columnname` were). Reproduced on the tester's uploads (mock, staging's layout
+cache, post194): two STTM versions 5 UNRESOLVED each, a third 4; with the synonym all 0.
+
+1. **Config:** `extractor.discovery.roles.source.field_name` gains `"fieldname"` (a header
+   seen in a client document - pipeline.md: the evidence a synonym needs).
+2. **Not changed:** a source header written only `Field` (another upload, 1 UNRESOLVED) -
+   too generic to add without more evidence; it stays a question.
+
+Tests: `tests/test_sttm_fieldname_header.py` (failed on `FieldName` with only the synonym
+removed).
+
 ## 0.5.8.post194 — 2026-11-16 (metadata_inserts.sql retired)
 
 Soham, 2026-11-16: `metadata_inserts.sql` is deprecated - the App never offered it

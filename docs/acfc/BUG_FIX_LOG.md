@@ -71,7 +71,7 @@ number.
   `test_m93_chooser` timing test (3/3 alone); ruff + scrub clean; 12-pair check alone.
 - **Revert:** empty `load_type_key_phrases` (reader off); remove the `key_statement`
   branch in `resolve_structured_fields`; remove the audit branch in `_match`.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging 71299d6 2026-11-17.
 
 ## 0.5.8.post196 — tester's paused run: requirement tables of a mixed FRD never read
 

@@ -29,6 +29,34 @@ number.
 
 ---
 
+## 0.5.8.post198 — generic: STTM / VDD headers match synonyms with spaces ignored (the post195 class)
+
+- **Symptom (class):** a header written without its space ("FieldName") matched no role
+  synonym, so every mapping sheet asked the role (post195 fixed one spelling by hand).
+- **Reproduced:** post195's case with the hand-written `fieldname` synonym removed
+  (synthetic workbook, the tester's header shape).
+- **Root cause:** `layout/discover.py` compared `normalize(header)` with
+  `normalize(synonym)`; `normalize` keeps word boundaries as spaces, so one-word and
+  spaced spellings differ.
+- **Change:** `layout/discover.py :: header_key` (new); the role-table builds and header
+  lookups in `_resolve_flat_roles`, the target-role runs, `_target_role`, the target
+  spans, `_resolve_band_roles`, `_mapping_source_vocabulary` use it. No config change.
+- **Reach:** 12-pair check (framework, mock, post197 vs post198): outcomes unchanged,
+  295 / 295 files, no artefact cell moved, and all 12 STTM layout profiles
+  byte-identical - no header of the 12 pairs resolves differently. Only diffs: build
+  stamp, report version / environment-path lines.
+- **Side effects:** none found.
+- **Unchanged:** `normalize` (all value / name comparisons); meta labels, segment words,
+  sheet-name segments; FRD labels; ambiguity handling (two roles = refused).
+- **Tests:** `tests/test_header_key_post198.py :: test_header_key_drops_spaces_only`,
+  `test_a_one_word_header_resolves_without_its_own_synonym` (both failed with
+  `header_key` returning `normalize`), `test_no_two_roles_share_a_header_key_in_the_
+  shipped_config` (the guard).
+- **Verified:** `.venv-d1` 2248 passed; `.venv` 2596 passed + the known load-sensitive
+  `test_m93_chooser` timing test (3/3 alone); ruff clean; 12-pair check alone.
+- **Revert:** make `header_key` return `normalize(value)` (one line), or `git revert`.
+- **Deployed:** not yet.
+
 ## 0.5.8.post197 — tester's pair: TGT_PRIMARY_KEY asked although each requirement states its keys
 
 - **Symptom:** after post196 (files + LOBs answered), generate asked

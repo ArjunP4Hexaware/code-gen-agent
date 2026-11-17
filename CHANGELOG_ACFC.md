@@ -4,6 +4,28 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post198 — 2026-11-17 (STTM / VDD headers match their synonyms with spaces ignored)
+
+The first of the generic wins in `docs/acfc/READER_GENERALIZATION.md` §5 (Soham: "do the
+cheap wins"): a header written as one word ("FieldName", "TableName", "DataType") is the
+same header as its spaced synonym - the post195 class, fixed for every role at once
+instead of one config spelling at a time.
+
+- `layout/discover.py :: header_key` (new) = `normalize` without spaces, used ONLY where a
+  header cell is looked up in a role synonym table: `_resolve_flat_roles` (VDD),
+  the target-role runs (layer evidence), `_target_role` (incl. the qualifier-stripped
+  rest), the target spans, `_resolve_band_roles` (incl. the recycle-column check) and
+  `_mapping_source_vocabulary`.
+- NOT changed: `normalize` itself (values, file / table / sheet names, agreement between
+  documents), meta labels, segment words in data cells, sheet-name segments, FRD labels
+  (a later version: 26 lookup sites mixed with value comparisons).
+- Safety: no two roles' synonyms share a key in the shipped config (measured, and now a
+  test); a header matching two roles is still refused, never picked. The hand-written
+  `fieldname` / `columnname` / `tablename` synonyms stay (redundant, harmless).
+
+Tests: `tests/test_header_key_post198.py` (the resolve case failed with `header_key`
+reverted to `normalize`; the collision guard).
+
 ## 0.5.8.post197 — 2026-11-17 (a requirement's Load Type keys as the table's key; a key may name audit columns)
 
 After post196 the tester's pair still asked TGT_PRIMARY_KEY for every table, although

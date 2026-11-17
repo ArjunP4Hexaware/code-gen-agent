@@ -865,7 +865,9 @@ def _key_cell(tab: str, config, spec, faq, tpl: MetadataTemplateConfig, table: s
 
     profile = config.conventions.get(None)
     corpus = primary_key.corpus_keys(list(profile.pipeline_name_corpus), Path("."))
-    target = primary_key.TableKey(table, layer, fields, detail)
+    target = primary_key.TableKey(table, layer, fields, detail,
+                                  primary_key.audit_names(spec, spec.detail_segment)
+                                  if detail else ())
     offer = primary_key.proposal(target, spec, faq, corpus)
     option = str(getattr(strategy, "value", strategy) or "")
     return primary_key.key_cell(tab, target, spec, faq, offer,

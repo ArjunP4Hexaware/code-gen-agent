@@ -29,6 +29,45 @@ number.
 
 ---
 
+## 0.5.8.post197 — tester's pair: TGT_PRIMARY_KEY asked although each requirement states its keys
+
+- **Symptom:** after post196 (files + LOBs answered), generate asked
+  `feeds.<feed>.primary_key` for all 4 tables; the FRD's Load Type lines name each
+  table's merge columns.
+- **Reproduced:** the tester's staging pair, mock, post196, staging's layout cache.
+- **Root cause (two):** (1) `extract/frd_docx.py` read the strategy of a Load Type line
+  and dropped the rest ("using keys ..."), so `FrdFeed.key_statement` stayed empty;
+  (2) `primary_key.py :: _match` counted only the mapped data fields as the table's
+  columns - two of the three key names are the STTM's audit rows (columns the DDL
+  creates), so even a stated key matched nothing.
+- **Change:**
+  - `extract/frd_docx.py`: new `requirement_load_type_keys`; `read_frd`'s
+    `_requirement_keys` (own row first; single-feed FRD: one set -> the statement, sets
+    that differ -> `structured[...key_statement]` per-file blocks by file name).
+  - `layout/resolve.py :: resolve_structured_fields`: a `key_statement` block row ->
+    the matched feed's `key_statement` (`frd_nested:` flag).
+  - `primary_key.py`: `TableKey.audit` + `audit_names`; `_match` accepts an audit column
+    name (written as the table writes it). `metadata_template._key_cell` passes the
+    detail table's audit columns.
+  - `config.py` + `config/config.yaml`: `extractor.frd.load_type_key_phrases`.
+- **Reach:** REACH_PENDING
+- **Side effects:** SIDE_PENDING
+- **Unchanged:** every key name must still be a column of the table (no partial key);
+  the key is a PROPOSAL written by the profile default / the BSA's choice as before
+  (post70 / post81); a non-detail table gets no audit match (the FRD key is the detail
+  table's); a feed whose file is still asked gets no key until the file is chosen.
+- **Tests:** `tests/test_frd_requirement_keys_post197.py ::
+  test_one_key_set_for_every_requirement_is_the_feeds`,
+  `test_differing_key_sets_go_to_each_feed_by_its_file`,
+  `test_a_key_may_name_the_tables_audit_columns`. Revert proof: key phrases emptied ->
+  the two reader tests failed; `resolve.py` from post196 -> the per-feed test failed;
+  only the `_match` audit branch removed -> the audit test failed (assertions, not
+  import / signature errors).
+- **Verified:** VERIFIED_PENDING
+- **Revert:** empty `load_type_key_phrases` (reader off); remove the `key_statement`
+  branch in `resolve_structured_fields`; remove the audit branch in `_match`.
+- **Deployed:** not yet.
+
 ## 0.5.8.post196 — tester's paused run: requirement tables of a mixed FRD never read
 
 - **Symptom:** after post195, the run still asked the stage / standard load strategy and

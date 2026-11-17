@@ -487,6 +487,10 @@ class FrdExtractorConfig(BaseModel):
     # that requirement's file - the requirements' names are the feed's file patterns when
     # no metadata cell states any (single-feed FRDs). Empty = never read.
     requirement_file_name_labels: list[str] = Field(default_factory=list)
+    # post197: a Load Type block line's words after its strategy that introduce the
+    # columns it merges on ("Upsert using keys A, B") - the requirement's key statement
+    # (per requirement, by its file name). Empty = never read.
+    load_type_key_phrases: list[str] = Field(default_factory=list)
     # post189 (tracker incidents 6 / 7): the labels an ADLS Location cell states the
     # feed's landing under ("Raw Path:" then the path, on the same or the next line)
     # when the cell holds several labelled paths - the labelled line is read, the

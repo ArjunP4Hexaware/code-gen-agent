@@ -63,6 +63,9 @@ class TableKey:
     layer: str                                  # stage | standard
     fields: list = field(default_factory=list)  # SttmField
     detail: bool = True
+    # post197: the table's audit columns as the DDL writes them (the STTM's audit
+    # rows) - a key may name one ("LOB, MEMBER_ID, VENDOR_NAME")
+    audit: tuple[str, ...] = ()
 
 
 def enabled(tpl) -> bool:
@@ -93,15 +96,28 @@ def _match(names: list[str], table: TableKey) -> tuple[str, ...]:
     """``names`` (source, stage or standard spellings) as the table's band
     columns; () unless EVERY name is one of its fields."""
     out = []
+    audit = {a.lower(): a for a in table.audit}
     for name in names:
         wanted = name.strip().lower()
         hit = next((f for f in table.fields if wanted in {
             (f.source_column or "").lower(), (f.stage_column or "").lower(),
             (f.standard_column or "").lower()}), None)
-        if hit is None or not _column(hit, table.layer):
+        if hit is not None and _column(hit, table.layer):
+            out.append(_column(hit, table.layer))
+        elif wanted in audit:
+            out.append(audit[wanted])       # post197: an audit column of the table
+        else:
             return ()
-        out.append(_column(hit, table.layer))
     return tuple(dict.fromkeys(out))
+
+
+def audit_names(spec, segment=None) -> tuple[str, ...]:
+    """post197: the audit column names the table carries (the segment's own list, else
+    the feed's) - the names the DDL writes."""
+    columns = getattr(segment, "audit_columns", None)
+    if columns is None:
+        columns = getattr(spec, "audit_columns", None) or []
+    return tuple(a.column for a in columns)
 
 
 def statement_names(text: str | None) -> list[str]:
@@ -201,7 +217,7 @@ def detail_table(spec, layer: str = "stage") -> TableKey:
     name = (seg.stage_table.table if layer == "stage" else
             (seg.standard_table.table if getattr(seg, "standard_table", None) is not None
              else (spec.standard_table.table if spec.standard_table is not None else "")))
-    return TableKey(name, layer, list(seg.fields), True)
+    return TableKey(name, layer, list(seg.fields), True, audit_names(spec, seg))
 
 
 def feed_proposal(spec, faq=None, corpus=None) -> KeyProposal:

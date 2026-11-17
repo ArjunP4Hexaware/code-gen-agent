@@ -83,7 +83,7 @@ number.
 - **Revert:** empty `load_type_block_labels` / `requirement_file_name_labels` in
   config.yaml (the readers switch off); revert the step-b block in `resolve.py` for the
   format fallback; or `git revert` the post196 commit.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging 08786dc 2026-11-17 (post196).
 
 ## 0.5.8.post195 — tester's paused run: source field name UNRESOLVED on a multi-sheet STTM
 
@@ -113,7 +113,7 @@ number.
   STTM versions 0 UNRESOLVED (mock). The first 12-pair run's old side timed out pair_03
   under the same load (901 s) - re-run alone, equal.
 - **Revert:** remove `"fieldname"` from that synonym list (and the test).
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging 08786dc 2026-11-17 (post196).
 
 ## 0.5.8.post193 — side effect of #11: the review copy asked for a decided blank
 

@@ -3044,6 +3044,12 @@ def resolve_structured_fields(contract: FrdContract, config: Config
                     feeds[index] = _feed_set(feed, "landing_location", value)
                     flags.append(f"frd_nested:{key} source_used:{where} row {row.key!r}: "
                                  f"{value!r}")
+                elif field == "key_statement" and row.values.get("key"):
+                    # post197: a Solution Requirement's Load Type line names its merge
+                    # columns; the requirement whose file is this feed's gives its keys
+                    feeds[index] = _feed_set(feed, "key_statement", row.values["key"])
+                    flags.append(f"frd_nested:{key} source_used:{where} requirement file "
+                                 f"{row.key!r}: {row.values['key']!r}")
                 elif field == "domain":
                     applied = []
                     for name in ("domain", "sub_domain"):

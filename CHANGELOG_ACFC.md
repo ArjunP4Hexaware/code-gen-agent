@@ -4,6 +4,31 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post197 — 2026-11-17 (a requirement's Load Type keys as the table's key; a key may name audit columns)
+
+After post196 the tester's pair still asked TGT_PRIMARY_KEY for every table, although
+each Solution Requirement's Load Type line names its merge columns ("Upsert using keys
+A, B, C"). Two gaps:
+
+1. **The keys were not read** (`frd_docx.requirement_load_type_keys`, config
+   `extractor.frd.load_type_key_phrases: ["using keys", "using key"]`): the words after
+   the strategy and a key phrase are the requirement's key statement. One set for every
+   requirement -> `FrdFeed.key_statement` (`frd_load_type_keys:`); sets that differ ->
+   `structured["feeds[0].key_statement"]`, per-file blocks keyed by each requirement's
+   file name, which `layout.resolve.resolve_structured_fields` gives each derived feed
+   by its own file (a feed whose file is still asked gets none - flagged).
+2. **A key naming an audit column was refused** (`primary_key._match`): only the mapped
+   data fields counted as the table's columns; the STTM's audit rows (here LOB,
+   VENDOR_NAME) are columns too (the DDL creates them). `TableKey.audit` (new) carries
+   them (`primary_key.audit_names`); every name must still be a column.
+
+Then the existing post70 rule proposes the key from the FRD statement. Her pair (mock,
+files + LOBs answered): PASS_WITH_OPEN_INPUTS, each table's TGT_PRIMARY_KEY its own
+requirement's three columns.
+
+Tests: `tests/test_frd_requirement_keys_post197.py` (each case failed with only its fix
+reverted).
+
 ## 0.5.8.post196 — 2026-11-17 (an FRD's Solution Requirements: Load Type blocks, file names; format from the extension)
 
 The tester's paused staging run (after post195's field-name fix) still asked the load

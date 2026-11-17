@@ -913,6 +913,45 @@ def requirement_file_names(content: DocxContent, config: FrdExtractorConfig
     return out
 
 
+def requirement_load_type_keys(content: DocxContent, config: FrdExtractorConfig
+                               ) -> list[tuple[str | None, str, int, int]]:
+    """post197: ``(file name | None, keys, table, row)`` per Solution Requirement whose
+    Load Type block line names its merge columns after a ``load_type_key_phrases``
+    phrase ("Upsert using keys A, B" -> "A, B"); ``file name`` = the requirement's own
+    (:func:`requirement_file_names`). A requirement whose layers name different keys
+    names none."""
+    labels = {normalize_label(label) for label in config.load_type_block_labels}
+    phrases = sorted((normalize_label(p) for p in config.load_type_key_phrases),
+                     key=len, reverse=True)
+    if not labels or not phrases:
+        return []
+    markers = {normalize_label(m): layer for layer, spellings in
+               config.target_schema_markers.items() for m in spellings}
+    files = {t: name for name, t, _r in requirement_file_names(content, config)}
+    out: list[tuple[str | None, str, int, int]] = []
+    for t, rows in enumerate(content.tables):
+        if sr_signal(t, rows, content, config) is None:
+            continue
+        found: dict[str, tuple[int, int]] = {}
+        for r, row in enumerate(rows):
+            for c in range(1, len(row)):
+                block = load_type_block(row[c], labels, markers) if row[c - 1].strip() else None
+                for value, _following in (block or {}).values():
+                    _strategy_read, rest = canonical_strategy(
+                        value, config.load_strategy_synonyms, leading=True)
+                    words = rest.split()
+                    for phrase in phrases:
+                        count = len(phrase.split())
+                        if (len(words) > count
+                                and normalize_label(" ".join(words[:count])) == phrase):
+                            found.setdefault(" ".join(words[count:]).strip(), (r, c))
+                            break
+        if len(found) == 1:
+            (keys, (r, _c)), = found.items()
+            out.append((files.get(t), keys, t, r))
+    return out
+
+
 _REQUIRED_PATHS = ("feed_name", "source_system", "file_format", "frequency", "lobs", "domain",
                    "stage_target.schema", "stage_target.tables", "stage_target.load_strategy",
                    "standard_target.load_strategy")
@@ -1630,6 +1669,35 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                      f"sub domain {labelled[1]!r}")
         return {"domain": labelled[0], "sub_domain": labelled[1]}
 
+    def _requirement_keys(prefix: str) -> str:
+        """post197: the feed's key statement - its own row, else (single-feed FRD) the
+        merge columns its Solution Requirements' Load Type lines name: ONE set for all
+        -> the statement; sets that differ -> per-file blocks (by each requirement's
+        file name) the layout stage gives each derived feed (resolve_structured_fields)."""
+        own = get(f"{prefix}.key_statement")
+        if own or max(profile.feed_count, 1) != 1:
+            return own
+        from codegen.contracts.frd import StructuredRow, StructuredValue
+
+        stated = requirement_load_type_keys(content, frd_config)
+        keys = list(dict.fromkeys(k for _f, k, _t, _r in stated))
+        cells = ", ".join(f"table {t} row {r}" for _f, _k, t, r in stated)
+        label = (frd_config.load_type_block_labels or ["Load Type"])[0]
+        if len(keys) == 1:
+            flags.append(f"frd_load_type_keys:{prefix}.key_statement — {len(stated)} Solution "
+                         f"Requirement(s) ({cells}) name the merge columns {keys[0]!r} on "
+                         f"their {label!r} line")
+            return keys[0]
+        if len(keys) > 1 and all(f for f, _k, _t, _r in stated):
+            _f, _k, t, r = stated[0]
+            structured[f"{prefix}.key_statement"] = StructuredValue(
+                kind="per_file_blocks", table=t, row=r, col=1, label=label,
+                rows=[StructuredRow(key=f, values={"key": k}) for f, k, _t, _r in stated])
+            flags.append(f"frd_load_type_keys:{prefix}.key_statement — {len(stated)} Solution "
+                         f"Requirement(s) ({cells}) name {len(keys)} different merge column "
+                         "sets; given per derived feed by the requirement's file name")
+        return ""
+
     flags: list[str] = []
     feeds: list[FrdFeed] = []
     for feed_index in range(max(profile.feed_count, 1)):
@@ -1841,7 +1909,7 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             history_backfill=None,
             archive_retention=get(f"{prefix}.archive_retention") or None,
             phi_pii_notes=get(f"{prefix}.phi_pii_notes") or None,
-            key_statement=get(f"{prefix}.key_statement") or None,
+            key_statement=_requirement_keys(prefix) or None,
             sttm_reference=get(f"{prefix}.sttm_reference") or None,
             requirement_ids=_split(get(f"{prefix}.requirement_ids"), frd_config.list_separators),
             frequency_mentions=mentions,

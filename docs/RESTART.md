@@ -4,24 +4,34 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (session ended 2026-11-16 - dev STOPPED on post194; staging = post192, post193+194 WAITING; feature = post194, pushed)
+## Start here (session ended 2026-11-17 - staging = post196; dev STOPPED on post194; feature = post196, pushed)
 
 **First check:** `git fetch && git status -sb` = up to date with
-`origin/feature/multi-table` (head = the hand-off docs commit on top of f5eb046, post194).
-- **DONE 2026-11-17: staging `codegen-agent-staging` = post194** (`main` = c53102b,
-  identical-tree merge; health + smoke green; it was idle - the tester's paused run had
-  ended). BUG_FIX_LOG "Deployed" lines filled. NEXT: tell her to re-run the Accumulators
-  pair, choose WF_ for #17; set tracker #11 / #13 Resolved.
-- **dev `codegen-agent`:** compute STOPPED, last deployment post194 (f5eb046), health +
-  smoke + a live pair_13 run green (#11 / #12 / #13 cells right, no metadata_inserts.sql).
-- **post193 + post194 fully checked:** both suites green (post194: 2581 / 2232), CI green,
-  framework 12-pair outcomes unchanged both versions, post193's notebook-mode 12-pair check
-  clean. Per-fix reach in `docs/acfc/BUG_FIX_LOG.md` (new, 2026-11-16).
-- **After the staging deploy:** fill BUG_FIX_LOG's "Deployed" lines (staging sha + date).
-- After a container reset: `~/bootstrap`, then the OAuth login (recipe below).
-- Session log: CLAUDE_HISTORY §[H26].
+`origin/feature/multi-table` (head = the hand-off docs commit on top of 6bea6bb, post196).
+- **staging `codegen-agent-staging` = post196** (`main` = 08786dc, identical-tree merge;
+  health + smoke green). The tester's paused run (bugged: post195 + post196 are its fixes)
+  was CANCELLED on Soham's word before the deploy (folder kept).
+- **post195** STTM source header `FieldName` (one word) read as the field name (config
+  synonym). **post196** her FRD's Solution Requirements: "Load Type" blocks (STG / STD
+  strategy lines), the `<file name.ext>` each requirement opens with, and the file format
+  from the extension when no document states one (Soham: "use CSV"). Per-fix reach in
+  `docs/acfc/BUG_FIX_LOG.md`. Her pair (mock): layout questions 7 -> 4 (LOBs, domain - not
+  stated; the file of 2 tables whose names match no sheet).
+- **Both versions fully checked:** both suites green (post196: 2590 / 2242 + the known
+  `test_m93_chooser` timing flake when the suites run together), CI green, 12-pair outcomes
+  unchanged, no pair takes the new readers.
+- **dev `codegen-agent`:** STOPPED, last deployment post194 - `/ship-dev` only once Soham
+  starts it (bills compute).
+- **Message to the tester** (Soham's voice) drafted in the session: re-run the same STTM +
+  FRD on staging; LOBs / domain / two file choices / the primary key per table remain.
+- Session log: CLAUDE_HISTORY §[H27] (to write at hand-off).
 
 **Open, in order:**
+0. **post197 candidate: the upsert keys** a Load Type line names ("Upsert using keys A,
+   B, C") as each feed's primary key - they differ per requirement, so a requirement must
+   be paired to its feed (by its file name, as the split step pairs files). Her run asks
+   the key per table until then. Also: a source header written only `Field` (another
+   upload) stays a question - too generic for a synonym on one sighting.
 1. **Tracker decisions (Soham), from incidents 9-17** (tracker export: Office Script in
    H26; updates for #9-17 written 16-Nov by the update script in H26):
    - **#12 rest:** should STGDELTA `TGT_DATA_TYPE` drop the precision too? (the tester:
@@ -35,16 +45,11 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
      config constant. Note: the ADLS_FIXED_WIDTH_HANDLER rows ARE generated already and
      SRC_FORMAT is blank (not TXT, as the incident says).
    - **#17:** no code - the WF_ run option (post187); told to the tester.
-2. **The tester's paused staging run** (5 `source/field_name` UNRESOLVED on one STTM's
-   sheets): looks like a header spelling the synonyms miss - reproduce on her documents
-   (mock, /tmp) after the deploy. Widen synonyms only with a header seen in a client
-   document (pipeline.md).
 3. **README.md / docs/DESIGN.md say "third agent of five"** - it is the second of three
    (docs-only fix).
-1b. **A mixed-family FRD reader (not built, Soham's call):** the tester's FRD has F1
-   section tables (Data Quality, Vendor Metadata) AND F2 Solution Requirement tables;
-   `discover_frd` takes F1 as soon as one F1 table exists, so the requirement tables are
-   never read as F2 - 6 questions stay open on it.
+1b. **Mixed-family FRD: DONE in part (post196)** - the requirement tables' Load Type
+   blocks and file names are read; the family choice itself is unchanged (no general F2
+   reading of an F1 document). Remaining on her FRD: the upsert keys (item 0).
 1c. **Small, mine:** the unresolved-questions report names a line choice by its row label
    only (`answers.unresolved_report`) - add the `inline_label`; the live layout model's
    STTM answer had an invalid `source` value - tighten the prompt / schema text.

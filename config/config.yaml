@@ -439,6 +439,8 @@ extractor:
     # row whose cell opens with "<file name.ext>"
     load_type_block_labels: ["Load Type"]
     requirement_file_name_labels: ["Functional Requirement"]
+    # post197: "Upsert using keys A, B" - the words before the merge key columns
+    load_type_key_phrases: ["using keys", "using key"]
     # post168 (an exchange FRD, 2026-11-04, the labels as it writes them): a cell whose
     # every line is "<label>: <value>" with these labels is read line by line - the
     # Object/data Format row's "File Format: .txt" + "Delimiter: Pipe Delimited". Any

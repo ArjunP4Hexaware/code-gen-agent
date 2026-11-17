@@ -59,7 +59,7 @@ number.
   alone.
 - **Revert:** `git revert` (code + config move together); to restore only "Incremental"
   add `"Incremental": "Append"` to the table.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging 7f57610 2026-11-17 (post198 + post199).
 
 ## 0.5.8.post198 — generic: STTM / VDD headers match synonyms with spaces ignored (the post195 class)
 
@@ -87,7 +87,7 @@ number.
 - **Verified:** `.venv-d1` 2248 passed; `.venv` 2596 passed + the known load-sensitive
   `test_m93_chooser` timing test (3/3 alone); ruff clean; 12-pair check alone.
 - **Revert:** make `header_key` return `normalize(value)` (one line), or `git revert`.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging 7f57610 2026-11-17 (post198 + post199).
 
 ## 0.5.8.post197 — tester's pair: TGT_PRIMARY_KEY asked although each requirement states its keys
 

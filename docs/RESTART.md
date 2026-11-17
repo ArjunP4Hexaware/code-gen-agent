@@ -4,11 +4,11 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (session ended 2026-11-17 - staging = post197; dev STOPPED on post194; feature = post197, pushed)
+## Start here (session ended 2026-11-17 - staging = post199; dev STOPPED on post194; feature = post199, pushed)
 
 **First check:** `git fetch && git status -sb` = up to date with
-`origin/feature/multi-table` (head = the hand-off docs commit on top of 086a444, post197).
-- **staging `codegen-agent-staging` = post197** (`main` = 71299d6; post196 was 08786dc, identical-tree merge;
+`origin/feature/multi-table` (head = the hand-off docs commit on top of 267fb30, post199).
+- **staging `codegen-agent-staging` = post199** (`main` = 7f57610; post197 was 71299d6, post196 08786dc, identical-tree merge;
   health + smoke green). The tester's paused run (bugged: post195 + post196 are its fixes)
   was CANCELLED on Soham's word before the deploy (folder kept).
 - **post195** STTM source header `FieldName` (one word) read as the field name (config
@@ -34,6 +34,12 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
    (done): a requirement's Load Type keys are each table's key; a key may name an audit
    column. Her pair (mock, files + LOBs answered): PASS_WITH_OPEN_INPUTS. Left: a source
    header written only `Field` stays a question.
+   **Cheap wins (READER_GENERALIZATION §5):** post198 DONE (STTM / VDD headers match
+   synonyms with spaces ignored, `discover.header_key`); post199 DONE (one strategy alias
+   table in config, "Incremental" dropped). NEXT: post200 = spaces ignored in FRD labels
+   (26 lookup sites mixed with value comparisons - only the lookups). Pairing (win 3) is
+   NOT a cheap win: the 6 matchers differ on purpose - Phase 2 shadow work. Delimiter
+   readers (5+ functions, 4 files) are the next value-normaliser candidate.
 1. **Tracker decisions (Soham), from incidents 9-17** (tracker export: Office Script in
    H26; updates for #9-17 written 16-Nov by the update script in H26):
    - **#12 rest:** should STGDELTA `TGT_DATA_TYPE` drop the precision too? (the tester:

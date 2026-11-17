@@ -50,8 +50,12 @@ number.
     name (written as the table writes it). `metadata_template._key_cell` passes the
     detail table's audit columns.
   - `config.py` + `config/config.yaml`: `extractor.frd.load_type_key_phrases`.
-- **Reach:** REACH_PENDING
-- **Side effects:** SIDE_PENDING
+- **Reach:** 12-pair check (framework, mock, post196 vs post197): outcomes unchanged,
+  295 / 295 files, no DDL / IIG / workbook cell moved (no pair's TGT_PRIMARY_KEY changed
+  by the audit-column match; no pair takes the Load Type key reader). Only diffs: the
+  build stamp and the reports' version / environment-path lines. The tester's pair
+  (mock, files + LOBs answered): NEEDS_ANSWERS -> PASS_WITH_OPEN_INPUTS.
+- **Side effects:** none found (12-pair check, both suites).
 - **Unchanged:** every key name must still be a column of the table (no partial key);
   the key is a PROPOSAL written by the profile default / the BSA's choice as before
   (post70 / post81); a non-detail table gets no audit match (the FRD key is the detail
@@ -63,7 +67,8 @@ number.
   the two reader tests failed; `resolve.py` from post196 -> the per-feed test failed;
   only the `_match` audit branch removed -> the audit test failed (assertions, not
   import / signature errors).
-- **Verified:** VERIFIED_PENDING
+- **Verified:** `.venv-d1` 2245 passed; `.venv` 2593 passed + the known load-sensitive
+  `test_m93_chooser` timing test (3/3 alone); ruff + scrub clean; 12-pair check alone.
 - **Revert:** empty `load_type_key_phrases` (reader off); remove the `key_statement`
   branch in `resolve_structured_fields`; remove the audit branch in `_match`.
 - **Deployed:** not yet.

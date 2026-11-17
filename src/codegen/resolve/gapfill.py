@@ -26,19 +26,7 @@ from dataclasses import dataclass
 from codegen.layout.discover import normalize
 
 LOAD_STRATEGIES = ("Truncate and Load", "Append", "Upsert")
-_STRATEGY_ALIASES = {
-    "truncate and load": "Truncate and Load",
-    "truncate load": "Truncate and Load",
-    "truncate reload": "Truncate and Load",
-    "full load": "Truncate and Load",
-    "overwrite": "Truncate and Load",
-    "append": "Append",
-    "insert": "Append",
-    "incremental": "Append",
-    "upsert": "Upsert",
-    "merge": "Upsert",
-    "merge on keys": "Upsert",
-}
+_TRAILING_PARENTHETICAL = re.compile(r"\s*\([^()]*\)\s*$")
 # FAQ load_mode vocabulary -> LoadStrategy literal (inverse of faq._LOAD_STRATEGY_TO_MODE).
 _LOAD_MODE_TO_STRATEGY = {
     "truncate_and_load": "Truncate and Load",
@@ -57,18 +45,40 @@ class Statement:
     cell: str
 
 
-def canonical_strategy(text: str | None) -> str | None:
-    """A LoadStrategy literal for any spelling the documents use, else None."""
-    key = normalize(text)
-    if not key:
-        return None
-    for literal in LOAD_STRATEGIES:
-        if key == normalize(literal):
-            return literal
-    return _STRATEGY_ALIASES.get(key)
+def strategy_reading(text: str | None, synonyms: dict[str, str], *,
+                     leading: bool = False) -> tuple[str | None, str]:
+    """post199: THE load-strategy reader for every document and answer -
+    ``(strategy, rest)``: the text as one of LOAD_STRATEGIES or a spelling of
+    ``extractor.frd.load_strategy_synonyms`` (the ONE alias table, config), compared
+    with :func:`normalize` (punctuation-free), as written or without a trailing
+    parenthetical ("Truncate & Load (delete ...)"); with ``leading`` (post196, a Load
+    Type block line) also a text that STARTS with one ("Upsert using keys A" ->
+    Upsert, rest "using keys A"). ``(None, "")`` otherwise."""
+    if not text or not normalize(text):
+        return None, ""
+    known = {normalize(literal): literal for literal in LOAD_STRATEGIES}
+    known.update({normalize(k): v for k, v in (synonyms or {}).items()})
+    stripped = _TRAILING_PARENTHETICAL.sub("", text).strip()
+    for candidate in dict.fromkeys([text, stripped]):
+        if normalize(candidate) in known:
+            return known[normalize(candidate)], ""
+    if leading:
+        words = text.split()
+        for spelling in sorted(known, key=len, reverse=True):
+            for count in range(1, len(words)):
+                if normalize(" ".join(words[:count])) == spelling:
+                    return known[spelling], " ".join(words[count:])
+    return None, ""
 
 
-def parse_load_strategy_text(text: str | None, markers: dict[str, list[str]]) -> dict[str, str]:
+def canonical_strategy(text: str | None, synonyms: dict[str, str]) -> str | None:
+    """A LoadStrategy literal for any spelling the config's alias table knows, else
+    None (post199: the table is config, ``extractor.frd.load_strategy_synonyms``)."""
+    return strategy_reading(text, synonyms)[0]
+
+
+def parse_load_strategy_text(text: str | None, markers: dict[str, list[str]],
+                             synonyms: dict[str, str]) -> dict[str, str]:
     """Parse an STTM "Load Strategy" cell.
 
     ``{"stage": v, "standard": v}`` when the text states one per layer
@@ -88,11 +98,11 @@ def parse_load_strategy_text(text: str | None, markers: dict[str, list[str]]) ->
         match = re.match(r"^\s*([A-Za-z][A-Za-z ()]{0,20}?)\s*[:=\-]\s*(.+)$", segment)
         layer = marker_layer.get(normalize(match.group(1))) if match else None
         if match and layer:
-            value = canonical_strategy(match.group(2))
+            value = canonical_strategy(match.group(2), synonyms)
             if value:
                 out[layer] = value
             continue
-        value = canonical_strategy(segment)
+        value = canonical_strategy(segment, synonyms)
         if value:
             unlabelled.append(value)
     if out:

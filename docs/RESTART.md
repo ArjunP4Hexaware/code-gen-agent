@@ -4,11 +4,11 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (session ended 2026-11-17 - staging = post196; dev STOPPED on post194; feature = post196, pushed)
+## Start here (session ended 2026-11-17 - staging = post197; dev STOPPED on post194; feature = post197, pushed)
 
 **First check:** `git fetch && git status -sb` = up to date with
-`origin/feature/multi-table` (head = the hand-off docs commit on top of 6bea6bb, post196).
-- **staging `codegen-agent-staging` = post196** (`main` = 08786dc, identical-tree merge;
+`origin/feature/multi-table` (head = the hand-off docs commit on top of 086a444, post197).
+- **staging `codegen-agent-staging` = post197** (`main` = 71299d6; post196 was 08786dc, identical-tree merge;
   health + smoke green). The tester's paused run (bugged: post195 + post196 are its fixes)
   was CANCELLED on Soham's word before the deploy (folder kept).
 - **post195** STTM source header `FieldName` (one word) read as the field name (config
@@ -27,11 +27,13 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 - Session log: CLAUDE_HISTORY §[H27] (to write at hand-off).
 
 **Open, in order:**
-0. **post197 candidate: the upsert keys** a Load Type line names ("Upsert using keys A,
-   B, C") as each feed's primary key - they differ per requirement, so a requirement must
-   be paired to its feed (by its file name, as the split step pairs files). Her run asks
-   the key per table until then. Also: a source header written only `Field` (another
-   upload) stays a question - too generic for a synonym on one sighting.
+0. **DECIDE (Soham): `docs/acfc/READER_GENERALIZATION.md`** - the one-reader proposal
+   (statements + scopes, generic grammars, fields as config, one pairing, one conflict
+   policy; phases 0-3, shadow mode first) and the three cheap generic wins (space-
+   insensitive labels, one value normaliser per type, one pairing function). post197
+   (done): a requirement's Load Type keys are each table's key; a key may name an audit
+   column. Her pair (mock, files + LOBs answered): PASS_WITH_OPEN_INPUTS. Left: a source
+   header written only `Field` stays a question.
 1. **Tracker decisions (Soham), from incidents 9-17** (tracker export: Office Script in
    H26; updates for #9-17 written 16-Nov by the update script in H26):
    - **#12 rest:** should STGDELTA `TGT_DATA_TYPE` drop the precision too? (the tester:

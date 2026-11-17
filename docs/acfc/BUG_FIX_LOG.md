@@ -29,6 +29,66 @@ number.
 
 ---
 
+## 0.5.8.post199 — generic: one load-strategy alias table (the same word read differently by document)
+
+- **Symptom (class):** a load-strategy word read differently by which document stated
+  it ("Merge" = Upsert in an STTM meta row, null + ambiguity in an FRD); "Incremental"
+  (a load TYPE) read as Append on the STTM / answers side.
+- **Reproduced:** the two readers side by side on the same words (the new test's table).
+- **Root cause:** two readers - `resolve/gapfill.py :: canonical_strategy` with a code
+  table `_STRATEGY_ALIASES`, `extract/frd_docx.py :: canonical_strategy` with the config
+  table only - and different normalisation (punctuation-free vs label form).
+- **Change:** `resolve/gapfill.py :: strategy_reading` (new, the one reader);
+  `canonical_strategy(text, synonyms)` and `parse_load_strategy_text(text, markers,
+  synonyms)` take the table (callers: `resolver._answered_unstated`, the resolver's STTM
+  meta step, `layout/resolve._FeedGapFiller.run` step c); `_STRATEGY_ALIASES` removed;
+  `frd_docx.canonical_strategy` delegates; `config/config.yaml ::
+  extractor.frd.load_strategy_synonyms` holds every alias, "Incremental" dropped.
+- **Reach:** 12-pair check (framework, mock, post198 vs post199): outcomes unchanged,
+  295 / 295 files, no artefact cell moved, all 28 FRD / STTM contracts byte-identical -
+  no pair's load strategy reads differently (none writes "Incremental" in an STTM or
+  "Merge" / "Full Load" in an FRD). Only diff: the build stamp.
+- **Side effects:** none found.
+- **Unchanged:** the three canonical strategies; the leading-word rule stays opt-in (Load
+  Type block lines only); the post197 key phrase reading; an answer that names no
+  strategy is still refused loudly (post115).
+- **Tests:** `tests/test_strategy_aliases_post199.py` (the alias table set back to its
+  single entry -> 7 failed; "Incremental" put back -> the drop test failed);
+  `tests/test_frd_gapfill.py :: test_load_strategy_text_parsing` passes the table.
+- **Verified:** `.venv-d1` 2260 passed; `.venv` 2609 passed; ruff clean; 12-pair check
+  alone.
+- **Revert:** `git revert` (code + config move together); to restore only "Incremental"
+  add `"Incremental": "Append"` to the table.
+- **Deployed:** not yet.
+
+## 0.5.8.post198 — generic: STTM / VDD headers match synonyms with spaces ignored (the post195 class)
+
+- **Symptom (class):** a header written without its space ("FieldName") matched no role
+  synonym, so every mapping sheet asked the role (post195 fixed one spelling by hand).
+- **Reproduced:** post195's case with the hand-written `fieldname` synonym removed
+  (synthetic workbook, the tester's header shape).
+- **Root cause:** `layout/discover.py` compared `normalize(header)` with
+  `normalize(synonym)`; `normalize` keeps word boundaries as spaces, so one-word and
+  spaced spellings differ.
+- **Change:** `layout/discover.py :: header_key` (new); the role-table builds and header
+  lookups in `_resolve_flat_roles`, the target-role runs, `_target_role`, the target
+  spans, `_resolve_band_roles`, `_mapping_source_vocabulary` use it. No config change.
+- **Reach:** 12-pair check (framework, mock, post197 vs post198): outcomes unchanged,
+  295 / 295 files, no artefact cell moved, and all 12 STTM layout profiles
+  byte-identical - no header of the 12 pairs resolves differently. Only diffs: build
+  stamp, report version / environment-path lines.
+- **Side effects:** none found.
+- **Unchanged:** `normalize` (all value / name comparisons); meta labels, segment words,
+  sheet-name segments; FRD labels; ambiguity handling (two roles = refused).
+- **Tests:** `tests/test_header_key_post198.py :: test_header_key_drops_spaces_only`,
+  `test_a_one_word_header_resolves_without_its_own_synonym` (both failed with
+  `header_key` returning `normalize`), `test_no_two_roles_share_a_header_key_in_the_
+  shipped_config` (the guard).
+- **Verified:** `.venv-d1` 2248 passed; `.venv` 2596 passed + the known load-sensitive
+  `test_m93_chooser` timing test (3/3 alone); ruff clean; 12-pair check alone.
+- **Revert:** make `header_key` return `normalize(value)` (one line), or `git revert`.
+- **Deployed:** not yet.
+
 ## 0.5.8.post197 — tester's pair: TGT_PRIMARY_KEY asked although each requirement states its keys
 
 - **Symptom:** after post196 (files + LOBs answered), generate asked
@@ -71,7 +131,7 @@ number.
   `test_m93_chooser` timing test (3/3 alone); ruff + scrub clean; 12-pair check alone.
 - **Revert:** empty `load_type_key_phrases` (reader off); remove the `key_statement`
   branch in `resolve_structured_fields`; remove the audit branch in `_match`.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging 71299d6 2026-11-17.
 
 ## 0.5.8.post196 — tester's paused run: requirement tables of a mixed FRD never read
 

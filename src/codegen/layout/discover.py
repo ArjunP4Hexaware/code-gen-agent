@@ -66,6 +66,14 @@ ELIMINATION_NOTE = "layer by elimination"
 MAPPING_PREFIX_REFUSED = "MAPPING- reader refused the workbook: "
 
 
+def header_key(value: object) -> str:
+    """post198: a header's synonym-lookup key - :func:`normalize` without its spaces, so
+    "FieldName" / "Field Name" / "field_name" are one header (the post195 class). Used
+    ONLY where a header cell is looked up in a role synonym table; every other
+    comparison (values, file / table / sheet names) keeps :func:`normalize`."""
+    return normalize(value).replace(" ", "")
+
+
 def normalize(value: object) -> str:
     """Comparison form for every header, label, token and marker: lowercase,
     every run of non-alphanumerics (space, _ / - ( ) ? : # . …) → one
@@ -209,7 +217,7 @@ def _signature_row(ws, alternatives: list[list[str]]) -> tuple[int, list] | None
 def _resolve_flat_roles(sheet: str, layer: str, header: list, synonyms: dict[str, list[str]],
                         confidence: dict[str, float], unresolved: list[UnresolvedRole],
                         diagnostics: list[str]) -> BandProfile:
-    table = {role: {normalize(s) for s in spellings} for role, spellings in synonyms.items()}
+    table = {role: {header_key(s) for s in spellings} for role, spellings in synonyms.items()}
     roles: dict[str, int] = {}
     last_col = max((i + 1 for i, c in enumerate(header) if text(c) is not None), default=1)
     for col in range(1, last_col + 1):
@@ -217,7 +225,7 @@ def _resolve_flat_roles(sheet: str, layer: str, header: list, synonyms: dict[str
         value = normalize(raw)
         if not value:
             continue
-        matches = [role for role, spellings in table.items() if value in spellings]
+        matches = [role for role, spellings in table.items() if header_key(value) in spellings]
         if len(matches) == 1 and matches[0] not in roles:
             roles[matches[0]] = col
             confidence[confidence_key(sheet, layer, matches[0])] = _SYNONYM_CONFIDENCE
@@ -988,7 +996,7 @@ def label_groups(header: list, disc: DiscoveryConfig) -> list[LabelGroup]:
     just before the repeat. A piece's leading non-location roles (a rules
     band's Primary Key beside the stage band) are not its own."""
     ev = disc.layer_evidence
-    table = {role: {normalize(s) for s in spellings}
+    table = {role: {header_key(s) for s in spellings}
              for role, spellings in disc.roles.get("target", {}).items()}
     last_col = max((i + 1 for i, c in enumerate(header) if text(c) is not None), default=0)
     runs: list[list[tuple[int, str]]] = []
@@ -996,7 +1004,8 @@ def label_groups(header: list, disc: DiscoveryConfig) -> list[LabelGroup]:
     gap = 0
     for col in range(1, last_col + 1):
         value = normalize(header[col - 1]) if col - 1 < len(header) else ""
-        matches = [role for role, spellings in table.items() if value and value in spellings]
+        key = header_key(value)
+        matches = [role for role, spellings in table.items() if value and key in spellings]
         if len(matches) != 1:
             if current:
                 gap += 1
@@ -1432,10 +1441,10 @@ def _target_role(value: str, qualifier: str | None, table: dict[str, set[str]]) 
     """Target roles a header names — as written, else without the band's
     qualifier word ("Landing Schema" -> "schema"): the qualifier names the
     band, the rest names the role."""
-    matches = [role for role, spellings in table.items() if value in spellings]
+    matches = [role for role, spellings in table.items() if header_key(value) in spellings]
     if not matches and qualifier and value.startswith(qualifier + " "):
         rest = value[len(qualifier) + 1:]
-        matches = [role for role, spellings in table.items() if rest in spellings]
+        matches = [role for role, spellings in table.items() if header_key(rest) in spellings]
     return matches
 
 
@@ -1472,7 +1481,7 @@ def _discover_candidate_sheet(ws, disc: DiscoveryConfig, confidence: dict[str, f
                  for s, e, word in _qualifier_runs(header, last_col, ev.candidate_min_run)]
     if not spans:
         return None
-    table = {role: {normalize(s) for s in spellings}
+    table = {role: {header_key(s) for s in spellings}
              for role, spellings in disc.roles.get("target", {}).items()}
     words_by_layer = {layer: {normalize(t) for t in tokens}
                       for layer, tokens in ev.header_words.items()}
@@ -1688,7 +1697,7 @@ def _mapping_source_vocabulary(table: dict[str, set[str]], extractor: ExtractorC
         role = LEGACY_SOURCE_ROLES.get(logical)
         if role is None:
             continue
-        for spelling in (normalize(s) for s in spellings):
+        for spelling in (header_key(s) for s in spellings):
             for others in out.values():
                 others.discard(spelling)
             out.setdefault(role.value, set()).add(spelling)
@@ -1700,7 +1709,7 @@ def _resolve_band_roles(sheet: str, band: BandProfile, header: list, disc: Disco
                         diagnostics: list[str], bands_before: list[BandProfile] | None = None,
                         extractor: ExtractorConfig | None = None) -> BandProfile:
     group = _roles_group(band, bands_before or [])
-    table = {role: {normalize(s) for s in spellings}
+    table = {role: {header_key(s) for s in spellings}
              for role, spellings in disc.roles.get(group, {}).items()}
     if (extractor is not None and group == "source"
             and sheet.startswith(extractor.mapping_sheet_prefix)):
@@ -1715,11 +1724,11 @@ def _resolve_band_roles(sheet: str, band: BandProfile, header: list, disc: Disco
         if not value:
             continue
         if recycle and value.startswith(recycle) and Role.RECYCLE_FLAG.value not in roles \
-                and not any(value in spellings for spellings in table.values()):
+                and not any(header_key(value) in spellings for spellings in table.values()):
             roles[Role.RECYCLE_FLAG.value] = col
             confidence[confidence_key(sheet, band.layer, Role.RECYCLE_FLAG)] = _SYNONYM_CONFIDENCE
             continue
-        matches = [role for role, spellings in table.items() if value in spellings]
+        matches = [role for role, spellings in table.items() if header_key(value) in spellings]
         if len(matches) == 1:
             role = matches[0]
             if role in roles:

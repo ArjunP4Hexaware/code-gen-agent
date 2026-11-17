@@ -3629,7 +3629,8 @@ class _FeedGapFiller:
 
         # c. load strategies: STTM per layer, else FAQ (stage) / blank (standard).
         text_, sttm_cell = meta.get("load_strategy", (None, "STTM meta row 'Load Strategy'"))
-        parsed = parse_load_strategy_text(text_, self.config.extractor.frd.target_schema_markers)
+        parsed = parse_load_strategy_text(text_, self.config.extractor.frd.target_schema_markers,
+                                          self.config.extractor.frd.load_strategy_synonyms)
         for layer in ("stage", "standard"):
             dotted = f"{layer}_target.load_strategy"
             if self.handled(dotted):

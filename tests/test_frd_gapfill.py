@@ -36,18 +36,19 @@ DATE = "2026-01-01"
 MARKERS = {"stage": ["STG", "Stage", "Staging"], "standard": ["STD", "Standard"]}
 
 
-def test_load_strategy_text_parsing():
-    assert parse_load_strategy_text("Append", MARKERS) == {"any": "Append"}
-    assert parse_load_strategy_text("STG: Append; STD: Upsert", MARKERS) == {
+def test_load_strategy_text_parsing(config):
+    words = config.extractor.frd.load_strategy_synonyms     # post199: the one table
+    assert parse_load_strategy_text("Append", MARKERS, words) == {"any": "Append"}
+    assert parse_load_strategy_text("STG: Append; STD: Upsert", MARKERS, words) == {
         "stage": "Append", "standard": "Upsert"}
-    assert parse_load_strategy_text("Stage - Truncate and Load\nStandard - merge", MARKERS) == {
-        "stage": "Truncate and Load", "standard": "Upsert"}
-    assert parse_load_strategy_text("", MARKERS) == {}
-    assert parse_load_strategy_text(None, MARKERS) == {}
-    assert parse_load_strategy_text("whatever", MARKERS) == {}
-    assert canonical_strategy("truncate & load") == "Truncate and Load"
-    assert canonical_strategy("OVERWRITE") == "Truncate and Load"
-    assert canonical_strategy("nonsense") is None
+    assert parse_load_strategy_text("Stage - Truncate and Load\nStandard - merge", MARKERS,
+                                    words) == {"stage": "Truncate and Load", "standard": "Upsert"}
+    assert parse_load_strategy_text("", MARKERS, words) == {}
+    assert parse_load_strategy_text(None, MARKERS, words) == {}
+    assert parse_load_strategy_text("whatever", MARKERS, words) == {}
+    assert canonical_strategy("truncate & load", words) == "Truncate and Load"
+    assert canonical_strategy("OVERWRITE", words) == "Truncate and Load"
+    assert canonical_strategy("nonsense", words) is None
 
 
 # -- fixtures: pair 1 with holes -------------------------------------------------- #

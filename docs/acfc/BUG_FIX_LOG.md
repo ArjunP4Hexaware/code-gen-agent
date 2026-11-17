@@ -29,6 +29,36 @@ number.
 
 ---
 
+## 0.5.8.post195 — tester's paused run: source field name UNRESOLVED on a multi-sheet STTM
+
+- **Symptom:** a staging run paused on 5 `UNRESOLVED sheets[<i>]/source/field_name` lines,
+  one per mapping sheet; the run could not go on without a person placing the column.
+- **Reproduced:** the tester's staging uploads, mock, post194, staging's own layout cache:
+  two STTM versions 5 UNRESOLVED each, a third version 4 (all `source/field_name`).
+- **Root cause:** the source band's field-name header is written as one word; `discover`
+  normalizes it to `fieldname`, and `extractor.discovery.roles.source.field_name` had
+  only the spaced spelling (and `columnname`, the same pattern for another header).
+- **Change:** `config/config.yaml` :: `extractor.discovery.roles.source.field_name` +
+  `"fieldname"`. No code change.
+- **Reach:** 12-pair check (framework, mock, post194 vs post195): outcomes unchanged
+  (5 PASS_WITH_OPEN_INPUTS, 2 GATE_FAIL, 2 FAIL, 3 NEEDS_ANSWERS), 295 / 295 files, no
+  DDL / IIG / workbook cell moved - no pair writes the one-word header. The only diffs:
+  the build stamp and each report's "Produced by" line (version + checkout path).
+- **Side effects:** none expected - a header must normalize to exactly `fieldname`.
+- **Unchanged:** a source header written only `Field` (another upload) stays a question:
+  too generic to be a synonym on one sighting. The DQ-sheet `dq_sheet_field_headers`
+  overlay key already read `FieldName` and is untouched.
+- **Tests:** `tests/test_sttm_fieldname_header.py ::
+  test_field_name_header_resolves_with_or_without_the_space` - the `FieldName` case failed
+  with only the synonym removed (run before the config edit).
+- **Verified:** `.venv-d1` 2234 passed; `.venv` 2582 passed + 1 known load-sensitive
+  timing test (`test_m93_chooser::test_index_writes_never_run_inside_a_selection_step`,
+  ran beside the 12-pair check; passed 3/3 alone - H25); ruff clean; the tester's three
+  STTM versions 0 UNRESOLVED (mock). The first 12-pair run's old side timed out pair_03
+  under the same load (901 s) - re-run alone, equal.
+- **Revert:** remove `"fieldname"` from that synonym list (and the test).
+- **Deployed:** not yet.
+
 ## 0.5.8.post193 — side effect of #11: the review copy asked for a decided blank
 
 - **Symptom:** after the #11 fix, pair_01's `<feed>_IIG_REVIEW.xlsx` summary gained one

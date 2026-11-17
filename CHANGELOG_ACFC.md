@@ -4,6 +4,22 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post195 — 2026-11-17 (STTM source header "FieldName" read as the field name)
+
+A tester's paused staging run asked `UNRESOLVED sheets[<i>]/source/field_name` on every
+mapping sheet of a multi-sheet STTM: the source band writes its field-name header as one
+word (`FieldName`), which normalizes to `fieldname` - not in the synonym table (`field
+name`, `columnname` were). Reproduced on the tester's uploads (mock, staging's layout
+cache, post194): two STTM versions 5 UNRESOLVED each, a third 4; with the synonym all 0.
+
+1. **Config:** `extractor.discovery.roles.source.field_name` gains `"fieldname"` (a header
+   seen in a client document - pipeline.md: the evidence a synonym needs).
+2. **Not changed:** a source header written only `Field` (another upload, 1 UNRESOLVED) -
+   too generic to add without more evidence; it stays a question.
+
+Tests: `tests/test_sttm_fieldname_header.py` (failed on `FieldName` with only the synonym
+removed).
+
 ## 0.5.8.post194 — 2026-11-16 (metadata_inserts.sql retired)
 
 Soham, 2026-11-16: `metadata_inserts.sql` is deprecated - the App never offered it

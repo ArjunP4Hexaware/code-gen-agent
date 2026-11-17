@@ -81,7 +81,7 @@ number.
   the tester's pair: the cell empty in every row.
 - **Revert:** delete `dq_no_rejection_words` from the ACFC overlay (the helper then never
   fires) - or revert the ADLS-builder branch.
-- **Deployed:** dev 294f4b3 2026-11-16; staging not yet (a tester run was paused there).
+- **Deployed:** dev 294f4b3 2026-11-16; staging c53102b 2026-11-17 (with post194).
 
 ## 0.5.8.post193 — tracker #13: DeDuplicationRule on the key although the FRD says "true duplicates"
 
@@ -106,7 +106,7 @@ number.
   only `metadata_template.py` reverted: yes.
 - **Verified:** suites, 12-pair check, dev live run: 70 data columns (74 minus 4 audit).
 - **Revert:** delete `dq_true_duplicate_words` from the ACFC overlay.
-- **Deployed:** dev 294f4b3 2026-11-16; staging not yet.
+- **Deployed:** dev 294f4b3 2026-11-16; staging c53102b 2026-11-17 (with post194).
 
 ## 0.5.8.post193 — tracker #12: SRC_DATA_TYPE with precision split wrongly by the standard load
 
@@ -129,7 +129,7 @@ number.
   back to `full`: yes.
 - **Verified:** suites, 12-pair check, dev live run: 74 pieces for 74 columns.
 - **Revert:** `data_type_style: full` in the ACFC overlay (and the test rename back).
-- **Deployed:** dev 294f4b3 2026-11-16; staging not yet.
+- **Deployed:** dev 294f4b3 2026-11-16; staging c53102b 2026-11-17 (with post194).
 
 ## Not fixed in post193 (decisions open) — for the record
 

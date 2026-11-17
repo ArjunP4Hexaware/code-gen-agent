@@ -8,16 +8,10 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 
 **First check:** `git fetch && git status -sb` = up to date with
 `origin/feature/multi-table` (head = the hand-off docs commit on top of f5eb046, post194).
-- **NEXT: `/ship-staging` (Soham said go, 2026-11-16) - BLOCKED only by the tester's
-  paused run.** staging `codegen-agent-staging` = post192 (`main` = 820047f). At hand-off a
-  tester run sat in `needs_answers` (5 `UNRESOLVED <sheet>/source/field_name` on a
-  multi-sheet STTM - NOT the Accumulators pair); a deploy kills it. Check
-  `GET /api/demo/status` first: idle -> `tools/check/ship.sh staging --approved`; still
-  paused -> Soham asks her to finish / cancel (draft in H26) or says cancel it
-  (`POST /api/demo/cancel`, folder kept). Dev's deploy record is f5eb046 = what staging
-  takes (dev stays STOPPED; no restart needed - the hand-off docs commit on top
-  changes docs only, same src / config tree). After it: tell her to re-run the
-  Accumulators pair, choose WF_ for #17; set tracker #11 / #13 Resolved.
+- **DONE 2026-11-17: staging `codegen-agent-staging` = post194** (`main` = c53102b,
+  identical-tree merge; health + smoke green; it was idle - the tester's paused run had
+  ended). BUG_FIX_LOG "Deployed" lines filled. NEXT: tell her to re-run the Accumulators
+  pair, choose WF_ for #17; set tracker #11 / #13 Resolved.
 - **dev `codegen-agent`:** compute STOPPED, last deployment post194 (f5eb046), health +
   smoke + a live pair_13 run green (#11 / #12 / #13 cells right, no metadata_inserts.sql).
 - **post193 + post194 fully checked:** both suites green (post194: 2581 / 2232), CI green,

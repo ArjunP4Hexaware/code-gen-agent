@@ -4,19 +4,20 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-18, later - staging = post199; dev STOPPED on post194; feature = post200, pushed)
+## Start here (2026-11-18, later - staging = post200; dev STOPPED on post194; feature = post200, pushed)
 
 **First check:** `git fetch && git status -sb` = up to date with
 `origin/feature/multi-table` (head = docs on top of 579ee2b, post200).
-- **post200 (not deployed):** FRD labels match their synonyms with spaces ignored
+- **post200 (staging 3e9168f, 2026-11-18; health + smoke green):** FRD labels match their synonyms with spaces ignored
   (`frd_docx.label_key` / `LabelTable` / `LabelSet`). Both suites green (`.venv` 2614 /
   `.venv-d1` 2265), 12-pair outcomes unchanged, no artefact cell moved; pair_08's Data
-  Quality section is now read (+1 validation rule, Layer 2 only). Staging on Soham's
-  word (`/ship-staging`).
-- **staging `codegen-agent-staging` = post199** (`main` = 7f57610, identical-tree merge;
-  health + smoke green, idle at hand-off).
+  Quality section is now read (+1 validation rule, Layer 2 only). CI: one load-timing
+  failure in `test_m93_chooser::test_a_run_never_waits_for_the_vdd...` (passed 3/3 alone,
+  green on re-run) - a second timing-sensitive test in that module.
+- **staging `codegen-agent-staging` = post200** (`main` = 3e9168f, identical-tree merge;
+  health + smoke green).
 - **dev `codegen-agent`:** STOPPED, last deployment post194 - starting it bills compute
-  (Soham's call); then `/ship-dev` deploys post199.
+  (Soham's call); then `/ship-dev` deploys post200.
 - **Every version this session fully checked:** both suites green (`.venv` 2609 /
   `.venv-d1` 2260 on post199), CI green, framework 12-pair outcomes unchanged
   (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), no artefact cell moved.

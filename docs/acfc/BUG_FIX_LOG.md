@@ -69,7 +69,7 @@ number.
   alone.
 - **Revert:** make `label_key` return `normalize_label(text)` (one line - the containers
   then match exactly as before), or `git revert`.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging 3e9168f 2026-11-18.
 
 ## 0.5.8.post199 — generic: one load-strategy alias table (the same word read differently by document)
 

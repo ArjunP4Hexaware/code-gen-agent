@@ -21,7 +21,11 @@ either.
   description fallback still reads `source.comments` only (a COMMENT is never rule text).
 - `layout/discover.py :: mapping_differences` ignores a target band's Comments role (the
   legacy MAPPING- reader reads Comments by its own header table), so a MAPPING- workbook
-  keeps the legacy profile.
+  keeps the legacy profile; `label_groups` never counts Comments as span evidence
+  (`_SPAN_NEUTRAL_ROLES`: on a sheet without band titles it stretched a band over the
+  trailing columns - pair_07, caught by the 12-pair check, fixed here).
+- Reach: outcomes and every artefact cell unchanged; pair_10's layout places its standard
+  Comments column (4 sheets).
 - NOT changed: DATA_QUALITY_RULES (still only document-stated checks - post171); what
   `value_spec` feeds (STDDelta date / trim rows by their regexes, the review copy's
   transformation text, Layer 2 - OFF).

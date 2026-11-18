@@ -4,10 +4,18 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-18, later - staging = post200; dev STOPPED on post194; feature = post200, pushed)
+## Start here (2026-11-18, later - staging = post200; dev STOPPED on post194; feature = post201, pushed)
 
 **First check:** `git fetch && git status -sb` = up to date with
 `origin/feature/multi-table` (head = docs on top of 579ee2b, post200).
+- **post201 (not deployed):** a Comments column in any STTM band is rule text
+  (`roles.target.comments`, `generic._comments`; Comments never span evidence -
+  `_SPAN_NEUTRAL_ROLES`, the pair_07 side effect caught + fixed). Suites `.venv` 2618 /
+  `.venv-d1` 2269; 12-pair: outcomes + artefacts unchanged. From the tester's question
+  (her Comments column = the standard band's last column, read by nothing).
+  OPEN (Soham): her date-format note as a DateConversionRule - her note states ONE
+  format, the rule's INPUT_PARAM needs `<source>--<target>` and the text must read
+  "Convert X to Y" (`date_format_rule_regex`); options in the session reply.
 - **post200 (staging 3e9168f, 2026-11-18; health + smoke green):** FRD labels match their synonyms with spaces ignored
   (`frd_docx.label_key` / `LabelTable` / `LabelSet`). Both suites green (`.venv` 2614 /
   `.venv-d1` 2265), 12-pair outcomes unchanged, no artefact cell moved; pair_08's Data

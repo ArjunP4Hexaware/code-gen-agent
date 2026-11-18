@@ -46,10 +46,25 @@ number.
 - **Change:** `config/config.yaml :: extractor.discovery.roles.target.comments` (new);
   `extract/generic.py :: _comments` (new; `build_generic_contract`'s `value_spec`
   fallback); `layout/discover.py :: mapping_differences` skips a target band's
-  `comments` role. Why no new reader pass (READER_GENERALIZATION): one config role +
+  `comments` role; `label_groups` ignores Comments as span evidence (`_SPAN_NEUTRAL_ROLES`,
+  the side effect below). Why no new reader pass (READER_GENERALIZATION): one config role +
   one shared fallback for every band, not a field-specific pass.
-- **Reach:** PENDING (12-pair check).
-- **Side effects:** PENDING.
+- **Reach:** 12-pair check (framework, mock, post200 vs post201, after the side-effect
+  fix below): outcomes unchanged (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL,
+  2 FAIL), 295 / 295 files, no DDL / IIG / test-case cell and no contract moved. ONE real
+  change: pair_10's STTM layout places the standard band's Comments column on its 4
+  mapping sheets (4 "no role, ignored" header notes gone); pair_10 stops at
+  NEEDS_ANSWERS before a contract, so nothing downstream. Every other report diff = the
+  version / environment-path line.
+- **Side effects:** found by the first 12-pair run and FIXED in this version: on a sheet
+  with no band title row (pair_07), `layout/discover.py :: label_groups` sizes a target
+  band by its run of target-role headers - Comments, now a target role, stretched the
+  standard band over the trailing Recycle Flag / DQ-mandatory / Comments columns (the
+  DQ-mandatory column then read by nothing; the open standard-column question gained a
+  candidate). Fix: `_SPAN_NEUTRAL_ROLES` (Comments) - placed inside a band, never span
+  evidence. Re-run: pair_07 byte-identical to post200. Test:
+  `test_a_trailing_comments_column_never_widens_a_label_group_band` (failed before the
+  fix: band (5, 11) instead of (5, 8)).
 - **Unchanged:** DATA_QUALITY_RULES (document-stated checks only); the description
   fallback (`source.comments` only - a Comments cell is never a COMMENT/description);
   a row whose load rule / transformation / business rule states rule text keeps it
@@ -59,9 +74,11 @@ number.
   `test_a_target_band_comments_cell_is_the_rows_rule_text` (both failed with the config
   line reverted), `test_every_bands_comments_join_once_in_band_order` (failed, with the
   contract test, with `_COMMENT_KEYS` = `source.comments` only).
-- **Verified:** PENDING.
+- **Verified:** `.venv` 2618 passed; `.venv-d1` 2269 passed (final tree); ruff clean;
+  12-pair check alone (twice: the side effect, then clean).
 - **Revert:** delete `roles.target.comments` (the standard / stage Comments is unread
-  again) and set `_COMMENT_KEYS = ("source.comments",)`, or `git revert`.
+  again; `_SPAN_NEUTRAL_ROLES` is then inert) and set `_COMMENT_KEYS =
+  ("source.comments",)`, or `git revert`.
 - **Deployed:** not yet.
 
 ## 0.5.8.post200 — generic: FRD labels match synonyms with spaces ignored (the post195 class, FRD side)

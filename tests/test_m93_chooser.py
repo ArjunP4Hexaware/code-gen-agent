@@ -410,26 +410,33 @@ def test_index_writes_never_run_inside_a_selection_step(ws, monkeypatch):
     runner._index._entries = {}            # (never unlink the file: the warm-up thread reads it)
     upload = ws.fake.workspace.upload
     pushes: list[float] = []
+    # 2026-11-18: the index write BLOCKS until released (it slept 5 s and the test timed
+    # the steps - load-sensitive when both suites ran together). A selection that
+    # finishes while every index write is still held proves no step waits on one.
+    release = threading.Event()
 
-    def slow(path, content, **kw):
+    def held(path, content, **kw):
         if path.endswith("/document_index.json"):
-            time.sleep(5)
+            release.wait(120)
             pushes.append(time.monotonic())
         return upload(path, content, **kw)
 
-    ws.fake.workspace.upload = slow
-    started = time.monotonic()
-    assert runner.select_workbook("STTM_alpha.xlsx").name == "STTM_alpha.xlsx"
-    took = time.monotonic() - started
-    assert runner.job_view()["state"] == "done"
-    assert runner.selection() == {"sttm": "STTM_alpha.xlsx", "frd": "FRD_bravo.docx",
-                                  "vdd": "VDD_charlie.xlsx"}
-    # Three documents are read cold on the request path; a 5 s write on that
-    # path after each would have made this 15 s or more and put 5 s on the
-    # classify / pair steps. No step took the write.
-    assert took < 10, took
-    job = runner.job_view()
-    assert all(s["seconds"] < 5 for s in job["steps"] if s["step"] != "record"), job["steps"]
+    ws.fake.workspace.upload = held
+    picked: dict = {}
+    selecting = threading.Thread(
+        target=lambda: picked.setdefault("sel", runner.select_workbook("STTM_alpha.xlsx")),
+        daemon=True)
+    selecting.start()
+    selecting.join(60)
+    try:
+        assert not selecting.is_alive(), "the selection waited on an index write"
+        assert not release.is_set() and not pushes
+        assert picked["sel"].name == "STTM_alpha.xlsx"
+        assert runner.job_view()["state"] == "done"
+        assert runner.selection() == {"sttm": "STTM_alpha.xlsx", "frd": "FRD_bravo.docx",
+                                      "vdd": "VDD_charlie.xlsx"}
+    finally:
+        release.set()
     # The index still reaches the state role — behind the selection, coalesced.
     assert runner._index.wait_pushed(40)
     assert pushes and f"{SHARED}/state/document_index.json" in ws.fake.ws.files
@@ -881,13 +888,14 @@ def test_a_run_never_waits_for_the_vdd_and_waits_for_a_pending_frd_only_when_non
             break
         time.sleep(0.05)
     assert runner.selection() == {"sttm": "STTM_alpha.xlsx", "frd": "FRD_bravo.docx", "vdd": None}
-    started = time.monotonic()
     runner.start_live()
-    for _ in range(200):
+    for _ in range(400):
         if runner.state == "done":
             break
         time.sleep(0.05)
-    assert runner.state == "done" and time.monotonic() - started < 3      # no wait for the VDD
+    # no wait for the VDD: the run is done while the VDD pairing is still held (2026-11-18:
+    # was "< 3 s", load-sensitive)
+    assert runner.state == "done" and not gate.is_set()
     assert not any(s["stage"] == "pairing" for s in runner.stages), runner.stages
     gate.set()
     assert runner.wait_paired(20)
@@ -906,7 +914,10 @@ def test_a_run_never_waits_for_the_vdd_and_waits_for_a_pending_frd_only_when_non
     runner2.start_selection("STTM_alpha.xlsx")
     assert runner2._job_done.wait(20)
     runner2.start_live()
-    time.sleep(0.5)
+    for _ in range(400):                  # 2026-11-18: polled (a fixed 0.5 s flaked in CI)
+        if runner2.state == "running" and runner2.stages:
+            break
+        time.sleep(0.05)
     assert runner2.state == "running" and runner2.stages[-1]["stage"] == "pairing", runner2.stages
     gate2.set()
     for _ in range(200):

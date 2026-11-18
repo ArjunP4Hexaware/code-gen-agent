@@ -40,14 +40,19 @@ number.
   `layout/resolve._frd_line_candidates`) was never shown.
 - **Change:** `layout/answers.py :: unresolved_report` appends ` · <inline_label>` when a
   candidate carries one. `line` (label + VALUE) stays out - this file is structural only.
-- **Reach:** PENDING (12-pair check).
-- **Side effects:** PENDING.
+- **Reach:** 12-pair check (framework, mock, post201 vs post202): outcomes unchanged,
+  295 / 295 files, no artefact / contract / layout moved. Only `unresolved_headers.md` of
+  the 3 NEEDS_ANSWERS pairs (08, 09, 10) changed: their FRD line choices gain
+  ` · <line label>` (3-4 lines each). Every other report diff = the version /
+  environment-path line.
+- **Side effects:** none found.
 - **Unchanged:** every other candidate shape (STTM columns, FRD cells); the dialog; the
   answers keys; no artefact.
 - **Tests:** `tests/test_unresolved_report_inline_label.py ::
   test_two_line_choices_of_one_cell_differ_by_their_line_label` (failed with the change
   stashed; asserts no value text appears).
-- **Verified:** PENDING.
+- **Verified:** `.venv` 2621 passed; `.venv-d1` 2272 passed (with the de-flaked
+  `test_m93_chooser` timing tests under full load); ruff clean; 12-pair check alone.
 - **Revert:** drop the ` · inline_label` term in `unresolved_report`, or `git revert`.
 - **Deployed:** not yet.
 

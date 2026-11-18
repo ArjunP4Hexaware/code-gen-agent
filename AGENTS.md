@@ -7,7 +7,7 @@ Session state goes elsewhere:
 - **Where the work is now** (state, next up, open items, container recipes):
   `docs/RESTART.md` — read it first, update it at the end of a session.
 - **What each version did:** `CHANGELOG_ACFC.md`.
-- **Older notes, verbatim:** `docs/CLAUDE_HISTORY.md` (§[H2]–§[H26], one per session; §[H9] = everything
+- **Older notes, verbatim:** `docs/CLAUDE_HISTORY.md` (§[H2]–§[H27], one per session; §[H9] = everything
   this file carried before the 2026-10-23 clean-up, §[H10] = retired RESTART.md blocks).
   The pre-clean-up file itself: `git show fa79a28:CLAUDE.md`.
 
@@ -131,13 +131,19 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   `dist` (`npm run build`) — the App serves it.
 - **Tests:** run the affected files while working; run the full suite in BOTH venvs once
   on the locally committed tree and READ the result before `git push` — never chain the
-  push. In parallel: `pytest -n 4 --dist loadgroup` (`.venv` ≈ 12 min, `.venv-d1` ≈ 10, 2026-11-09;
+  push. In parallel: `pytest -n 4 --dist loadgroup` (`.venv` ≈ 21 min, `.venv-d1` ≈ 19,
+  both at once, 2026-11-17;
   `tests/conftest.py` groups by module and keeps the App-state modules on one worker —
   a new test writing a checkout path outside those markers needs one). `--dist load`
   breaks that grouping; plain `pytest` stays serial. `ruff check src/
   tests/` stays clean; generated code must be ruff-clean too. Frontend: `cd ui/frontend
   && npx vitest run` (or `node node_modules/vitest/vitest.mjs run` where `npx` is
   missing).
+- **Check gotchas (2026-11-17):** the 12-pair check runs ALONE (beside the suites it timed
+  a pair out - post195), old side `HEAD~<n>`, never `HEAD~0`;
+  `test_m93_chooser::test_index_writes_never_run_inside_a_selection_step` is
+  load-sensitive when both suites run together - re-run it alone (it passed 3/3 every
+  time).
 - **Proving a fix:** its test must fail with ONLY the fix reverted (`git show HEAD:<file>`
   over the fixed file, run, restore) — a failure from a missing import proves nothing.
   A fix that can change generated output also gets the real-pair check: the container
@@ -153,6 +159,10 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   Reproduce a tester's bug on THEIR documents first (mock, /tmp); a pair worth keeping
   for re-tests goes to the Workspace `frd_sttm_pairs/pair_<n>` with a README (pair_13 =
   2026-11-16), never the repo.
+- **A new document shape is first a READER_GENERALIZATION question** (Soham, 2026-11-17:
+  "patchworking ... isn't sustainable"): before writing another field-specific reader
+  pass, check `docs/acfc/READER_GENERALIZATION.md` - prefer a generic grammar or a
+  config line over a new pass, and say in the BUG_FIX_LOG entry why a pass was needed.
 - **Every bug fix gets a `docs/acfc/BUG_FIX_LOG.md` entry before the push** (Soham,
   2026-11-16: a fix that moves the flow is how new bugs are made): root cause, the exact
   change (file :: function / config key), its reach in the 12-pair check (pairs, sheets,

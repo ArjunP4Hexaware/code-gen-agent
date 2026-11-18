@@ -4,6 +4,33 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post200 — 2026-11-18 (FRD labels match their synonyms with spaces ignored)
+
+The third generic win (`docs/acfc/READER_GENERALIZATION.md` §5, win 1 on the FRD side;
+post198 did the STTM / VDD headers): an FRD label written as one word ("LoadType:",
+"FileFrequency:") is the same label as its spaced synonym - the post195 class, for every
+FRD synonym table at once instead of one config spelling at a time.
+
+- `extract/frd_docx.py :: label_key` (new) = `normalize_label` without spaces, used ONLY
+  by two synonym containers: `LabelTable` (synonym -> key; `_lookup`, the target-schema
+  markers, `layer_block_labels`, the cell-line labels) and `LabelSet` (the label sets:
+  file-pattern line, landing, Load Type block, requirement file name, nested-table
+  header words, Object Name feed / file, nested table column, post192 line fields).
+  The exact spelling still wins first; a space-free key two DIFFERENT keys' spellings
+  share matches neither (never a pick). `sr_signal`'s label test also accepts the
+  space-free equality. `layout/resolve._frd_questions` builds its section table with
+  `_lookup` (one reading with discovery).
+- NOT changed: `normalize_label` itself (82 uses: values, blank words, prefix tests,
+  label-vs-label agreement), the section-title prefix rule, the two-word layer heading
+  split, the post197 key phrases.
+
+Tests: `tests/test_label_key_post200.py` (4 failed with `label_key` = `normalize_label`;
+the collision guard over the shipped config).
+
+Reach (12-pair check): outcomes and every DDL / IIG cell unchanged; pair_08's FRD Data
+Quality section (its title spaced differently around a "/") is now read - one more
+validation rule in its FRD contract (Layer 2 input only, OFF for ACFC).
+
 ## 0.5.8.post199 — 2026-11-17 (one load-strategy alias table for every document; "Incremental" dropped)
 
 The second generic win (`docs/acfc/READER_GENERALIZATION.md` §5). Two readers disagreed:

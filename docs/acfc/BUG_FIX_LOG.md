@@ -29,6 +29,48 @@ number.
 
 ---
 
+## 0.5.8.post200 — generic: FRD labels match synonyms with spaces ignored (the post195 class, FRD side)
+
+- **Symptom (class):** an FRD label written without its space ("LoadType:") matched no
+  synonym, so its field stayed open and was asked (post198 closed the same class for
+  STTM / VDD headers only).
+- **Reproduced:** post196's synthetic requirement FRD with its Load Type line written
+  "LoadType:" - both load strategies unresolved on post199.
+- **Root cause:** `extract/frd_docx.py` compared `normalize_label(cell)` with
+  `normalize_label(synonym)`; `normalize_label` keeps word boundaries as spaces.
+- **Change:** `extract/frd_docx.py :: label_key`, `LabelTable`, `LabelSet` (new);
+  `_lookup` and `_markers` return a `LabelTable`; the label sets in `_stated_pattern`,
+  `requirement_landings`, `_place_line_fields`, `_place_load_type_blocks`,
+  `requirement_file_names`, `requirement_load_type_keys`, `_value` (block layer),
+  `_nested_rows`, `parse_object_name_block`, `nested_table_names`, `parse_layer_blocks`,
+  `split_labelled_lines` use them; `_names_label` (sr_signal) accepts the space-free
+  equality; `layout/resolve.py :: _frd_questions` uses `_lookup`. No config change. Why
+  no new reader pass: this is the generic grammar change READER_GENERALIZATION asks for.
+- **Reach:** 12-pair check (framework, mock, post199 vs post200): outcomes unchanged
+  (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), 295 / 295 files, no
+  DDL / IIG / test-case cell moved. ONE real change: pair_08's FRD titles its Data
+  Quality section with a space after the "/" of the configured spelling - post199
+  skipped that Solution Requirement table ("no row names a metadata section"), post200
+  reads it: the FRD contract gains one `validation_rules` entry (6 -> 7; section
+  `data_quality`) and its report the matching provenance lines. Every other report diff
+  = the version / environment-path line (old side ran from a worktree).
+- **Side effects:** the pair_08 rule above is the intended class (a label read that was
+  missed); it reaches Layer 2 only (OFF for ACFC) and no artefact.
+- **Unchanged:** `normalize_label` (values, blank words, label agreement, prefix tests);
+  the section-title prefix rule; the layer-heading word split; key phrases; an exact
+  match always wins; a space-free collision between two keys matches neither.
+- **Tests:** `tests/test_label_key_post200.py :: test_label_key_drops_spaces_only`,
+  `test_label_table_exact_first_then_space_free_and_never_a_pick`,
+  `test_label_set_matches_space_free_and_keeps_it_through_union`,
+  `test_a_one_word_frd_label_is_read_without_its_own_synonym` (all 4 failed with
+  `label_key` returning `normalize_label`), `test_no_two_keys_share_a_label_key_in_the_
+  shipped_config` (the guard).
+- **Verified:** `.venv` 2614 passed; `.venv-d1` 2265 passed; ruff clean; 12-pair check
+  alone.
+- **Revert:** make `label_key` return `normalize_label(text)` (one line - the containers
+  then match exactly as before), or `git revert`.
+- **Deployed:** not yet.
+
 ## 0.5.8.post199 — generic: one load-strategy alias table (the same word read differently by document)
 
 - **Symptom (class):** a load-strategy word read differently by which document stated
@@ -59,7 +101,7 @@ number.
   alone.
 - **Revert:** `git revert` (code + config move together); to restore only "Incremental"
   add `"Incremental": "Append"` to the table.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging 7f57610 2026-11-17 (post198 + post199).
 
 ## 0.5.8.post198 — generic: STTM / VDD headers match synonyms with spaces ignored (the post195 class)
 
@@ -87,7 +129,7 @@ number.
 - **Verified:** `.venv-d1` 2248 passed; `.venv` 2596 passed + the known load-sensitive
   `test_m93_chooser` timing test (3/3 alone); ruff clean; 12-pair check alone.
 - **Revert:** make `header_key` return `normalize(value)` (one line), or `git revert`.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging 7f57610 2026-11-17 (post198 + post199).
 
 ## 0.5.8.post197 — tester's pair: TGT_PRIMARY_KEY asked although each requirement states its keys
 

@@ -4,57 +4,56 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (session ended 2026-11-17 - staging = post197; dev STOPPED on post194; feature = post197, pushed)
+## Start here (2026-11-18, later - staging = post199; dev STOPPED on post194; feature = post200, pushed)
 
 **First check:** `git fetch && git status -sb` = up to date with
-`origin/feature/multi-table` (head = the hand-off docs commit on top of 086a444, post197).
-- **staging `codegen-agent-staging` = post197** (`main` = 71299d6; post196 was 08786dc, identical-tree merge;
-  health + smoke green). The tester's paused run (bugged: post195 + post196 are its fixes)
-  was CANCELLED on Soham's word before the deploy (folder kept).
-- **post195** STTM source header `FieldName` (one word) read as the field name (config
-  synonym). **post196** her FRD's Solution Requirements: "Load Type" blocks (STG / STD
-  strategy lines), the `<file name.ext>` each requirement opens with, and the file format
-  from the extension when no document states one (Soham: "use CSV"). Per-fix reach in
-  `docs/acfc/BUG_FIX_LOG.md`. Her pair (mock): layout questions 7 -> 4 (LOBs, domain - not
-  stated; the file of 2 tables whose names match no sheet).
-- **Both versions fully checked:** both suites green (post196: 2590 / 2242 + the known
-  `test_m93_chooser` timing flake when the suites run together), CI green, 12-pair outcomes
-  unchanged, no pair takes the new readers.
-- **dev `codegen-agent`:** STOPPED, last deployment post194 - `/ship-dev` only once Soham
-  starts it (bills compute).
-- **Message to the tester** (Soham's voice) drafted in the session: re-run the same STTM +
-  FRD on staging; LOBs / domain / two file choices / the primary key per table remain.
-- Session log: CLAUDE_HISTORY §[H27] (to write at hand-off).
+`origin/feature/multi-table` (head = docs on top of 579ee2b, post200).
+- **post200 (not deployed):** FRD labels match their synonyms with spaces ignored
+  (`frd_docx.label_key` / `LabelTable` / `LabelSet`). Both suites green (`.venv` 2614 /
+  `.venv-d1` 2265), 12-pair outcomes unchanged, no artefact cell moved; pair_08's Data
+  Quality section is now read (+1 validation rule, Layer 2 only). Staging on Soham's
+  word (`/ship-staging`).
+- **staging `codegen-agent-staging` = post199** (`main` = 7f57610, identical-tree merge;
+  health + smoke green, idle at hand-off).
+- **dev `codegen-agent`:** STOPPED, last deployment post194 - starting it bills compute
+  (Soham's call); then `/ship-dev` deploys post199.
+- **Every version this session fully checked:** both suites green (`.venv` 2609 /
+  `.venv-d1` 2260 on post199), CI green, framework 12-pair outcomes unchanged
+  (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), no artefact cell moved.
+  Per-fix reach + revert in `docs/acfc/BUG_FIX_LOG.md`.
+- **The tester (staging) has not re-run yet:** her bugged run was cancelled; post195-197
+  are its fixes. When she runs, read `GET /api/demo/status` / her run folder: she should
+  be asked only LOBs, domain and the file of 2 tables.
+- After a container reset: `~/bootstrap`, then the OAuth login (recipe below).
+- Session log: CLAUDE_HISTORY §[H27].
 
 **Open, in order:**
-0. **DECIDE (Soham): `docs/acfc/READER_GENERALIZATION.md`** - the one-reader proposal
-   (statements + scopes, generic grammars, fields as config, one pairing, one conflict
-   policy; phases 0-3, shadow mode first) and the three cheap generic wins (space-
-   insensitive labels, one value normaliser per type, one pairing function). post197
-   (done): a requirement's Load Type keys are each table's key; a key may name an audit
-   column. Her pair (mock, files + LOBs answered): PASS_WITH_OPEN_INPUTS. Left: a source
-   header written only `Field` stays a question.
+0. **DECIDE (Soham): `docs/acfc/READER_GENERALIZATION.md`** - the one-reader plan
+   (phases 0-3; 0-1 change no output). The cheap wins (§5): post198 DONE (STTM / VDD
+   headers, spaces ignored), post199 DONE (one strategy alias table, "Incremental"
+   dropped), post200 DONE (FRD labels, spaces ignored - the synonym containers only,
+   `normalize_label` unchanged). **NEXT: the delimiter readers** (5+ functions, 4 files)
+   as the next value normaliser. Pairing is NOT a cheap win (6 matchers differ on purpose) - Phase 2.
 1. **Tracker decisions (Soham), from incidents 9-17** (tracker export: Office Script in
-   H26; updates for #9-17 written 16-Nov by the update script in H26):
+   H26):
    - **#12 rest:** should STGDELTA `TGT_DATA_TYPE` drop the precision too? (the tester:
      yes; the pair-1 prod golden keeps `Decimal(17,2)`). post193 changed SRC only.
    - **#14:** a DataTypeCastRule for non-String standard columns - reverses post171 ("no
      cast rule"); the pair-1 golden has one.
    - **#16:** no grand master row for a Databricks Workflow run (master + children only) -
-     changes the post166 flow; close to item 7(b).
+     changes the post166 flow; close to item 8(b).
    - **#9 / #10:** fixed-width feeds -> `SRC_FORMAT = CSV`, `SRC_FILE_DELIMITER = '|'`
      (the converter's output) - confirm it holds for EVERY fixed-width feed, then a cited
-     config constant. Note: the ADLS_FIXED_WIDTH_HANDLER rows ARE generated already and
-     SRC_FORMAT is blank (not TXT, as the incident says).
-   - **#17:** no code - the WF_ run option (post187); told to the tester.
-3. **README.md / docs/DESIGN.md say "third agent of five"** - it is the second of three
-   (docs-only fix).
-1b. **Mixed-family FRD: DONE in part (post196)** - the requirement tables' Load Type
-   blocks and file names are read; the family choice itself is unchanged (no general F2
-   reading of an F1 document). Remaining on her FRD: the upsert keys (item 0).
-1c. **Small, mine:** the unresolved-questions report names a line choice by its row label
-   only (`answers.unresolved_report`) - add the `inline_label`; the live layout model's
-   STTM answer had an invalid `source` value - tighten the prompt / schema text.
+     config constant. The ADLS_FIXED_WIDTH_HANDLER rows ARE generated already; SRC_FORMAT
+     is blank (not TXT, as the incident says).
+   - **#11 / #13:** set Resolved (fixed post193, on staging since 2026-11-17).
+2. **Small, mine:** (a) the unresolved-questions report names a line choice by its row
+   label only (`answers.unresolved_report`) - add the `inline_label`; (b) the live layout
+   model's STTM answer had an invalid `source` value - tighten the prompt / schema text;
+   (c) a source header written only `Field` (a tester upload) stays a question - a
+   synonym only with more evidence; (d) her FRD's "Landing Location:" lines are not
+   read (`requirement_landing_labels` has only the ADLS spellings) - not asked today.
+3. ~~README / DESIGN "third agent of five"~~ - DONE 2026-11-18 (second of three).
 4. **The Standard Abbreviation List v28 - ASKED (Lokesh, via Soham, 2026-11-13):** in the
    Data Lakehouse Data Layers Standards V1.1 "Reference Documents"; same ask: Data
    Domains - SOR SOT.xlsx, the Data Modelling Guidelines, an IIG Framework sample. Files
@@ -75,28 +74,25 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 14. The STTM cell locator step 3; BSA questions (pairs 05 / 11 DQ sheet, pair_12 recycle);
    the Apps stop / start schedule (CLAUDE_HISTORY, blocks retired 2026-11-10).
 
-## State (2026-11-16 — post193, post194)
+## State (2026-11-17 — post195 to post199)
 
-- **post193** tracker #11 (FRD "No Rejection" -> ADLS MANDATORY_FIELD_LIST empty, a
-  `deliberate_blank`), #13 (FRD "True Duplicate" -> DeDuplicationRule on every data
-  column), #12 (ACFC overlay `data_type_style: base` - SRC_DATA_TYPE `String:Decimal`).
-  Reproduced first on the tester's documents. The 12-pair check caught a side effect (the
-  review copy asked for the decided blank) - fixed in the same version.
-- **post194** `metadata_inserts.sql` + the DML runner notebooks RETIRED (Soham): modules
-  deleted, `comment1` -> `emit/comment_text.py`, `dml:` config still accepted / unused,
-  the App's "Metadata inserts" flag group gone. IIG cells unchanged on all 12 pairs.
-- **pair_13** = the tester's Accumulators pair (newest STTM + FRD, byte copies + README) in
-  `/Workspace/Users/<me>/frd_sttm_pairs/pair_13`, also in dev's `codegen/inputs/uploads`.
-  Not in the 12-pair default (`--pairs 13` to run it).
-- **`tools/check/pair_check.sh`:** `PAIR_CHECK_MODE=notebook` for a notebook change (mode
-  in the cache key); pass the old side as `HEAD~<n>` when docs commits sit on top.
-- **The codebase deck** (Soham's manager walkthrough, 43 slides + speaker notes, ACFC WSR
-  masters): `/Workspace/Users/<me>/CodeGen_Agent_Codebase_Walkthrough.pptx`. The local
-  `code_gen_agent_presentations/` copy and its build scripts were in the clone / `/tmp`
-  only - gone after a reset; the Workspace copy is the one to keep. It still says
-  "SQL inserts" nowhere (post194-safe); slide 42 says post192 (update if reused).
-- Every version: both suites green, the framework 12-pair check outcomes unchanged
-  (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL).
+- **post195** STTM source header `FieldName` -> the field name (config synonym).
+- **post196** FRD Solution Requirements read beside F1 section tables: "Load Type" blocks
+  (`load_type_block_labels`), `<file name.ext>` lines (`requirement_file_name_labels`),
+  format from the extension when nothing states one. `FrdFieldSource.block_layer` (written
+  only when set).
+- **post197** a Load Type line's keys ("using keys ...", `load_type_key_phrases`) -> each
+  feed's key statement by its requirement's file; `primary_key._match` accepts the
+  table's audit columns.
+- **post198** `layout/discover.header_key`: STTM / VDD header -> role lookups ignore
+  spaces; a test guards that no two roles share a key.
+- **post199** one load-strategy alias table (`extractor.frd.load_strategy_synonyms`) for
+  every document and answer (`resolve/gapfill.strategy_reading`); "Incremental" dropped.
+- **pair_13** (the Accumulators pair) in `/Workspace/Users/<me>/frd_sttm_pairs/pair_13`;
+  not in the 12-pair default (`--pairs 13`). The tester's newer pair is NOT stored there
+  (her uploads are on staging: `codegen/inputs/codegen-agent-staging/uploads`).
+- **The codebase deck** (manager walkthrough): `/Workspace/Users/<me>/CodeGen_Agent_
+  Codebase_Walkthrough.pptx`; slide 42 says post192 (update if reused).
 
 ## Recipes (tracked since 2026-11-10 - `tools/check/`, `/tmp` holds only copies)
 

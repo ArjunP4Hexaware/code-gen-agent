@@ -4959,3 +4959,155 @@ filled with the feed's own values (target table, real location):
 - Every version: both suites green, the framework 12-pair check outcomes unchanged
   (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL).
 
+## §[H27] Session 2026-11-17/18: post195-post199 (the tester's bugged run, the one-reader proposal, two generic wins)
+
+- **Staging post194** shipped first (Soham's go from H26): the tester's paused run had
+  ended; `main` = c53102b.
+- **The tester's bugged run** (5 then 7 layout questions; reproduced on her staging
+  uploads, mock, staging's own layout cache, /tmp only, deleted after):
+  - post195: STTM source header `FieldName` (one word) -> config synonym `fieldname`.
+  - post196: her FRD = 2 F1 section tables + 7 Solution Requirement tables; F1 wins the
+    family, so the requirements were never read. New: "Load Type" blocks (STG / STD
+    strategy lines, `_place_load_type_blocks`), the `<file name.ext>` each requirement
+    opens with (`requirement_file_names`), format from the extension when no document
+    states one (Soham: "use CSV", resolver step b). Side effect caught by the suite: the
+    new `FrdFieldSource.block_layer` serialised `null` in every profile - fixed with a
+    serializer that writes it only when set (profiles byte-identical).
+  - post197: the keys a Load Type line names ("Upsert using keys A, B, C") -> each feed's
+    key statement, per requirement by its file name (`structured` per-file blocks +
+    `resolve_structured_fields`); `primary_key._match` now accepts the table's audit
+    columns (two of the three key names were STTM audit rows the DDL creates).
+  - Her pair (mock, files + LOBs answered): NEEDS_ANSWERS -> PASS_WITH_OPEN_INPUTS. Left
+    for her: LOBs, domain (not stated), the file of 2 tables whose names match no sheet.
+  - Her paused run CANCELLED on Soham's word ("she is not going to restart a run");
+    message to her drafted in Soham's voice (chat only).
+- **The generalisation** (Soham: "this isn't sustainable"): a Haiku Explore agent
+  catalogued 80 reader-touching versions (post51-196; 11 config-only; 21 SHAPE-CODE, 14
+  SYNONYM, 14 FALLBACK, 13 QUESTION, 9 PAIRING, 5 FAMILY, 4 MODEL). The proposal is
+  `docs/acfc/READER_GENERALIZATION.md` (statements + scopes, generic grammars, fields as
+  config, one pairing, one conflict policy; phases 0-3 with a shadow diff). Soham: "sounds
+  good, do the cheap wins" - analysed first:
+  - win 1 (spaces ignored in labels): 0 collisions across every synonym table; must NOT
+    touch `normalize()` (it compares values / names too). post198 = STTM / VDD headers
+    only (`discover.header_key`, 8 sites), all 12 layout profiles byte-identical.
+  - win 2 (one value normaliser per type): the two strategy readers DISAGREED (STTM side
+    had a code alias table incl. "incremental -> Append"; FRD side only one config
+    spelling). post199 = one config table, `gapfill.strategy_reading`, "Incremental"
+    dropped (Soham); all 28 contracts byte-identical on the 12 pairs.
+  - win 3 (one pairing function): NOT cheap - 6 matchers with deliberately different
+    strictness; moved to the Phase 2 shadow work.
+- **Staging:** post196 (08786dc), post197 (71299d6), post198 + post199 together (7f57610,
+  Soham: "hold it, ship both together"). Dev stays STOPPED on post194.
+- **Process slips:** (1) edited `src/` while the `.venv` suite ran (the frd_profile
+  serializer) - stopped that run, amended, re-ran both suites on the committed tree; (2)
+  started a 12-pair check with old = `HEAD~0` (compares a tree with itself) - stopped,
+  cleaned, re-run with `HEAD~1`; (3) the first post195 12-pair check ran beside both
+  suites and timed out pair_03 on the old side (901 s) - re-run alone, equal. The
+  `test_m93_chooser` timing test failed in 4 of 5 parallel suite runs, passed alone every
+  time.
+- **Spiral hook:** one false trigger (signal b on post195's planned red run while
+  building post196) - logged in `docs/spiral-log.md`, known-cause Seen date, replay
+  scenario added.
+
+### Retired RESTART.md blocks (2026-11-18 hand-off)
+
+## Start here (session ended 2026-11-17 - staging = post199; dev STOPPED on post194; feature = post199, pushed)
+
+**First check:** `git fetch && git status -sb` = up to date with
+`origin/feature/multi-table` (head = the hand-off docs commit on top of 267fb30, post199).
+- **staging `codegen-agent-staging` = post199** (`main` = 7f57610; post197 was 71299d6, post196 08786dc, identical-tree merge;
+  health + smoke green). The tester's paused run (bugged: post195 + post196 are its fixes)
+  was CANCELLED on Soham's word before the deploy (folder kept).
+- **post195** STTM source header `FieldName` (one word) read as the field name (config
+  synonym). **post196** her FRD's Solution Requirements: "Load Type" blocks (STG / STD
+  strategy lines), the `<file name.ext>` each requirement opens with, and the file format
+  from the extension when no document states one (Soham: "use CSV"). Per-fix reach in
+  `docs/acfc/BUG_FIX_LOG.md`. Her pair (mock): layout questions 7 -> 4 (LOBs, domain - not
+  stated; the file of 2 tables whose names match no sheet).
+- **Both versions fully checked:** both suites green (post196: 2590 / 2242 + the known
+  `test_m93_chooser` timing flake when the suites run together), CI green, 12-pair outcomes
+  unchanged, no pair takes the new readers.
+- **dev `codegen-agent`:** STOPPED, last deployment post194 - `/ship-dev` only once Soham
+  starts it (bills compute).
+- **Message to the tester** (Soham's voice) drafted in the session: re-run the same STTM +
+  FRD on staging; LOBs / domain / two file choices / the primary key per table remain.
+- Session log: CLAUDE_HISTORY §[H27] (to write at hand-off).
+
+**Open, in order:**
+0. **DECIDE (Soham): `docs/acfc/READER_GENERALIZATION.md`** - the one-reader proposal
+   (statements + scopes, generic grammars, fields as config, one pairing, one conflict
+   policy; phases 0-3, shadow mode first) and the three cheap generic wins (space-
+   insensitive labels, one value normaliser per type, one pairing function). post197
+   (done): a requirement's Load Type keys are each table's key; a key may name an audit
+   column. Her pair (mock, files + LOBs answered): PASS_WITH_OPEN_INPUTS. Left: a source
+   header written only `Field` stays a question.
+   **Cheap wins (READER_GENERALIZATION §5):** post198 DONE (STTM / VDD headers match
+   synonyms with spaces ignored, `discover.header_key`); post199 DONE (one strategy alias
+   table in config, "Incremental" dropped). NEXT: post200 = spaces ignored in FRD labels
+   (26 lookup sites mixed with value comparisons - only the lookups). Pairing (win 3) is
+   NOT a cheap win: the 6 matchers differ on purpose - Phase 2 shadow work. Delimiter
+   readers (5+ functions, 4 files) are the next value-normaliser candidate.
+1. **Tracker decisions (Soham), from incidents 9-17** (tracker export: Office Script in
+   H26; updates for #9-17 written 16-Nov by the update script in H26):
+   - **#12 rest:** should STGDELTA `TGT_DATA_TYPE` drop the precision too? (the tester:
+     yes; the pair-1 prod golden keeps `Decimal(17,2)`). post193 changed SRC only.
+   - **#14:** a DataTypeCastRule for non-String standard columns - reverses post171 ("no
+     cast rule"); the pair-1 golden has one.
+   - **#16:** no grand master row for a Databricks Workflow run (master + children only) -
+     changes the post166 flow; close to item 7(b).
+   - **#9 / #10:** fixed-width feeds -> `SRC_FORMAT = CSV`, `SRC_FILE_DELIMITER = '|'`
+     (the converter's output) - confirm it holds for EVERY fixed-width feed, then a cited
+     config constant. Note: the ADLS_FIXED_WIDTH_HANDLER rows ARE generated already and
+     SRC_FORMAT is blank (not TXT, as the incident says).
+   - **#17:** no code - the WF_ run option (post187); told to the tester.
+3. **README.md / docs/DESIGN.md say "third agent of five"** - it is the second of three
+   (docs-only fix).
+1b. **Mixed-family FRD: DONE in part (post196)** - the requirement tables' Load Type
+   blocks and file names are read; the family choice itself is unchanged (no general F2
+   reading of an F1 document). Remaining on her FRD: the upsert keys (item 0).
+1c. **Small, mine:** the unresolved-questions report names a line choice by its row label
+   only (`answers.unresolved_report`) - add the `inline_label`; the live layout model's
+   STTM answer had an invalid `source` value - tighten the prompt / schema text.
+4. **The Standard Abbreviation List v28 - ASKED (Lokesh, via Soham, 2026-11-13):** in the
+   Data Lakehouse Data Layers Standards V1.1 "Reference Documents"; same ask: Data
+   Domains - SOR SOT.xlsx, the Data Modelling Guidelines, an IIG Framework sample. Files
+   land in the Workspace `standards_docs` folder. Waiting on it: NM-001, NM-004, NM-006.
+5. **DL-006 (Soham's call):** raw files by `abfss://` vs a Unity Catalog volume - ask ACFC.
+6. **Incident 2 (Lokesh):** external tables - property set, `LOCATION` format, which FRD /
+   STTM field marks a table external.
+7. **PY-006 on feeds with many DATA_QUALITY_RULES rows** (pair_12) - not built, Soham's call.
+8. **DECIDED, do not re-raise:** the standard TBLPROPERTIES stay as post185 has them; the
+   Naming Standards win for grand master names; pair_12 is a Workflow (WF_), its prod
+   IIG's PL_ names are wrong. Still open: (b) reuse an existing grand master? + the
+   NSP / HVR / DLK-vs-HDS questions (H23 draft).
+9. **TDD training** (Venu): only two TDDs in `rfc_samples`; training material only.
+10. **A second standard table per stage table** (the 820 pair) - Soham's call.
+11. **Rows 3 / 4 of the delegation workbook** - need the EXPLAIN-only rule changed first.
+12. NO_OF_CYCLE_PER_DAY "1" wrong on pairs 11 / 12 - Soham's call.
+13. **`codingapp` deploy** (bootstrap patch imported) - on Soham's word, last in a session.
+14. The STTM cell locator step 3; BSA questions (pairs 05 / 11 DQ sheet, pair_12 recycle);
+   the Apps stop / start schedule (CLAUDE_HISTORY, blocks retired 2026-11-10).
+
+## State (2026-11-16 — post193, post194)
+
+- **post193** tracker #11 (FRD "No Rejection" -> ADLS MANDATORY_FIELD_LIST empty, a
+  `deliberate_blank`), #13 (FRD "True Duplicate" -> DeDuplicationRule on every data
+  column), #12 (ACFC overlay `data_type_style: base` - SRC_DATA_TYPE `String:Decimal`).
+  Reproduced first on the tester's documents. The 12-pair check caught a side effect (the
+  review copy asked for the decided blank) - fixed in the same version.
+- **post194** `metadata_inserts.sql` + the DML runner notebooks RETIRED (Soham): modules
+  deleted, `comment1` -> `emit/comment_text.py`, `dml:` config still accepted / unused,
+  the App's "Metadata inserts" flag group gone. IIG cells unchanged on all 12 pairs.
+- **pair_13** = the tester's Accumulators pair (newest STTM + FRD, byte copies + README) in
+  `/Workspace/Users/<me>/frd_sttm_pairs/pair_13`, also in dev's `codegen/inputs/uploads`.
+  Not in the 12-pair default (`--pairs 13` to run it).
+- **`tools/check/pair_check.sh`:** `PAIR_CHECK_MODE=notebook` for a notebook change (mode
+  in the cache key); pass the old side as `HEAD~<n>` when docs commits sit on top.
+- **The codebase deck** (Soham's manager walkthrough, 43 slides + speaker notes, ACFC WSR
+  masters): `/Workspace/Users/<me>/CodeGen_Agent_Codebase_Walkthrough.pptx`. The local
+  `code_gen_agent_presentations/` copy and its build scripts were in the clone / `/tmp`
+  only - gone after a reset; the Workspace copy is the one to keep. It still says
+  "SQL inserts" nowhere (post194-safe); slide 42 says post192 (update if reused).
+- Every version: both suites green, the framework 12-pair check outcomes unchanged
+  (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL).
+

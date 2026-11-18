@@ -82,6 +82,16 @@ bend, working rules, tests) stay in the root `AGENTS.md`. Moved here verbatim fr
   knows is skipped and named (`frd_cell_line_ignored:`, Soham's option B); a cell with an
   unlabelled (prose) line is refused whole. New spellings: config or the App's learned
   labels, never a code edit. The parser self-extension plan: `docs/PARSER_SELF_EXTENSION.md`.
+- **Header / label matching vs value comparison** (post198): a header is looked up in a
+  role synonym table by `layout.discover.header_key` (spaces ignored); `normalize` itself
+  (values, file / table / sheet names, agreement) never drops spaces. A synonym that would
+  share a key with another role's fails `tests/test_header_key_post198.py`.
+- **One reader per value type, its aliases in config** (post199): load strategies go
+  through `resolve.gapfill.strategy_reading` with `extractor.frd.load_strategy_synonyms`
+  (the ONE table, every document and answer; "Incremental" is a load type, never a
+  strategy). Never add an alias table in code.
+- **A new optional field on a profile / contract model** is serialised only when set (or
+  every cached profile and tracked fixture moves - post196's `block_layer`).
 - **Agreement between documents** goes through `gapfill.same_value(a, b, words)`: a
   punctuation-only value normalizes to '' — compare delimiters as characters (pass
   `extractor.delimiter_words`), never by `normalize` substring tests.

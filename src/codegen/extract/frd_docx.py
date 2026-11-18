@@ -206,9 +206,71 @@ def normalize_label(text: str) -> str:
     return collapsed.rstrip(":").strip()
 
 
-def _lookup(table: dict[str, list[str]]) -> dict[str, str]:
-    return {normalize_label(spelling): key for key, spellings in table.items()
-            for spelling in spellings}
+def label_key(text: str) -> str:
+    """post200: a label's synonym-lookup key - :func:`normalize_label` without its
+    spaces, so "FileName" / "File Name" are one label (the post195 class, FRD side;
+    :func:`codegen.layout.discover.header_key` is the STTM / VDD twin). Used ONLY by
+    :class:`LabelTable` / :class:`LabelSet`; every value comparison keeps
+    :func:`normalize_label`."""
+    return normalize_label(text).replace(" ", "")
+
+
+class LabelTable(dict):
+    """post200: a synonym -> key table (keys = :func:`normalize_label` spellings) whose
+    lookups also match with spaces ignored: the exact spelling first, then
+    :func:`label_key`. A space-free key two spellings of DIFFERENT keys share matches
+    neither (never a pick). Iteration is the spellings as normalised (prefix tests
+    unchanged)."""
+
+    def __init__(self, pairs=()):
+        super().__init__(pairs)
+        keys: dict[str, set[str]] = {}
+        for spelling, key in self.items():
+            keys.setdefault(spelling.replace(" ", ""), set()).add(key)
+        self._squashed = {k: next(iter(v)) for k, v in keys.items() if len(v) == 1}
+
+    def get(self, label, default=None):
+        if dict.__contains__(self, label):
+            return dict.__getitem__(self, label)
+        return self._squashed.get(label_key(label), default) if isinstance(label, str) \
+            else default
+
+    def __contains__(self, label) -> bool:
+        return self.get(label) is not None
+
+    def __getitem__(self, label):
+        found = self.get(label)
+        if found is None:
+            raise KeyError(label)
+        return found
+
+
+class LabelSet(frozenset):
+    """post200: a set of label spellings (:func:`normalize_label` form) whose ``in``
+    also matches with spaces ignored (:func:`label_key`); ``|`` keeps that."""
+
+    def __new__(cls, spellings=()):
+        out = super().__new__(cls, (normalize_label(s) for s in spellings))
+        out._squashed = frozenset(s.replace(" ", "") for s in out)
+        return out
+
+    def __contains__(self, label) -> bool:
+        return frozenset.__contains__(self, label) or (
+            isinstance(label, str) and label_key(label) in self._squashed)
+
+    def __or__(self, other):
+        return LabelSet([*self, *other])
+
+
+def _lookup(table: dict[str, list[str]]) -> LabelTable:
+    return LabelTable((normalize_label(spelling), key) for key, spellings in table.items()
+                      for spelling in spellings)
+
+
+def _markers(config: FrdExtractorConfig) -> LabelTable:
+    """``target_schema_markers`` as a marker -> layer lookup (post200: spaces ignored)."""
+    return LabelTable((normalize_label(m), layer) for layer, spellings in
+                      config.target_schema_markers.items() for m in spellings)
 
 
 def discover_frd(content: DocxContent, config: FrdExtractorConfig) -> FrdLayoutProfile:
@@ -278,7 +340,7 @@ def header_fingerprint(rows: list[list[str]]) -> str:
 
 
 def _names_label(cell: str, label: str) -> bool:
-    return cell == label or (cell.startswith(label)
+    return cell == label or label_key(cell) == label_key(label) or (cell.startswith(label)
                              and cell[len(label):len(label) + 1] in _LABEL_BOUNDARY)
 
 
@@ -313,7 +375,7 @@ def _stated_pattern(rows, config: FrdExtractorConfig) -> tuple[str, str, list[st
     """post189 (tracker incident 5): (pattern, label, samples) when ONE line of an
     Object Name block is labelled as the file pattern, holds a wildcard and every
     other listed name matches it (case-insensitive); else None (each name a file)."""
-    labels = {normalize_label(x) for x in config.file_pattern_line_labels}
+    labels = LabelSet(config.file_pattern_line_labels)
     stated = [(row.key, row.values.get("label") or "") for row in rows
               if normalize_label(row.values.get("label") or "") in labels]
     if len(stated) != 1 or not any(c in stated[0][0] for c in "*?"):
@@ -350,7 +412,7 @@ def requirement_landings(content: DocxContent, config: FrdExtractorConfig
     two different paths is skipped — never a pick). ``key`` = the Name plus the
     ``word_word`` identifiers only THIS requirement's text names (a descriptive
     Name — "Full member roster …" — still names its file / table there)."""
-    labels = {normalize_label(label) for label in config.requirement_landing_labels}
+    labels = LabelSet(config.requirement_landing_labels)
     out = []
     for index, rows in enumerate(content.tables):
         if sr_signal(index, rows, content, config) is None:
@@ -700,7 +762,7 @@ def _place_line_fields(profile: FrdLayoutProfile, content: DocxContent,
         path = f"feeds[0].{field}"
         if path in fields or f"{path}#fallback" in fields:
             continue
-        wanted = {normalize_label(s) for s in spellings}
+        wanted = LabelSet(spellings)
         hits = []
         for t, rows in enumerate(content.tables):
             for r, row in enumerate(rows):
@@ -809,13 +871,12 @@ def _place_load_type_blocks(profile: FrdLayoutProfile, content: DocxContent,
     requirement stating it when EVERY requirement stating it reads the same strategy;
     disagreeing requirements, or a layer with two strategy lines, place nothing (a
     note, the field stays open). Never over a field another label placed."""
-    labels = {normalize_label(label) for label in config.load_type_block_labels}
+    labels = LabelSet(config.load_type_block_labels)
     feeds = {f.feed_index for f in profile.fields.values()} | {
         u.feed_index for u in profile.unresolved}
     if not labels or feeds - {0}:
         return profile
-    markers = {normalize_label(m): layer for layer, spellings in
-               config.target_schema_markers.items() for m in spellings}
+    markers = _markers(config)
     sections = {ref.table: ref.section for ref in profile.sections}
     fields = dict(profile.fields)
     confidence = dict(profile.confidence)
@@ -879,7 +940,7 @@ def requirement_file_names(content: DocxContent, config: FrdExtractorConfig
     ``requirement_file_name_labels`` row's cell OPENS with an angle-bracketed file name
     ending in an extension ("<NAME_MMDDYYYY.csv> will be received ..."); the name as
     written between the brackets. A requirement with two such rows names none."""
-    wanted = {normalize_label(label) for label in config.requirement_file_name_labels}
+    wanted = LabelSet(config.requirement_file_name_labels)
     out: list[tuple[str, int, int]] = []
     if not wanted:
         return out
@@ -906,13 +967,12 @@ def requirement_load_type_keys(content: DocxContent, config: FrdExtractorConfig
     phrase ("Upsert using keys A, B" -> "A, B"); ``file name`` = the requirement's own
     (:func:`requirement_file_names`). A requirement whose layers name different keys
     names none."""
-    labels = {normalize_label(label) for label in config.load_type_block_labels}
+    labels = LabelSet(config.load_type_block_labels)
     phrases = sorted((normalize_label(p) for p in config.load_type_key_phrases),
                      key=len, reverse=True)
     if not labels or not phrases:
         return []
-    markers = {normalize_label(m): layer for layer, spellings in
-               config.target_schema_markers.items() for m in spellings}
+    markers = _markers(config)
     files = {t: name for name, t, _r in requirement_file_names(content, config)}
     out: list[tuple[str | None, str, int, int]] = []
     for t, rows in enumerate(content.tables):
@@ -969,9 +1029,8 @@ def _value(content: DocxContent, source: FrdFieldSource, config: FrdExtractorCon
         return ""
     text = rows[source.row][source.value_col].strip()
     if source.block_layer is not None:
-        markers = {normalize_label(m): layer for layer, spellings in
-                   config.target_schema_markers.items() for m in spellings}
-        block = load_type_block(text, {normalize_label(source.inline_label or "")}, markers)
+        markers = _markers(config)
+        block = load_type_block(text, LabelSet([source.inline_label or ""]), markers)
         return (block or {}).get(source.block_layer, ("", ""))[0]
     if source.inline_label is not None:
         text = next((value for label, value in labelled_pairs(text, config)
@@ -1014,7 +1073,7 @@ def _nested_rows(rows: list[list[str]], header_words: list[str]) -> tuple[list[s
     its cells is a header word and none is file-like."""
     from codegen.contracts.frd import StructuredRow
 
-    words = {normalize_label(w) for w in header_words}
+    words = LabelSet(header_words)
     headers: list[str] = []
     body = rows
     if rows and any(normalize_label(c) in words for c in rows[0]) and not any(
@@ -1117,8 +1176,8 @@ def parse_object_name_block(value: str, nested: list[list[str]] | None,
     from codegen.contracts.frd import StructuredRow
 
     labels = config.object_name_labels
-    feed_labels = {normalize_label(s) for s in labels.get("feed_name", [])}
-    file_labels = {normalize_label(s) for s in labels.get("file_name", [])}
+    feed_labels = LabelSet(labels.get("feed_name", []))
+    file_labels = LabelSet(labels.get("file_name", []))
     if nested:
         pairs = _table_pairs(nested, feed_labels | file_labels)
     elif "\n" in value:
@@ -1153,7 +1212,7 @@ def nested_table_names(rows: list[list[str]], config: FrdExtractorConfig
     table: the values of the column whose header row cell is a
     ``layer_block_labels.table`` spelling ("Target Table"), in row order, each
     once; ([], None) when no header cell names a table column."""
-    labels = {normalize_label(s) for s in config.layer_block_labels.get("table", [])}
+    labels = LabelSet(config.layer_block_labels.get("table", []))
     # post182: the header is the first of the top rows that names a table column
     # AND is no merged title (a title row repeats one text across its cells);
     # values split on the list separators; a second header row (another nested
@@ -1186,10 +1245,9 @@ def parse_layer_blocks(value: str, config: FrdExtractorConfig) -> dict[str, dict
     words = {normalize_label(w) for w in config.layer_block_heading_words}
     if not value or not words:
         return None
-    markers = {normalize_label(m): layer for layer, spellings in
-               config.target_schema_markers.items() for m in spellings}
-    labels = {normalize_label(s): slot for slot, spellings in config.layer_block_labels.items()
-              for s in spellings}
+    markers = _markers(config)
+    labels = LabelTable((normalize_label(s), slot) for slot, spellings in
+                        config.layer_block_labels.items() for s in spellings)
     blocks: dict[str, dict[str, str]] = {}
     current: str | None = None
     for line in value.split("\n"):
@@ -1288,8 +1346,8 @@ def split_labelled_lines(text: str | None, line_labels: dict[str, list[str]]
     lines = [line for line in (text or "").splitlines() if line.strip()]
     if len(lines) < 2:
         return None
-    lookup = {normalize_label(label): field
-              for field, labels in line_labels.items() for label in labels}
+    lookup = LabelTable((normalize_label(label), field)
+                        for field, labels in line_labels.items() for label in labels)
     found: list[tuple[str, str, str]] = []
     ignored: list[str] = []
     for line in lines:

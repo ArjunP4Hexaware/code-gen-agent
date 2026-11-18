@@ -1,9 +1,10 @@
 # CodeGen / Data Engineer Agent — design
 
 Generates production-shaped Databricks ingestion pipelines (PySpark + Delta)
-from approved machine-readable contracts. Third agent in the five-agent
-program (AI in Engineering at AmeriHealth Caritas); sits downstream of the
-BRD→FRD / STTM agent (which produces the contracts this agent consumes) and
+from approved machine-readable contracts. Second agent in the three-agent
+program (AI in Engineering at AmeriHealth Caritas: FRD→STTM → CodeGen → Code
+Review; BRD→FRD and SQL Optimization were dropped 2026-08-21); sits downstream
+of the FRD→STTM agent (which produces the STTM this agent consumes) and
 upstream of the Code Review Agent (which reviews what this agent emits).
 
 Two sibling repos define the house style and are vendored read-only under

@@ -1079,10 +1079,9 @@ def _frd_labels(content) -> list[str]:
 
 
 def _frd_questions(profile: FrdLayoutProfile, content, config: Config) -> list[LayoutQuestion]:
-    from codegen.extract.frd_docx import is_prefix_cell, normalize_label, section_title
+    from codegen.extract.frd_docx import _lookup, is_prefix_cell, section_title
 
-    sections = {normalize_label(s): key for key, spellings in
-                config.extractor.frd.section_titles.items() for s in spellings}
+    sections = _lookup(config.extractor.frd.section_titles)
     used = {(f.table, f.row) for f in profile.fields.values()}
     candidates = []
     for ref in profile.sections:

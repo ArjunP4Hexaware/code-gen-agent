@@ -460,7 +460,10 @@ def unresolved_report(questions: list, names: dict[str, str],
             continue
         if question.header:
             lines.append("- header row: " + " | ".join(f"`{h}`" for h in question.header))
-        labels = [f"`{c.get('col', c.get('table'))}: {c.get('header', c.get('label', ''))}`"
+        # 2026-11-18: an FRD line choice adds its line label (structural, as written) so
+        # two lines of one cell differ here - never ``line``, which carries the value
+        labels = [f"`{c.get('col', c.get('table'))}: {c.get('header', c.get('label', ''))}"
+                  + (f" · {c['inline_label']}" if c.get("inline_label") else "") + "`"
                   for c in question.candidates]
         if labels:
             lines.append("- candidate columns: " + ", ".join(labels))

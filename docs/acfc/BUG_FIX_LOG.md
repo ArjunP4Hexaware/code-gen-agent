@@ -29,6 +29,28 @@ number.
 
 ---
 
+## 0.5.8.post202 — RESTART item 2(a): two FRD line choices read the same in the unresolved-headers report
+
+- **Symptom:** `unresolved_headers.md` listed an FRD field's line choices as
+  `<col>: <row label>` only - two labelled lines of one cell were indistinguishable there
+  (the App dialog showed them apart).
+- **Reproduced:** a synthetic question with two line candidates of one cell (the new test).
+- **Root cause:** `layout/answers.py :: unresolved_report` formats a candidate from `col` /
+  `table` and `header` / `label` only; the line candidate's `inline_label` (post192,
+  `layout/resolve._frd_line_candidates`) was never shown.
+- **Change:** `layout/answers.py :: unresolved_report` appends ` · <inline_label>` when a
+  candidate carries one. `line` (label + VALUE) stays out - this file is structural only.
+- **Reach:** PENDING (12-pair check).
+- **Side effects:** PENDING.
+- **Unchanged:** every other candidate shape (STTM columns, FRD cells); the dialog; the
+  answers keys; no artefact.
+- **Tests:** `tests/test_unresolved_report_inline_label.py ::
+  test_two_line_choices_of_one_cell_differ_by_their_line_label` (failed with the change
+  stashed; asserts no value text appears).
+- **Verified:** PENDING.
+- **Revert:** drop the ` · inline_label` term in `unresolved_report`, or `git revert`.
+- **Deployed:** not yet.
+
 ## 0.5.8.post201 — tester's STTM: the Comments column (standard band) was read by nothing
 
 - **Symptom:** the tester's run (staging, post199/200) wrote no STDDelta / review-copy

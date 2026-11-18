@@ -4,6 +4,17 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post202 — 2026-11-18 (the unresolved-headers report names a line choice by its line label)
+
+`layout/answers.py :: unresolved_report`: an FRD line candidate (post192 labelled lines)
+showed only its row label, so two lines of one cell read the same in
+`unresolved_headers.md`; it now adds the line's label as written (`<col>: <row label> ·
+<line label>`) - a structural label, never the line itself (that carries the value). No
+artefact changes. Also (tests only): the two `test_m93_chooser` timing tests wait on events,
+not wall-clock bounds.
+
+Tests: `tests/test_unresolved_report_inline_label.py` (failed with the change stashed).
+
 ## 0.5.8.post201 — 2026-11-18 (a Comments column in any band is the row's rule text)
 
 A tester's STTM (staging, 2026-11-18) carries its Comments column as the standard band's

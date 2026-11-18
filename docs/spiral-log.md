@@ -286,3 +286,17 @@
   committed fix (post195, pushed, CI green).
 - Approx. time lost: ~3 minutes
 - Permanent fix: none - the known cause's hook refinement is still a /spiral-retro proposal.
+
+## 2026-11-18: hook (a) on a new test file's planned red run + its revert proof
+- Actual cause: not a spiral. `tests/test_unresolved_report_inline_label.py` (untracked) was
+  run RED once before the one-line `layout/answers.py :: unresolved_report` change, then once
+  more with that change stashed - the AGENTS.md "fails with ONLY the fix reverted" proof.
+  Same assertion both times, by design; with the change it passed (and 95 related tests).
+- Pattern: none (not a spiral)
+- Caught by skill: false trigger (diagnostic: re-ran the exact command - 1 passed, exit 0;
+  known cause "a brand-new test file in its planned red phase")
+- Earliest signal that would have revealed it: the second failing run was a `git stash` of
+  the fix (a deliberate revert), and the file was untracked.
+- Approx. time lost: ~3 minutes
+- Permanent fix: none - a revert-proof run looks like a repeat failure to hook (a); the
+  hook refinement belongs to /spiral-retro.

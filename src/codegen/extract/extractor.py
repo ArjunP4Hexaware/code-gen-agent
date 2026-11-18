@@ -58,10 +58,10 @@ from codegen.extract.workbook import (
 from codegen.layout.discover import NoLayoutError, discover
 from codegen.layout.profile import LayoutProfile
 
-# normalize_feed_name is THE feed_id join invariant (resolver.py defines it);
-# _FORMAT_DELIMITERS is the resolver's own format->delimiter implication —
-# imported so extractor and resolver can never disagree.
-from codegen.resolve.resolver import _FORMAT_DELIMITERS, normalize_feed_name
+# normalize_feed_name is THE feed_id join invariant (resolver.py defines it); the
+# format -> delimiter implication is config (extractor.format_delimiters, post204), one
+# table for the extractor and the resolver alike.
+from codegen.resolve.resolver import normalize_feed_name
 from codegen.run_errors import Coord, error_coord, located, sheet_number
 
 
@@ -484,25 +484,25 @@ def _match_file_details(feed: FrdFeed, ir: WorkbookIR) -> FileDetailsRow:
     return matches[0]
 
 
-_EXTENSION_DELIMITERS = {"csv": ",", "psv": "|", "tsv": "\t", "pipe": "|"}
 
 
-def _extension_delimiter(file_name: str | None) -> str | None:
+def _extension_delimiter(file_name: str | None, formats: dict[str, str]) -> str | None:
     """The delimiter a file extension implies (csv / psv / tsv), else None —
     the last resort when neither contract states one and the FRD's 'format'
     is prose ("File Data Ingestion")."""
     if not file_name:
         return None
     match = re.search(r"\.([a-z0-9]{2,4})$", file_name.strip(), re.IGNORECASE)
-    return _EXTENSION_DELIMITERS.get(match.group(1).lower()) if match else None
+    return formats.get(match.group(1).lower()) if match else None
 
 
-def _resolve_delimiter(feed: FrdFeed, file_name: str | None = None) -> str:
+def _resolve_delimiter(feed: FrdFeed, file_name: str | None,
+                       formats: dict[str, str]) -> str:
     if feed.delimiter:
         return feed.delimiter
-    implied = _FORMAT_DELIMITERS.get((feed.file_format or "").lower())
+    implied = formats.get((feed.file_format or "").strip().lower())
     if implied is None:
-        implied = _extension_delimiter(file_name)
+        implied = _extension_delimiter(file_name, formats)
     if implied is None:
         raise located(ExtractionError(
             f"feed {feed.feed_name!r}: format {feed.file_format!r} has no implied "
@@ -639,7 +639,8 @@ def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Confi
             source_file=SourceFile(
                 name_pattern=file_details.file_name,
                 format=frd_feed.file_format,
-                delimiter=_resolve_delimiter(frd_feed, file_details.file_name),
+                delimiter=_resolve_delimiter(frd_feed, file_details.file_name,
+                                             config.extractor.format_delimiters),
                 frequency=file_details.frequency,
             ),
             stage=TableRef(schema=sheet.stage_schema, table=sheet.stage_table),

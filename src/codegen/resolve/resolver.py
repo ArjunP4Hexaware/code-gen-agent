@@ -26,7 +26,6 @@ from codegen.contracts.sttm import SttmContract, SttmFeed, SttmField
 from codegen.run_errors import Coord, located
 
 # Format -> implied delimiter when a contract leaves it null.
-_FORMAT_DELIMITERS = {"csv": ",", "psv": "|"}
 
 # Parses the STTM recycle validation text. Canonical form:
 # "Match member_id against SBSB_ID in PR_STD.FACETS.CMC_SBSB_SUBSC where GRGR_CK = 31"
@@ -382,29 +381,17 @@ def _is_fixed_width(file_format: str | None, config: Config) -> bool:
     return any(token.lower() in fmt for token in config.extractor.vdd.fixed_width_tokens)
 
 
-_DELIMITER_CHARS = "|,;^~\t:"
-
-
 def delimiter_char(value: str | None, words: dict[str, str]) -> str | None:
     """The delimiter CHARACTER a stated value means: a single character as
     is, a word ("Pipe", "comma delimited", "TAB") through
     ``extractor.delimiter_words``, a character quoted inside a phrase
     ("Pipe (|)"); None when the value names none (prose such as "File Data
-    Ingestion"). Every artefact writes the character, never the word."""
-    if value is None or value == "":
-        return None
-    if len(value) == 1:
-        return value
-    text = value.strip()
-    if len(text) == 1:
-        return text
-    if text.lower() in ("\\t", "\t"):
-        return "\t"
-    for word in re.findall(r"[a-z]+", text.lower()):
-        if word in words:
-            return words[word]
-    quoted = [c for c in text if c in _DELIMITER_CHARS]
-    return quoted[0] if len(set(quoted)) == 1 else None
+    Ingestion"). Every artefact writes the character, never the word. post204: the
+    one reader, :func:`codegen.resolve.gapfill.delimiter_reading` (two named
+    characters = None, never the first; sentence punctuation is no delimiter)."""
+    from codegen.resolve.gapfill import delimiter_reading
+
+    return delimiter_reading(value, words)
 
 
 def table_source_format(file_format: str | None, config: Config | None) -> bool:
@@ -459,13 +446,14 @@ def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str]
                 f"FRD says {frd_feed.delimiter!r}"
             ))
         return explicit[0]
-    implied = _FORMAT_DELIMITERS.get((frd_feed.file_format or "").lower())
+    formats = config.extractor.format_delimiters if config is not None else {}
+    implied = formats.get((frd_feed.file_format or "").strip().lower())
     if implied is None:
         # Last resort: the delimiter the file extension implies (csv / psv / tsv).
         from codegen.extract.extractor import _extension_delimiter
 
         for pattern in (*frd_feed.file_name_patterns, sttm_feed.source_file.name_pattern or ""):
-            implied = _extension_delimiter(pattern)
+            implied = _extension_delimiter(pattern, formats)
             if implied is not None:
                 flags.append(f"delimiter_from_extension:{pattern} -> {implied!r} — no document "
                              "states a delimiter; the file extension implies it (.csv ',', "

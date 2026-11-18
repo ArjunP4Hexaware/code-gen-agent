@@ -612,6 +612,10 @@ class ExtractorConfig(BaseModel):
     delimiter_words: dict[str, str] = Field(default_factory=lambda: {
         "comma": ",", "pipe": "|", "tab": "\t", "semicolon": ";", "caret": "^",
         "tilde": "~", "colon": ":"})
+    # post204: the delimiter a FORMAT name or a file EXTENSION implies ("csv" / ".psv")
+    # - the ONE table (it was three code tables that disagreed: tsv / pipe missing in two)
+    format_delimiters: dict[str, str] = Field(default_factory=lambda: {
+        "csv": ",", "psv": "|", "tsv": "\t", "pipe": "|"})
     # Multi-table rule 2 (docs/acfc/MULTI_TABLE_DESIGN.md): a file-pattern
     # token that varies by LOB (matched case-insensitively). A pattern holding
     # one expands to one file per LOB the header block lists.

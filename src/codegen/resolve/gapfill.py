@@ -139,8 +139,36 @@ def delimiter_in_format(text: str | None, words: dict[str, str]) -> str | None:
     return quoted.group(1) if quoted else None
 
 
-# The delimiter a format NAME implies (the extension words of extract.extractor).
-_FORMAT_NAME_DELIMITERS = {"csv": ",", "psv": "|", "tsv": "\t"}
+_DELIMITER_CHARS = "|,;^~:"
+_SENTENCE_PUNCT = ",;:"
+
+
+def delimiter_reading(text: str | None, words: dict[str, str]) -> str | None:
+    """post204: THE reader of a stated delimiter value (a delimiter cell, an STTM meta
+    row, an answer, either side of an agreement check) - the ONE character it names:
+    a single character as is, ``\\t``, every ``extractor.delimiter_words`` word and every
+    delimiter character it holds ("Pipe (|)", "pipe|", "csv, comma delimited") - when
+    they all name ONE character; None when it names none ("File Data Ingestion"), or two
+    ("Comma or pipe" - never a pick). A ``, ; :`` followed by a space or ending the text
+    is the sentence's punctuation, never a delimiter ("Fixed width, 120 bytes")."""
+    if text is None or text == "":
+        return None
+    if len(text) == 1:
+        return text
+    t = text.strip()
+    if len(t) == 1:
+        return t
+    if t.lower() == "\\t":
+        return "\t"
+    found = {words[w] for w in re.findall(r"[a-z]+", t.lower()) if w in (words or {})}
+    for i, c in enumerate(t):
+        if c not in _DELIMITER_CHARS:
+            continue
+        following = t[i + 1] if i + 1 < len(t) else ""
+        if c in _SENTENCE_PUNCT and (not following or following.isspace()):
+            continue
+        found.add(c)
+    return found.pop() if len(found) == 1 else None
 
 
 def is_format_text(text: str | None, tokens: list[str]) -> bool:
@@ -156,27 +184,26 @@ def is_format_text(text: str | None, tokens: list[str]) -> bool:
                          text.lower()) for t in tokens)
 
 
-def format_delimiter(text: str | None, words: dict[str, str]) -> str | None:
-    """The delimiter a format statement implies: a format name ("csv", "PSV"),
-    a bare delimiter word ("pipe"), or "<word> delimited" — None when it names
-    none ("Delimited", "Fixed Width", "File Data Ingestion")."""
+def format_delimiter(text: str | None, words: dict[str, str],
+                     formats: dict[str, str] | None = None) -> str | None:
+    """The delimiter a format statement implies: a format name ("csv", "PSV";
+    ``extractor.format_delimiters``, post204), a bare delimiter word ("pipe"), or
+    "<word> delimited" — None when it names none ("Delimited", "Fixed Width",
+    "File Data Ingestion")."""
     if not text:
         return None
     for word in re.findall(r"[a-z]+", text.lower()):
-        if word in _FORMAT_NAME_DELIMITERS:
-            return _FORMAT_NAME_DELIMITERS[word]
+        if word in (formats or {}):
+            return formats[word]
     if text.strip().lower() in words:
         return words[text.strip().lower()]
     return delimiter_in_format(text, words)
 
 
 def _delimiter_of(text: str, words: dict[str, str]) -> str | None:
-    """The delimiter character a value states: a single character as is, a
-    delimiter word ("Pipe"), or a phrase ("Pipe delimited (|)")."""
-    text = text.strip()
-    if len(text) == 1:
-        return text
-    return words.get(text.lower()) or delimiter_in_format(text, words)
+    """The delimiter character a value states - :func:`delimiter_reading` (post204: was
+    its own narrower reading, so '|' and 'Pipe (|)' disagreed in an agreement check)."""
+    return delimiter_reading(text, words)
 
 
 def same_value(a: str | None, b: str | None, words: dict[str, str] | None = None) -> bool:

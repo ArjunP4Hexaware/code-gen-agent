@@ -3419,9 +3419,10 @@ class _FeedGapFiller:
         exts = self._extension_formats()
         frd = self.frd_stmt("file_format", stated)
         if is_format_text(stated, self.config.extractor.frd.format_tokens):
-            want = format_delimiter(stated, words)
+            formats = self.config.extractor.format_delimiters
+            want = format_delimiter(stated, words, formats)
             clash = [e for e in exts
-                     if want is not None and format_delimiter(e.value, words) != want]
+                     if want is not None and format_delimiter(e.value, words, formats) != want]
             if not clash:
                 return False
             self.ask("file_format", "choice",
@@ -3451,7 +3452,9 @@ class _FeedGapFiller:
             return True
         fixed = self.config.extractor.vdd.fixed_width_tokens
         clash = [o for o in others if not same_value(o.value, exts[0].value) and (
-            format_delimiter(o.value, words) not in (None, format_delimiter(exts[0].value, words))
+            format_delimiter(o.value, words, self.config.extractor.format_delimiters)
+            not in (None, format_delimiter(exts[0].value, words,
+                                           self.config.extractor.format_delimiters))
             or any(t.lower() in o.value.lower() for t in fixed))]
         if len(exts) > 1 or clash:
             self.ask("file_format", "choice",

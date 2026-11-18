@@ -114,7 +114,8 @@ def test_an_empty_token_list_keeps_the_old_reading():
     ("csv", ","), ("PSV", "|"), ("pipe", "|"), ("Pipe delimited (|)", "|"),
     ("Delimited", None), ("Fixed width, 120 bytes", None), ("File Data Ingestion", None)])
 def test_format_delimiter(config, text, char):
-    assert format_delimiter(text, config.extractor.delimiter_words) == char
+    assert format_delimiter(text, config.extractor.delimiter_words,
+                            config.extractor.format_delimiters) == char
 
 
 # post196 (Soham, 2026-11-17: "use CSV"): NO document states a format - the extension

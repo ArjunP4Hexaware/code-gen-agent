@@ -4,6 +4,33 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post204 — 2026-11-18 (one delimiter reader, one format / extension table)
+
+The next generic win (`docs/acfc/READER_GENERALIZATION.md` §5, one value normaliser per
+field type - post199 did load strategies). Delimiters had two readers and three code
+tables that disagreed:
+- `resolver.delimiter_char` (stated cells) took the FIRST delimiter word or any single
+  delimiter-like character - "Comma or pipe" read as a comma (a silent pick), the
+  sentence comma of "Fixed width, 120 bytes" read as a delimiter;
+- `gapfill._delimiter_of` (both sides of every agreement check) read only a single
+  character, an exact word or a "<word> delimited" phrase - so '|' and 'Pipe (|)',
+  'pipe|', '~ (tilde)' DISAGREED between documents;
+- format / extension -> delimiter lived in `resolver._FORMAT_DELIMITERS` (csv, psv),
+  `gapfill._FORMAT_NAME_DELIMITERS` (+ tsv) and `extractor._EXTENSION_DELIMITERS`
+  (+ tsv, pipe) - a "TSV" format implied tab on one path only.
+
+Now: `resolve/gapfill.py :: delimiter_reading` is the one reader (`delimiter_char` and
+`_delimiter_of` delegate): every delimiter word and character the text holds, when they
+all name ONE character; two = None (never a pick); a `, ; :` followed by a space or
+ending the text is punctuation. `config/config.yaml :: extractor.format_delimiters`
+(csv, psv, tsv, pipe) is the one format / extension table (resolver, extractor,
+`extract/generic.py`, `extract/segmented.py`, `layout/resolve.py` gap fill). Unchanged:
+`delimiter_in_format` (a format cell names a delimiter only in a "<word> delimited"
+phrase), the segmented reader's "delimit" guard, every artefact writing the character.
+
+Tests: `tests/test_delimiter_reading_post204.py` (the old readers fail its comma-pick
+and agreement cases; a guard that no format table lives in code).
+
 ## 0.5.8.post203 — 2026-11-18 (a layout answer's own bookkeeping never fails it)
 
 A live layout answer carried an invalid top-level `source` - a field the code sets itself

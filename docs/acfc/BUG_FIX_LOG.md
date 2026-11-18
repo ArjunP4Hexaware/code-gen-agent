@@ -29,6 +29,40 @@ number.
 
 ---
 
+## 0.5.8.post204 — generic: one delimiter reader and one format / extension table (the same delimiter read differently by reader)
+
+- **Symptom (class):** a delimiter read differently by which reader met it: '|' vs
+  'Pipe (|)' counted as a disagreement between documents (a needless question); "Comma or
+  pipe" read as a comma (silent pick); "Fixed width, 120 bytes" read as a comma; a "TSV"
+  format implied tab on the gap-fill path, nothing on the resolver's.
+- **Reproduced:** every reader over 20 spellings side by side (the table in the session;
+  the new test's cases): old `same_value('|', 'Pipe (|)')` False, old
+  `delimiter_char('Comma or pipe')` ','.
+- **Root cause:** two readers with different rules (`resolve/resolver.py ::
+  delimiter_char`, `resolve/gapfill.py :: _delimiter_of`) and three code tables
+  (`resolver._FORMAT_DELIMITERS`, `gapfill._FORMAT_NAME_DELIMITERS`,
+  `extractor._EXTENSION_DELIMITERS`) with different entries.
+- **Change:** `resolve/gapfill.py :: delimiter_reading` (new, the one reader;
+  `delimiter_char` / `_delimiter_of` delegate); `config.py :: ExtractorConfig.
+  format_delimiters` + `config/config.yaml :: extractor.format_delimiters` (new, the one
+  table); `format_delimiter(text, words, formats)`, `extractor._extension_delimiter(name,
+  formats)`, `extractor._resolve_delimiter(feed, name, formats)` take it; callers in
+  `resolve/resolver._resolve_delimiter`, `extract/generic.py`, `extract/segmented.py`,
+  `layout/resolve.py` (format gap fill) pass `config.extractor.format_delimiters`; the
+  three code tables removed.
+- **Reach:** PENDING (12-pair check).
+- **Side effects:** PENDING.
+- **Unchanged:** `delimiter_in_format` (format cells: "<word> delimited" phrases only);
+  `segmented._metadata_delimiter`'s "delimit" guard; `delimiter_words`; every artefact
+  writes the character, never the word; `same_value` for non-delimiter values.
+- **Tests:** `tests/test_delimiter_reading_post204.py` (23 readings, 4 agreement pairs,
+  a disagreement, the config table, the no-code-table guard; the old readers give ','
+  for the two pick cases and False for 3 of the 4 agreements);
+  `tests/test_frd_multi_object.py`, `tests/test_format_from_extension.py` pass the table.
+- **Verified:** PENDING.
+- **Revert:** `git revert` (code + config move together).
+- **Deployed:** not yet.
+
 ## 0.5.8.post203 — RESTART item 2(b): the live layout model's invalid `source` value failed its answer
 
 - **Symptom:** a live STTM layout answer reported "model response failed schema

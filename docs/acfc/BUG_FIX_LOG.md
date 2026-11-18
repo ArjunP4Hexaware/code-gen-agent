@@ -44,8 +44,10 @@ number.
   `role_sources` / `field_sources` dropped, before both validations. Why no prompt change:
   the code owns these fields; a prompt asking the model not to write them would still
   fail on the next slip.
-- **Reach:** PENDING (12-pair check - mock: no model call, so no change expected).
-- **Side effects:** PENDING.
+- **Reach:** 12-pair check (framework, mock, post202 vs post203): outcomes unchanged,
+  295 / 295 files, nothing moved but the version / environment-path report line (a mock
+  run makes no model call - the change acts only on a live layout answer).
+- **Side effects:** none found.
 - **Unchanged:** every claim's validation (schema, workbook, the FRD label / section /
   bound-row rules); the `confidence` field (still validated - an existing test pins its
   schema error); the salvage path for real errors; the prompt.
@@ -53,7 +55,8 @@ number.
   test_an_sttm_answers_own_source_value_is_no_schema_error`,
   `test_an_frd_answers_own_source_value_does_not_discard_it` (both failed with the change
   stashed).
-- **Verified:** PENDING.
+- **Verified:** `.venv` 2623 passed; `.venv-d1` 2274 passed (committed tree); ruff
+  clean; 12-pair check alone.
 - **Revert:** make `_code_owned` return `answer` unchanged, or `git revert`.
 - **Deployed:** not yet.
 

@@ -29,6 +29,30 @@ number.
 
 ---
 
+## 0.5.8.post205 — generic: one "states nothing" word list (three placeholder lists had drifted)
+
+- **Symptom (class):** the same placeholder read as blank in one place and as a value in
+  another: "Null" blank in a Segment cell, a VALUE in an FRD cell or an STTM meta row;
+  "Not applicable" a value everywhere but the DQ section.
+- **Reproduced:** the new test (an FRD cell "Not applicable" / "Null", an STTM meta value
+  "Null" / "Not applicable") - read as values before.
+- **Root cause:** three hand-kept config lists (`extractor.frd.blank_values`,
+  `discovery.meta_blank_values`, `discovery.unsegmented_markers`), each grown by its own
+  fix (M9.0, D1 post51 ...).
+- **Change:** `config/config.yaml :: extractor.blank_words` (new);
+  `config.py :: ExtractorConfig._merge_blank_words` (a before-validator: base words
+  appended to each list unless present). Readers unchanged. Why no new reader pass: one
+  config list, the READER_GENERALIZATION shape-5 normaliser.
+- **Reach:** PENDING (12-pair check).
+- **Side effects:** PENDING.
+- **Unchanged:** `dq_no_check_words` (starts-with matching), `unmapped_markers` (drop a
+  field), `no_values` (yes / no); each reader's own comparison (a delimiter character
+  is still a value - `is_blank_placeholder`).
+- **Tests:** `tests/test_blank_words_post205.py` (10; 5 failed before the change).
+- **Verified:** PENDING.
+- **Revert:** delete `extractor.blank_words` (the validator then does nothing), or `git revert`.
+- **Deployed:** not yet.
+
 ## 0.5.8.post204 — generic: one delimiter reader and one format / extension table (the same delimiter read differently by reader)
 
 - **Symptom (class):** a delimiter read differently by which reader met it: '|' vs

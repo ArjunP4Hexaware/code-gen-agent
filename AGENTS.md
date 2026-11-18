@@ -14,7 +14,8 @@ Session state goes elsewhere:
 **Who you work with:** Soham (GitHub `SohamBHexaware`) leads the project, decides,
 deploys and is the dev App's only user. Talk to him directly ("you"), keep answers short
 and plain, and give ELI5 versions of things he relays to PMs. Text he will send on to
-others (Venu, Nikshit, the BSA ...) is written in his voice.
+others (Venu, Nikshit, the BSA ...) is written in his voice, as plain paragraphs he can
+paste into Teams as is - never `>`-quoted (2026-11-18: he had to strip each `>` by hand).
 
 A new rule earns a line here only if it stays true across sessions; a dated "after postNN"
 note goes in RESTART.md and then into the history, never here.

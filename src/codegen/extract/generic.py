@@ -377,6 +377,18 @@ def _dq_check(row: FieldRow, disc) -> bool | None:
     return None if value is None else _yes(value, disc)
 
 
+_COMMENT_KEYS = ("source.comments", "rules.comments", "stage.comments", "standard.comments")
+
+
+def _comments(row: FieldRow) -> str | None:
+    """post201: a row's Comments rule text - every band's Comments cell (source, the
+    trailing group, stage, standard), each distinct text once, in that order, joined
+    like the rule parts; None = no Comments cell states one. Rule text only: the
+    description fallback reads ``source.comments`` alone, as before."""
+    texts = list(dict.fromkeys(v for k in _COMMENT_KEYS if (v := row.values.get(k))))
+    return "; ".join(texts) if texts else None
+
+
 def _first(row: FieldRow, *keys: str) -> str | None:
     for key in keys:
         value = row.values.get(key)
@@ -1429,7 +1441,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         rule_parts = [v for v in (_first(row, "rules.load_rule", "source.load_rule"),
                                   _first(row, "stage.transformation"),
                                   _first(row, "source.business_rule")) if v]
-        value_spec = "; ".join(rule_parts) if rule_parts else _first(row, "source.comments")
+        value_spec = "; ".join(rule_parts) if rule_parts else _comments(row)
         source_width, source_precision = _width_facts(row, field_name, sp, flags)
         answered = (width_answers or {}).get(frd.feeds.index(feed), {}).get(
             normalize_field_name(field_name))

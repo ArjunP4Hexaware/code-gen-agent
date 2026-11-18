@@ -86,6 +86,9 @@ bend, working rules, tests) stay in the root `AGENTS.md`. Moved here verbatim fr
   role synonym table by `layout.discover.header_key` (spaces ignored); `normalize` itself
   (values, file / table / sheet names, agreement) never drops spaces. A synonym that would
   share a key with another role's fails `tests/test_header_key_post198.py`.
+- **A Comments column is rule text in every band** (post201): source, trailing, stage or
+  standard - `extract/generic._comments` joins them into `value_spec` (the fallback after
+  load rule / transformation / business rule); never a description, never a DQ row.
 - **One reader per value type, its aliases in config** (post199): load strategies go
   through `resolve.gapfill.strategy_reading` with `extractor.frd.load_strategy_synonyms`
   (the ONE table, every document and answer; "Incremental" is a load type, never a

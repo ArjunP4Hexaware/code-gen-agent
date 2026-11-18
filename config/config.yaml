@@ -260,6 +260,9 @@ extractor:
         field_description: ["field description"]
         table_description: ["table description"]
         transformation: ["transformations data quality", "transformation", "transformations"]
+        # post201 (a staging STTM: Comments as the standard band's last column) - rule
+        # text, read like the source band's Comments (value_spec), never a description
+        comments: ["comments", "comment"]
       trailing:
         recycle_flag: ["recycle flag"]
         dq_mandatory: ["mandatory fields include in dq check"]

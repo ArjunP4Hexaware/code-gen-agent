@@ -451,8 +451,11 @@ def mapping_differences(legacy: LayoutProfile, general: LayoutProfile,
                        f"general {(gs.header_row, gs.band_row)}")
         for layer in ("source", "stage", "standard"):
             lb, gb = ls.band(layer), gs.band(layer)  # type: ignore[arg-type]
-            lr = {r: c for r, c in (lb.roles if lb else {}).items() if r not in _TRAILING_ROLES}
-            gr = {r: c for r, c in (gb.roles if gb else {}).items() if r not in _TRAILING_ROLES}
+            # post201: a target band's Comments column is the general reader's only
+            # (the legacy reader reads Comments by its own header table) - no disagreement
+            skip = _TRAILING_ROLES | ({Role.COMMENTS.value} if layer != "source" else set())
+            lr = {r: c for r, c in (lb.roles if lb else {}).items() if r not in skip}
+            gr = {r: c for r, c in (gb.roles if gb else {}).items() if r not in skip}
             if lr != gr:
                 out.append(f"{n}/{layer}: legacy {lr}, general {gr}")
         lt = sorted((r, c) for b in ls.bands for r, c in b.roles.items() if r in _TRAILING_ROLES)
@@ -983,6 +986,11 @@ def _span_text(start: int, end: int) -> str:
     return f"(column {first})" if start == end else f"(columns {first}–{last})"
 
 
+# post201: a target role a band may HOLD but that never marks a band's extent - a Comments
+# column after a band (the trailing group) must not stretch it (the 12-pair check, pair_07)
+_SPAN_NEUTRAL_ROLES = frozenset({Role.COMMENTS.value})
+
+
 def label_groups(header: list, disc: DiscoveryConfig) -> list[LabelGroup]:
     """Every target-shaped band of a header row: a run of ``roles.target``
     headers placing at least ``group_min_location_roles`` of catalog / schema
@@ -1005,7 +1013,8 @@ def label_groups(header: list, disc: DiscoveryConfig) -> list[LabelGroup]:
     for col in range(1, last_col + 1):
         value = normalize(header[col - 1]) if col - 1 < len(header) else ""
         key = header_key(value)
-        matches = [role for role, spellings in table.items() if value and key in spellings]
+        matches = [role for role, spellings in table.items() if value and key in spellings
+                   and role not in _SPAN_NEUTRAL_ROLES]
         if len(matches) != 1:
             if current:
                 gap += 1

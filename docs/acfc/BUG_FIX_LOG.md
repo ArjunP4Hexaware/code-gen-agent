@@ -29,6 +29,41 @@ number.
 
 ---
 
+## 0.5.8.post201 — tester's STTM: the Comments column (standard band) was read by nothing
+
+- **Symptom:** the tester's run (staging, post199/200) wrote no STDDelta / review-copy
+  trace of her STTM Comments notes (4 date-format, 4 SPLIT_PART among 11 filled cells,
+  4 mapping sheets); she asked whether the agent reads Comments. (Her empty
+  DATA_QUALITY_RULES sheet is by design - post171 - and stays empty: none is a null /
+  duplicate check.)
+- **Reproduced:** her STTM (mock, /tmp, deleted after): discovery placed no `comments`
+  role on any sheet; the STTM contract carried `value_spec` on 0 fields.
+- **Root cause:** the Comments header is the standard band's last column;
+  `layout/discover.py` resolves a target band's headers through
+  `extractor.discovery.roles.target`, which had no `comments` role, so the column was
+  dropped. Also `extract/generic.py` read `value_spec` from `source.comments` only - a
+  trailing Comments column (`rules.comments`) was placed and never read.
+- **Change:** `config/config.yaml :: extractor.discovery.roles.target.comments` (new);
+  `extract/generic.py :: _comments` (new; `build_generic_contract`'s `value_spec`
+  fallback); `layout/discover.py :: mapping_differences` skips a target band's
+  `comments` role. Why no new reader pass (READER_GENERALIZATION): one config role +
+  one shared fallback for every band, not a field-specific pass.
+- **Reach:** PENDING (12-pair check).
+- **Side effects:** PENDING.
+- **Unchanged:** DATA_QUALITY_RULES (document-stated checks only); the description
+  fallback (`source.comments` only - a Comments cell is never a COMMENT/description);
+  a row whose load rule / transformation / business rule states rule text keeps it
+  (Comments is the fallback only); the legacy MAPPING- reader's profile.
+- **Tests:** `tests/test_target_band_comments_post201.py ::
+  test_the_standard_band_places_its_comments_column`,
+  `test_a_target_band_comments_cell_is_the_rows_rule_text` (both failed with the config
+  line reverted), `test_every_bands_comments_join_once_in_band_order` (failed, with the
+  contract test, with `_COMMENT_KEYS` = `source.comments` only).
+- **Verified:** PENDING.
+- **Revert:** delete `roles.target.comments` (the standard / stage Comments is unread
+  again) and set `_COMMENT_KEYS = ("source.comments",)`, or `git revert`.
+- **Deployed:** not yet.
+
 ## 0.5.8.post200 — generic: FRD labels match synonyms with spaces ignored (the post195 class, FRD side)
 
 - **Symptom (class):** an FRD label written without its space ("LoadType:") matched no

@@ -65,7 +65,7 @@ number.
 - **Verified:** `.venv` 2654 passed; `.venv-d1` 2305 passed; ruff clean; 12-pair check
   alone.
 - **Revert:** `git revert` (code + config move together).
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging b933626 2026-11-18.
 
 ## 0.5.8.post203 — RESTART item 2(b): the live layout model's invalid `source` value failed its answer
 
@@ -96,7 +96,7 @@ number.
 - **Verified:** `.venv` 2623 passed; `.venv-d1` 2274 passed (committed tree); ruff
   clean; 12-pair check alone.
 - **Revert:** make `_code_owned` return `answer` unchanged, or `git revert`.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging b933626 2026-11-18.
 
 ## 0.5.8.post202 — RESTART item 2(a): two FRD line choices read the same in the unresolved-headers report
 
@@ -123,7 +123,7 @@ number.
 - **Verified:** `.venv` 2621 passed; `.venv-d1` 2272 passed (with the de-flaked
   `test_m93_chooser` timing tests under full load); ruff clean; 12-pair check alone.
 - **Revert:** drop the ` · inline_label` term in `unresolved_report`, or `git revert`.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging c67ba0e 2026-11-18.
 
 ## 0.5.8.post201 — tester's STTM: the Comments column (standard band) was read by nothing
 

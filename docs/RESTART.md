@@ -4,15 +4,15 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-18, later - staging = post202; dev STOPPED on post194; feature = post204, pushed)
+## Start here (2026-11-18, later - staging = post204; dev STOPPED on post194; feature = post204, pushed)
 
 **First check:** `git fetch && git status -sb` = up to date with
 `origin/feature/multi-table` (head = docs on top of 579ee2b, post200).
-- **post203 / post204 (not deployed):** post203 = a layout answer's own `source` /
+- **post203 / post204 (staging b933626, 2026-11-18; health + smoke green):** post203 = a layout answer's own `source` /
   `role_sources` never fail it (`resolve._code_owned`; item 2(b)); post204 = one delimiter
   reader (`gapfill.delimiter_reading`) + one format / extension table
   (`extractor.format_delimiters`) - the delimiter win of READER_GENERALIZATION §5. Both:
-  suites green, 12-pair nothing moved. Staging on Soham's word.
+  suites green, 12-pair nothing moved.
 - **post202 (staging c67ba0e, 2026-11-18; health + smoke green):** the unresolved-headers report names an FRD line choice by
   its line label (item 2(a) done); the two `test_m93_chooser` timing tests wait on events
   (no longer flaky). 12-pair: only pairs 08 / 09 / 10's `unresolved_headers.md` moved.
@@ -32,10 +32,10 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
   Quality section is now read (+1 validation rule, Layer 2 only). CI: one load-timing
   failure in `test_m93_chooser::test_a_run_never_waits_for_the_vdd...` (passed 3/3 alone,
   green on re-run) - a second timing-sensitive test in that module.
-- **staging `codegen-agent-staging` = post201** (`main` = 12a8f46, identical-tree merge;
+- **staging `codegen-agent-staging` = post204** (`main` = b933626, identical-tree merge;
   health + smoke green).
 - **dev `codegen-agent`:** STOPPED, last deployment post194 - starting it bills compute
-  (Soham's call); then `/ship-dev` deploys post201.
+  (Soham's call); then `/ship-dev` deploys post204.
 - **Every version this session fully checked:** both suites green (`.venv` 2609 /
   `.venv-d1` 2260 on post199), CI green, framework 12-pair outcomes unchanged
   (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), no artefact cell moved.

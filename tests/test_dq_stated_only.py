@@ -204,3 +204,28 @@ def test_the_feeds_review_copy_carries_the_suggestions(stated, pair4_spec, tmp_p
     summary = openpyxl.load_workbook(review, read_only=True).worksheets[0]
     texts = [str(c) for row in summary.iter_rows(values_only=True) for c in row if c]
     assert any(t.startswith("iig_dq_not_generated:DeDuplicationRule") for t in texts)
+
+
+@pytest.mark.parametrize("rule_text, param", [
+    ("Convert YYYY-MM-DD to yyyy-MM-dd", "YYYY-MM-DD--yyyy-MM-dd"),   # both formats: a row
+    ("date_format(YYYY-MM-DD)", None),                                # one format: no row
+])
+def test_a_comments_date_rule_writes_a_date_conversion_row_only_with_both_formats(
+        stated, pair4_spec, rule_text, param):
+    """2026-11-18 (a tester's STTM, post201 reads its Comments column): a Date-typed
+    standard column whose rule text reads "Convert <source> to <target>" is a
+    DateConversionRule row (STDDelta) with INPUT_PARAM <source>--<target>; a note
+    stating one format writes none - the other format is in no document."""
+    target = next(f.standard_column for f in pair4_spec.segments[1].fields if f.standard_column)
+
+    def change(f):
+        if f.standard_column != target:
+            return f
+        return f.model_copy(update={"standard_datatype": "Date", "value_spec": rule_text})
+
+    rows = [r for r in _rows(stated, _with(pair4_spec, change=change))
+            if _v(r, "RULE_CLASS") == "DateConversionRule" and _v(r, "SOURCE_COLUMN") == target]
+    if param is None:
+        assert rows == []
+    else:
+        assert rows and {_v(r, "INPUT_PARAM") for r in rows} == {param}

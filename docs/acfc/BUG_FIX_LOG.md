@@ -79,7 +79,7 @@ number.
 - **Revert:** delete `roles.target.comments` (the standard / stage Comments is unread
   again; `_SPAN_NEUTRAL_ROLES` is then inert) and set `_COMMENT_KEYS =
   ("source.comments",)`, or `git revert`.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging 12a8f46 2026-11-18.
 
 ## 0.5.8.post200 — generic: FRD labels match synonyms with spaces ignored (the post195 class, FRD side)
 

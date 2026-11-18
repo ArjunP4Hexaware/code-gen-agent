@@ -1227,7 +1227,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
     """``cell_answers`` / ``questions`` (post74): the person's
     ``feeds[i].columns[j].<role>`` answers, and the open ones this feed adds
     (blocking QUESTIONs; the feed is still built without those rows)."""
-    from codegen.resolve.resolver import _FORMAT_DELIMITERS, normalize_feed_name
+    from codegen.resolve.resolver import normalize_feed_name
     from codegen.resolve.widths import normalize_field_name
 
     sp = sheet.profile
@@ -1601,7 +1601,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
 
     file_format = answered("file_format", feed.file_format)
     delimiter = feed.delimiter or sheet.meta.get("delimiter") or \
-        _FORMAT_DELIMITERS.get((file_format or "").lower())
+        config.extractor.format_delimiters.get((file_format or "").strip().lower())
     frequency = (details or {}).get("frequency") or sheet.meta.get("frequency") or feed.frequency
     source_system = answered("source_system", (details or {}).get("vendor")
                              or sheet.meta.get("file_generator") or feed.source_system)

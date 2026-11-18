@@ -29,6 +29,75 @@ number.
 
 ---
 
+## 0.5.8.post204 — generic: one delimiter reader and one format / extension table (the same delimiter read differently by reader)
+
+- **Symptom (class):** a delimiter read differently by which reader met it: '|' vs
+  'Pipe (|)' counted as a disagreement between documents (a needless question); "Comma or
+  pipe" read as a comma (silent pick); "Fixed width, 120 bytes" read as a comma; a "TSV"
+  format implied tab on the gap-fill path, nothing on the resolver's.
+- **Reproduced:** every reader over 20 spellings side by side (the table in the session;
+  the new test's cases): old `same_value('|', 'Pipe (|)')` False, old
+  `delimiter_char('Comma or pipe')` ','.
+- **Root cause:** two readers with different rules (`resolve/resolver.py ::
+  delimiter_char`, `resolve/gapfill.py :: _delimiter_of`) and three code tables
+  (`resolver._FORMAT_DELIMITERS`, `gapfill._FORMAT_NAME_DELIMITERS`,
+  `extractor._EXTENSION_DELIMITERS`) with different entries.
+- **Change:** `resolve/gapfill.py :: delimiter_reading` (new, the one reader;
+  `delimiter_char` / `_delimiter_of` delegate); `config.py :: ExtractorConfig.
+  format_delimiters` + `config/config.yaml :: extractor.format_delimiters` (new, the one
+  table); `format_delimiter(text, words, formats)`, `extractor._extension_delimiter(name,
+  formats)`, `extractor._resolve_delimiter(feed, name, formats)` take it; callers in
+  `resolve/resolver._resolve_delimiter`, `extract/generic.py`, `extract/segmented.py`,
+  `layout/resolve.py` (format gap fill) pass `config.extractor.format_delimiters`; the
+  three code tables removed.
+- **Reach:** 12-pair check (framework, mock, post203 vs post204): outcomes unchanged,
+  295 / 295 files, NOTHING moved but the build stamp - no pair's delimiter, format or
+  agreement check reads differently (none states a two-delimiter or sentence-comma value,
+  a "TSV" format, or a '|' vs 'Pipe (|)' pair).
+- **Side effects:** none found.
+- **Unchanged:** `delimiter_in_format` (format cells: "<word> delimited" phrases only);
+  `segmented._metadata_delimiter`'s "delimit" guard; `delimiter_words`; every artefact
+  writes the character, never the word; `same_value` for non-delimiter values.
+- **Tests:** `tests/test_delimiter_reading_post204.py` (23 readings, 4 agreement pairs,
+  a disagreement, the config table, the no-code-table guard; the old readers give ','
+  for the two pick cases and False for 3 of the 4 agreements);
+  `tests/test_frd_multi_object.py`, `tests/test_format_from_extension.py` pass the table.
+- **Verified:** `.venv` 2654 passed; `.venv-d1` 2305 passed; ruff clean; 12-pair check
+  alone.
+- **Revert:** `git revert` (code + config move together).
+- **Deployed:** not yet.
+
+## 0.5.8.post203 — RESTART item 2(b): the live layout model's invalid `source` value failed its answer
+
+- **Symptom:** a live STTM layout answer reported "model response failed schema
+  validation" (4 of 4 sheets kept by the salvage); the cause was the answer's top-level
+  `source` value, which the code overwrites anyway.
+- **Reproduced:** synthetic: the pair-1 profile (STTM) and a stub FRD answer, each with a
+  bogus `source` / `role_sources` / `field_sources` - STTM: 3 schema errors + the salvage
+  line; FRD: the whole answer discarded (no salvage on that path).
+- **Root cause:** `layout/resolve.py :: salvage_layout_answer` and the FRD model step
+  validate the model's JSON as a whole profile, including fields only the code sets
+  (`source` - a 4-value Literal - and the per-role / per-field source maps).
+- **Change:** `layout/resolve.py :: _code_owned` (new) - `source` set to "model",
+  `role_sources` / `field_sources` dropped, before both validations. Why no prompt change:
+  the code owns these fields; a prompt asking the model not to write them would still
+  fail on the next slip.
+- **Reach:** 12-pair check (framework, mock, post202 vs post203): outcomes unchanged,
+  295 / 295 files, nothing moved but the version / environment-path report line (a mock
+  run makes no model call - the change acts only on a live layout answer).
+- **Side effects:** none found.
+- **Unchanged:** every claim's validation (schema, workbook, the FRD label / section /
+  bound-row rules); the `confidence` field (still validated - an existing test pins its
+  schema error); the salvage path for real errors; the prompt.
+- **Tests:** `tests/test_layout_code_owned_fields.py ::
+  test_an_sttm_answers_own_source_value_is_no_schema_error`,
+  `test_an_frd_answers_own_source_value_does_not_discard_it` (both failed with the change
+  stashed).
+- **Verified:** `.venv` 2623 passed; `.venv-d1` 2274 passed (committed tree); ruff
+  clean; 12-pair check alone.
+- **Revert:** make `_code_owned` return `answer` unchanged, or `git revert`.
+- **Deployed:** not yet.
+
 ## 0.5.8.post202 — RESTART item 2(a): two FRD line choices read the same in the unresolved-headers report
 
 - **Symptom:** `unresolved_headers.md` listed an FRD field's line choices as

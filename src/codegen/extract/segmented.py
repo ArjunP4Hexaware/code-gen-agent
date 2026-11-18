@@ -55,7 +55,7 @@ from codegen.extract.audit_types import expectation as audit_expectation
 from codegen.extract.workbook import SegmentedWorkbookError, WorkbookParseError, _norm, _text
 from codegen.faq import load_faq
 from codegen.layout.profile import LayoutProfile, SheetProfile
-from codegen.resolve.resolver import _FORMAT_DELIMITERS, delimiter_char, normalize_feed_name
+from codegen.resolve.resolver import delimiter_char, normalize_feed_name
 from codegen.run_errors import Coord, located
 
 _YES_VALUES = {"yes", "y", "true"}
@@ -579,7 +579,7 @@ def extract_segmented_contract(
     file_pattern = _match_file_pattern(facts["files"], frd_feed, workbook_path.name)
     delimiter = (frd_feed.delimiter
                  or _metadata_delimiter(facts, config.extractor.delimiter_words)
-                 or _FORMAT_DELIMITERS.get(frd_feed.file_format.lower()))
+                 or config.extractor.format_delimiters.get(frd_feed.file_format.strip().lower()))
     if delimiter is None:
         raise located(ExtractionError(
             f"feed {frd_feed.feed_name!r}: no delimiter in the FRD, the metadata "

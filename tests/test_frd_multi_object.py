@@ -227,11 +227,13 @@ def test_runner_sets_aside_only_the_feed_whose_file_question_went_unanswered(tmp
     assert [i for i, _f in feeds_left_without_a_file(as_dicts, split)] == [1]
 
 
-def test_extension_implies_the_delimiter_when_the_format_is_prose():
-    assert _extension_delimiter("demographics_package_YYYY_MM.csv") == ","
-    assert _extension_delimiter("sd_ind_risk_YYYYMMDD_HHMM.psv") == "|"
-    assert _extension_delimiter("file.tsv") == "\t"
-    assert _extension_delimiter("file.dat") is None and _extension_delimiter(None) is None
+def test_extension_implies_the_delimiter_when_the_format_is_prose(config):
+    formats = config.extractor.format_delimiters          # post204: the one config table
+    assert _extension_delimiter("demographics_package_YYYY_MM.csv", formats) == ","
+    assert _extension_delimiter("sd_ind_risk_YYYYMMDD_HHMM.psv", formats) == "|"
+    assert _extension_delimiter("file.tsv", formats) == "\t"
+    assert _extension_delimiter("file.dat", formats) is None
+    assert _extension_delimiter(None, formats) is None
 
 
 @pytest.mark.skipif(not (MIDS_FRD.is_file() and MIDS_STTM.is_file()),

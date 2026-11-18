@@ -162,6 +162,9 @@ extractor:
   # A delimiter stated as a word -> the character every artefact writes
   # (first real-row scorecard, 2026-10-08: never the word in an IIG cell).
   delimiter_words: {comma: ",", pipe: "|", tab: "\t", semicolon: ";", caret: "^", tilde: "~", colon: ":"}
+  # post204: the delimiter a format name or a file extension implies - the ONE table for
+  # every reader (resolver, gap fill, extractor; was three code tables)
+  format_delimiters: {csv: ",", psv: "|", tsv: "\t", pipe: "|"}
   # Multi-table rule 2 (docs/acfc/MULTI_TABLE_DESIGN.md): a header-block file
   # pattern holding one of these LOB-varying tokens (case-insensitive) expands
   # to one file per listed LOB; any other pattern is one file.

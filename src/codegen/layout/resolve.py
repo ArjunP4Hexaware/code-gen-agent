@@ -409,6 +409,18 @@ def _salvage_sheet(raw) -> tuple[SheetProfile | None, int]:
     return None, dropped + len(bands)
 
 
+def _code_owned(answer):
+    """2026-11-18 (a live answer's invalid ``source``): the profile fields the CODE sets
+    after validation - ``source`` ("model"), ``role_sources`` / ``field_sources`` (the
+    merge writes them) - are set / dropped BEFORE it, so the model's own bookkeeping
+    never fails an answer. Every claim (sheets, bands, roles, fields) is validated as
+    before."""
+    if not isinstance(answer, dict):
+        return answer
+    out = {k: v for k, v in answer.items() if k not in ("role_sources", "field_sources")}
+    return {**out, "source": "model"}
+
+
 def _drop_null_roles(answer):
     """A role the model maps to ``null`` is a role it did not find — the
     prompt's "leave a role out", said another way; it is no schema error."""
@@ -437,7 +449,7 @@ def salvage_layout_answer(answer, partial: LayoutProfile
     kept part then meets the same workbook validation as a whole answer —
     nothing the model says reaches a profile unchecked. None when no sheet
     survives."""
-    answer = _drop_null_roles(answer)
+    answer = _drop_null_roles(_code_owned(answer))
     try:
         return LayoutProfile.model_validate(answer), [], []
     except ValidationError as exc:
@@ -1393,7 +1405,7 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
         calls += 1
         try:
             answer = provider.complete_layout(request)
-            model_profile = FrdLayoutProfile.model_validate(answer)
+            model_profile = FrdLayoutProfile.model_validate(_code_owned(answer))
         except LayoutProviderError as exc:
             rejections.append(Rejection("frd", None, None, None, f"model: {exc}"))
             _log_raw_responses(caches, digest, "frd", exc.raw)
@@ -3407,9 +3419,10 @@ class _FeedGapFiller:
         exts = self._extension_formats()
         frd = self.frd_stmt("file_format", stated)
         if is_format_text(stated, self.config.extractor.frd.format_tokens):
-            want = format_delimiter(stated, words)
+            formats = self.config.extractor.format_delimiters
+            want = format_delimiter(stated, words, formats)
             clash = [e for e in exts
-                     if want is not None and format_delimiter(e.value, words) != want]
+                     if want is not None and format_delimiter(e.value, words, formats) != want]
             if not clash:
                 return False
             self.ask("file_format", "choice",
@@ -3439,7 +3452,9 @@ class _FeedGapFiller:
             return True
         fixed = self.config.extractor.vdd.fixed_width_tokens
         clash = [o for o in others if not same_value(o.value, exts[0].value) and (
-            format_delimiter(o.value, words) not in (None, format_delimiter(exts[0].value, words))
+            format_delimiter(o.value, words, self.config.extractor.format_delimiters)
+            not in (None, format_delimiter(exts[0].value, words,
+                                           self.config.extractor.format_delimiters))
             or any(t.lower() in o.value.lower() for t in fixed))]
         if len(exts) > 1 or clash:
             self.ask("file_format", "choice",

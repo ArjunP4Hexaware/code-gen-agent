@@ -92,7 +92,9 @@ bend, working rules, tests) stay in the root `AGENTS.md`. Moved here verbatim fr
 - **One reader per value type, its aliases in config** (post199): load strategies go
   through `resolve.gapfill.strategy_reading` with `extractor.frd.load_strategy_synonyms`
   (the ONE table, every document and answer; "Incremental" is a load type, never a
-  strategy). Never add an alias table in code.
+  strategy). Never add an alias table in code. Delimiters likewise (post204): one reader,
+  `resolve.gapfill.delimiter_reading` (two named characters = None, never a pick), one
+  format / extension table, `extractor.format_delimiters`.
 - **A new optional field on a profile / contract model** is serialised only when set (or
   every cached profile and tracked fixture moves - post196's `block_layer`).
 - **Agreement between documents** goes through `gapfill.same_value(a, b, words)`: a

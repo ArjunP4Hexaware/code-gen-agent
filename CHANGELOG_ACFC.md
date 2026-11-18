@@ -27,6 +27,10 @@ FRD synonym table at once instead of one config spelling at a time.
 Tests: `tests/test_label_key_post200.py` (4 failed with `label_key` = `normalize_label`;
 the collision guard over the shipped config).
 
+Reach (12-pair check): outcomes and every DDL / IIG cell unchanged; pair_08's FRD Data
+Quality section (its title spaced differently around a "/") is now read - one more
+validation rule in its FRD contract (Layer 2 input only, OFF for ACFC).
+
 ## 0.5.8.post199 — 2026-11-17 (one load-strategy alias table for every document; "Incremental" dropped)
 
 The second generic win (`docs/acfc/READER_GENERALIZATION.md` §5). Two readers disagreed:

@@ -46,8 +46,16 @@ number.
   `split_labelled_lines` use them; `_names_label` (sr_signal) accepts the space-free
   equality; `layout/resolve.py :: _frd_questions` uses `_lookup`. No config change. Why
   no new reader pass: this is the generic grammar change READER_GENERALIZATION asks for.
-- **Reach:** PENDING (12-pair check).
-- **Side effects:** PENDING.
+- **Reach:** 12-pair check (framework, mock, post199 vs post200): outcomes unchanged
+  (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), 295 / 295 files, no
+  DDL / IIG / test-case cell moved. ONE real change: pair_08's FRD titles its Data
+  Quality section with a space after the "/" of the configured spelling - post199
+  skipped that Solution Requirement table ("no row names a metadata section"), post200
+  reads it: the FRD contract gains one `validation_rules` entry (6 -> 7; section
+  `data_quality`) and its report the matching provenance lines. Every other report diff
+  = the version / environment-path line (old side ran from a worktree).
+- **Side effects:** the pair_08 rule above is the intended class (a label read that was
+  missed); it reaches Layer 2 only (OFF for ACFC) and no artefact.
 - **Unchanged:** `normalize_label` (values, blank words, label agreement, prefix tests);
   the section-title prefix rule; the layer-heading word split; key phrases; an exact
   match always wins; a space-free collision between two keys matches neither.
@@ -57,7 +65,8 @@ number.
   `test_a_one_word_frd_label_is_read_without_its_own_synonym` (all 4 failed with
   `label_key` returning `normalize_label`), `test_no_two_keys_share_a_label_key_in_the_
   shipped_config` (the guard).
-- **Verified:** PENDING.
+- **Verified:** `.venv` 2614 passed; `.venv-d1` 2265 passed; ruff clean; 12-pair check
+  alone.
 - **Revert:** make `label_key` return `normalize_label(text)` (one line - the containers
   then match exactly as before), or `git revert`.
 - **Deployed:** not yet.

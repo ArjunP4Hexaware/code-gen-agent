@@ -4,10 +4,15 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (session ended 2026-11-18 - staging = post199; dev STOPPED on post194; feature = post199, pushed)
+## Start here (2026-11-18, later - staging = post199; dev STOPPED on post194; feature = post200, pushed)
 
 **First check:** `git fetch && git status -sb` = up to date with
-`origin/feature/multi-table` (head = the hand-off docs commit on top of 267fb30, post199).
+`origin/feature/multi-table` (head = docs on top of 579ee2b, post200).
+- **post200 (not deployed):** FRD labels match their synonyms with spaces ignored
+  (`frd_docx.label_key` / `LabelTable` / `LabelSet`). Both suites green (`.venv` 2614 /
+  `.venv-d1` 2265), 12-pair outcomes unchanged, no artefact cell moved; pair_08's Data
+  Quality section is now read (+1 validation rule, Layer 2 only). Staging on Soham's
+  word (`/ship-staging`).
 - **staging `codegen-agent-staging` = post199** (`main` = 7f57610, identical-tree merge;
   health + smoke green, idle at hand-off).
 - **dev `codegen-agent`:** STOPPED, last deployment post194 - starting it bills compute
@@ -26,10 +31,9 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 0. **DECIDE (Soham): `docs/acfc/READER_GENERALIZATION.md`** - the one-reader plan
    (phases 0-3; 0-1 change no output). The cheap wins (§5): post198 DONE (STTM / VDD
    headers, spaces ignored), post199 DONE (one strategy alias table, "Incremental"
-   dropped). **NEXT: post200 = spaces ignored in FRD labels** - only the 26 synonym
-   lookups in `extract/frd_docx.py`, never `normalize_label` itself (82 uses, values
-   too); then the delimiter readers (5+ functions, 4 files) as the next value
-   normaliser. Pairing is NOT a cheap win (6 matchers differ on purpose) - Phase 2.
+   dropped), post200 DONE (FRD labels, spaces ignored - the synonym containers only,
+   `normalize_label` unchanged). **NEXT: the delimiter readers** (5+ functions, 4 files)
+   as the next value normaliser. Pairing is NOT a cheap win (6 matchers differ on purpose) - Phase 2.
 1. **Tracker decisions (Soham), from incidents 9-17** (tracker export: Office Script in
    H26):
    - **#12 rest:** should STGDELTA `TGT_DATA_TYPE` drop the precision too? (the tester:
@@ -49,8 +53,7 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
    (c) a source header written only `Field` (a tester upload) stays a question - a
    synonym only with more evidence; (d) her FRD's "Landing Location:" lines are not
    read (`requirement_landing_labels` has only the ADLS spellings) - not asked today.
-3. **README.md / docs/DESIGN.md say "third agent of five"** - it is the second of three
-   (docs-only fix).
+3. ~~README / DESIGN "third agent of five"~~ - DONE 2026-11-18 (second of three).
 4. **The Standard Abbreviation List v28 - ASKED (Lokesh, via Soham, 2026-11-13):** in the
    Data Lakehouse Data Layers Standards V1.1 "Reference Documents"; same ask: Data
    Domains - SOR SOT.xlsx, the Data Modelling Guidelines, an IIG Framework sample. Files

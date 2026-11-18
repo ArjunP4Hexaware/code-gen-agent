@@ -4,6 +4,20 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post203 — 2026-11-18 (a layout answer's own bookkeeping never fails it)
+
+A live layout answer carried an invalid top-level `source` - a field the code sets itself
+after validation. The STTM answer went to the salvage path (a "failed schema validation"
+report line, every sheet kept); an FRD answer with the same slip was DISCARDED whole
+(the FRD path has no salvage), so the fields it placed stayed questions.
+`layout/resolve.py :: _code_owned` (new) sets `source` = "model" and drops
+`role_sources` / `field_sources` before validation (the merge writes them), in
+`salvage_layout_answer` and the FRD model step. Every claim (sheets, bands, roles,
+fields) is validated as before; the prompt is unchanged. Mock runs never reach this
+(no model call).
+
+Tests: `tests/test_layout_code_owned_fields.py` (both failed with the change stashed).
+
 ## 0.5.8.post202 — 2026-11-18 (the unresolved-headers report names a line choice by its line label)
 
 `layout/answers.py :: unresolved_report`: an FRD line candidate (post192 labelled lines)

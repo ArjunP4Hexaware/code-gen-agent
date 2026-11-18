@@ -29,6 +29,34 @@ number.
 
 ---
 
+## 0.5.8.post203 — RESTART item 2(b): the live layout model's invalid `source` value failed its answer
+
+- **Symptom:** a live STTM layout answer reported "model response failed schema
+  validation" (4 of 4 sheets kept by the salvage); the cause was the answer's top-level
+  `source` value, which the code overwrites anyway.
+- **Reproduced:** synthetic: the pair-1 profile (STTM) and a stub FRD answer, each with a
+  bogus `source` / `role_sources` / `field_sources` - STTM: 3 schema errors + the salvage
+  line; FRD: the whole answer discarded (no salvage on that path).
+- **Root cause:** `layout/resolve.py :: salvage_layout_answer` and the FRD model step
+  validate the model's JSON as a whole profile, including fields only the code sets
+  (`source` - a 4-value Literal - and the per-role / per-field source maps).
+- **Change:** `layout/resolve.py :: _code_owned` (new) - `source` set to "model",
+  `role_sources` / `field_sources` dropped, before both validations. Why no prompt change:
+  the code owns these fields; a prompt asking the model not to write them would still
+  fail on the next slip.
+- **Reach:** PENDING (12-pair check - mock: no model call, so no change expected).
+- **Side effects:** PENDING.
+- **Unchanged:** every claim's validation (schema, workbook, the FRD label / section /
+  bound-row rules); the `confidence` field (still validated - an existing test pins its
+  schema error); the salvage path for real errors; the prompt.
+- **Tests:** `tests/test_layout_code_owned_fields.py ::
+  test_an_sttm_answers_own_source_value_is_no_schema_error`,
+  `test_an_frd_answers_own_source_value_does_not_discard_it` (both failed with the change
+  stashed).
+- **Verified:** PENDING.
+- **Revert:** make `_code_owned` return `answer` unchanged, or `git revert`.
+- **Deployed:** not yet.
+
 ## 0.5.8.post202 — RESTART item 2(a): two FRD line choices read the same in the unresolved-headers report
 
 - **Symptom:** `unresolved_headers.md` listed an FRD field's line choices as

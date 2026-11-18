@@ -4,11 +4,11 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-18, later - staging = post201; dev STOPPED on post194; feature = post202, pushed)
+## Start here (2026-11-18, later - staging = post202; dev STOPPED on post194; feature = post202, pushed)
 
 **First check:** `git fetch && git status -sb` = up to date with
 `origin/feature/multi-table` (head = docs on top of 579ee2b, post200).
-- **post202 (not deployed):** the unresolved-headers report names an FRD line choice by
+- **post202 (staging c67ba0e, 2026-11-18; health + smoke green):** the unresolved-headers report names an FRD line choice by
   its line label (item 2(a) done); the two `test_m93_chooser` timing tests wait on events
   (no longer flaky). 12-pair: only pairs 08 / 09 / 10's `unresolved_headers.md` moved.
 - **post201 (staging 12a8f46, 2026-11-18; health + smoke green):** a Comments column in any STTM band is rule text
@@ -61,7 +61,8 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
      config constant. The ADLS_FIXED_WIDTH_HANDLER rows ARE generated already; SRC_FORMAT
      is blank (not TXT, as the incident says).
    - **#11 / #13:** set Resolved (fixed post193, on staging since 2026-11-17).
-2. **Small, mine:** (a) DONE post202; (b) the live layout
+2. **Small, mine:** (a) DONE post202; (b) DONE post203 (the code-owned fields set before
+   validation, not a prompt change) - was the live layout
    model's STTM answer had an invalid `source` value - tighten the prompt / schema text;
    (c) a source header written only `Field` (a tester upload) stays a question - a
    synonym only with more evidence; (d) her FRD's "Landing Location:" lines are not

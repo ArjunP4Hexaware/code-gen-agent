@@ -43,13 +43,16 @@ number.
   `config.py :: ExtractorConfig._merge_blank_words` (a before-validator: base words
   appended to each list unless present). Readers unchanged. Why no new reader pass: one
   config list, the READER_GENERALIZATION shape-5 normaliser.
-- **Reach:** PENDING (12-pair check).
-- **Side effects:** PENDING.
+- **Reach:** 12-pair check (framework, mock, post204 vs post205): outcomes unchanged,
+  295 / 295 files, nothing moved but the version / environment-path report line - no
+  pair writes "Null" / "Not applicable" (or "TBD" in a Segment cell) where it is read.
+- **Side effects:** none found.
 - **Unchanged:** `dq_no_check_words` (starts-with matching), `unmapped_markers` (drop a
   field), `no_values` (yes / no); each reader's own comparison (a delimiter character
   is still a value - `is_blank_placeholder`).
 - **Tests:** `tests/test_blank_words_post205.py` (10; 5 failed before the change).
-- **Verified:** PENDING.
+- **Verified:** `.venv` 2664 passed; `.venv-d1` 2315 passed; ruff clean; 12-pair check
+  alone.
 - **Revert:** delete `extractor.blank_words` (the validator then does nothing), or `git revert`.
 - **Deployed:** not yet.
 

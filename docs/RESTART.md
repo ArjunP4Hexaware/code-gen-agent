@@ -4,114 +4,76 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-18, later - staging = post204; dev STOPPED on post194; feature = post204, pushed)
+## Start here (session ended 2026-11-18 - staging = post204; dev STOPPED on post194; feature = post204, pushed)
 
 **First check:** `git fetch && git status -sb` = up to date with
-`origin/feature/multi-table` (head = docs on top of 579ee2b, post200).
-- **post203 / post204 (staging b933626, 2026-11-18; health + smoke green):** post203 = a layout answer's own `source` /
-  `role_sources` never fail it (`resolve._code_owned`; item 2(b)); post204 = one delimiter
-  reader (`gapfill.delimiter_reading`) + one format / extension table
-  (`extractor.format_delimiters`) - the delimiter win of READER_GENERALIZATION §5. Both:
-  suites green, 12-pair nothing moved.
-- **post202 (staging c67ba0e, 2026-11-18; health + smoke green):** the unresolved-headers report names an FRD line choice by
-  its line label (item 2(a) done); the two `test_m93_chooser` timing tests wait on events
-  (no longer flaky). 12-pair: only pairs 08 / 09 / 10's `unresolved_headers.md` moved.
-- **post201 (staging 12a8f46, 2026-11-18; health + smoke green):** a Comments column in any STTM band is rule text
-  (`roles.target.comments`, `generic._comments`; Comments never span evidence -
-  `_SPAN_NEUTRAL_ROLES`, the pair_07 side effect caught + fixed). Suites `.venv` 2618 /
-  `.venv-d1` 2269; 12-pair: outcomes + artefacts unchanged. From the tester's question
-  (her Comments column = the standard band's last column, read by nothing).
-  Her date-format note as a DateConversionRule: Soham chose option 1 (no code) - she
-  writes "Convert <source> to <target>" in the Comments cell and types the standard
-  column Date; proven by `tests/test_dq_stated_only.py ::
-  test_a_comments_date_rule_writes_a_date_conversion_row_only_with_both_formats`
-  (a one-format note writes no row, by design).
-- **post200 (staging 3e9168f, 2026-11-18; health + smoke green):** FRD labels match their synonyms with spaces ignored
-  (`frd_docx.label_key` / `LabelTable` / `LabelSet`). Both suites green (`.venv` 2614 /
-  `.venv-d1` 2265), 12-pair outcomes unchanged, no artefact cell moved; pair_08's Data
-  Quality section is now read (+1 validation rule, Layer 2 only). CI: one load-timing
-  failure in `test_m93_chooser::test_a_run_never_waits_for_the_vdd...` (passed 3/3 alone,
-  green on re-run) - a second timing-sensitive test in that module.
+`origin/feature/multi-table` (head = the hand-off docs commit on top of post204).
 - **staging `codegen-agent-staging` = post204** (`main` = b933626, identical-tree merge;
   health + smoke green).
 - **dev `codegen-agent`:** STOPPED, last deployment post194 - starting it bills compute
   (Soham's call); then `/ship-dev` deploys post204.
-- **Every version this session fully checked:** both suites green (`.venv` 2609 /
-  `.venv-d1` 2260 on post199), CI green, framework 12-pair outcomes unchanged
-  (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), no artefact cell moved.
-  Per-fix reach + revert in `docs/acfc/BUG_FIX_LOG.md`.
-- **The tester (staging) has not re-run yet:** her bugged run was cancelled; post195-197
-  are its fixes. When she runs, read `GET /api/demo/status` / her run folder: she should
-  be asked only LOBs, domain and the file of 2 tables.
+- **This session: post200-post204**, every one with both suites green, CI green, the
+  framework 12-pair outcomes unchanged (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS,
+  2 GATE_FAIL, 2 FAIL) and its BUG_FIX_LOG entry (reach, revert). What each did:
+  CHANGELOG_ACFC; why: CLAUDE_HISTORY §[H28].
+- **The tester (staging)** re-ran on post199 - working. Her Comments column (the standard
+  band's last column) is read since post201; for her date-format note to become a
+  DateConversionRule she writes "Convert <source> to <target>" and types the standard
+  column Date (Soham chose this, no code; reply sent via Soham).
+- **pair_13** (the Accumulators pair) is in `/Workspace/Users/<me>/frd_sttm_pairs/pair_13`,
+  not in the 12-pair default (`--pairs 13`); the tester's pairs are NOT stored (her uploads:
+  staging `codegen/inputs/codegen-agent-staging/uploads`) - see Open 1.
+- **The codebase deck:** `/Workspace/Users/<me>/CodeGen_Agent_Codebase_Walkthrough.pptx`
+  (slide 42 says post192 - update if reused).
 - After a container reset: `~/bootstrap`, then the OAuth login (recipe below).
-- Session log: CLAUDE_HISTORY §[H27].
 
 **Open, in order:**
-0. **DECIDE (Soham): `docs/acfc/READER_GENERALIZATION.md`** - the one-reader plan
-   (phases 0-3; 0-1 change no output). The cheap wins (§5): post198 DONE (STTM / VDD
-   headers, spaces ignored), post199 DONE (one strategy alias table, "Incremental"
-   dropped), post200 DONE (FRD labels, spaces ignored - the synonym containers only,
-   `normalize_label` unchanged), post204 DONE (one delimiter reader + one format table).
-   NEXT value normalisers: format, decimal, marker words (§1 shape 4 / 5). Pairing is NOT a cheap win (6 matchers differ on purpose) - Phase 2.
-1. **Tracker decisions (Soham), from incidents 9-17** (tracker export: Office Script in
-   H26):
-   - **#12 rest:** should STGDELTA `TGT_DATA_TYPE` drop the precision too? (the tester:
-     yes; the pair-1 prod golden keeps `Decimal(17,2)`). post193 changed SRC only.
-   - **#14:** a DataTypeCastRule for non-String standard columns - reverses post171 ("no
-     cast rule"); the pair-1 golden has one.
-   - **#16:** no grand master row for a Databricks Workflow run (master + children only) -
-     changes the post166 flow; close to item 8(b).
-   - **#9 / #10:** fixed-width feeds -> `SRC_FORMAT = CSV`, `SRC_FILE_DELIMITER = '|'`
-     (the converter's output) - confirm it holds for EVERY fixed-width feed, then a cited
-     config constant. The ADLS_FIXED_WIDTH_HANDLER rows ARE generated already; SRC_FORMAT
-     is blank (not TXT, as the incident says).
-   - **#11 / #13:** set Resolved (fixed post193, on staging since 2026-11-17).
-2. **Small, mine:** (a) DONE post202; (b) DONE post203 (the code-owned fields set before
-   validation, not a prompt change) - was the live layout
-   model's STTM answer had an invalid `source` value - tighten the prompt / schema text;
-   (c) a source header written only `Field` (a tester upload) stays a question - a
-   synonym only with more evidence; (d) her FRD's "Landing Location:" lines are not
-   read (`requirement_landing_labels` has only the ADLS spellings) - not asked today.
-3. ~~README / DESIGN "third agent of five"~~ - DONE 2026-11-18 (second of three).
-4. **The Standard Abbreviation List v28 - ASKED (Lokesh, via Soham, 2026-11-13):** in the
-   Data Lakehouse Data Layers Standards V1.1 "Reference Documents"; same ask: Data
-   Domains - SOR SOT.xlsx, the Data Modelling Guidelines, an IIG Framework sample. Files
-   land in the Workspace `standards_docs` folder. Waiting on it: NM-001, NM-004, NM-006.
-5. **DL-006 (Soham's call):** raw files by `abfss://` vs a Unity Catalog volume - ask ACFC.
-6. **Incident 2 (Lokesh):** external tables - property set, `LOCATION` format, which FRD /
-   STTM field marks a table external.
-7. **PY-006 on feeds with many DATA_QUALITY_RULES rows** (pair_12) - not built, Soham's call.
-8. **DECIDED, do not re-raise:** the standard TBLPROPERTIES stay as post185 has them; the
-   Naming Standards win for grand master names; pair_12 is a Workflow (WF_), its prod
-   IIG's PL_ names are wrong. Still open: (b) reuse an existing grand master? + the
-   NSP / HVR / DLK-vs-HDS questions (H23 draft).
-9. **TDD training** (Venu): only two TDDs in `rfc_samples`; training material only.
-10. **A second standard table per stage table** (the 820 pair) - Soham's call.
-11. **Rows 3 / 4 of the delegation workbook** - need the EXPLAIN-only rule changed first.
-12. NO_OF_CYCLE_PER_DAY "1" wrong on pairs 11 / 12 - Soham's call.
-13. **`codingapp` deploy** (bootstrap patch imported) - on Soham's word, last in a session.
-14. The STTM cell locator step 3; BSA questions (pairs 05 / 11 DQ sheet, pair_12 recycle);
-   the Apps stop / start schedule (CLAUDE_HISTORY, blocks retired 2026-11-10).
-
-## State (2026-11-17 — post195 to post199)
-
-- **post195** STTM source header `FieldName` -> the field name (config synonym).
-- **post196** FRD Solution Requirements read beside F1 section tables: "Load Type" blocks
-  (`load_type_block_labels`), `<file name.ext>` lines (`requirement_file_name_labels`),
-  format from the extension when nothing states one. `FrdFieldSource.block_layer` (written
-  only when set).
-- **post197** a Load Type line's keys ("using keys ...", `load_type_key_phrases`) -> each
-  feed's key statement by its requirement's file; `primary_key._match` accepts the
-  table's audit columns.
-- **post198** `layout/discover.header_key`: STTM / VDD header -> role lookups ignore
-  spaces; a test guards that no two roles share a key.
-- **post199** one load-strategy alias table (`extractor.frd.load_strategy_synonyms`) for
-  every document and answer (`resolve/gapfill.strategy_reading`); "Incremental" dropped.
-- **pair_13** (the Accumulators pair) in `/Workspace/Users/<me>/frd_sttm_pairs/pair_13`;
-  not in the 12-pair default (`--pairs 13`). The tester's newer pair is NOT stored there
-  (her uploads are on staging: `codegen/inputs/codegen-agent-staging/uploads`).
-- **The codebase deck** (manager walkthrough): `/Workspace/Users/<me>/CodeGen_Agent_
-  Codebase_Walkthrough.pptx`; slide 42 says post192 (update if reused).
+0. **Venu's "run the DDL tests from the App" (Soham + Venu):** options sent - (1) an
+   "Open in Databricks" button, no rule change; (2) the App runs them - needs the
+   EXPLAIN-only rule widened to read-only test statements, an identity (user
+   on-behalf-of vs the App's SP), a warehouse (DBU spend), D1 only or more. Waiting on
+   Venu's pick. Same rule blocks item 11.
+1. **The health review (2026-11-18, Soham's calls):** (a) store each tester pair that
+   triggered a fix as `pair_14+` in the Workspace pairs folder and add it to the check
+   (the 12-pair check never exercised post196-199's shapes); (b) the READER_GENERALIZATION
+   decision (item 2); (c) the private cross-module imports (66; `layout/resolve` reads
+   `frd_docx` internals) -> a public module; (d) `emit/rfc.py` + the `dml:` config
+   section - removal needs his word (AGENTS / pipeline.md keep them); (e) merging
+   `discover.header_key` and `frd_docx.label_key` CHANGES what FRD labels match
+   (punctuation) - a pair-checked version, not a tidy-up.
+2. **DECIDE (Soham): `docs/acfc/READER_GENERALIZATION.md`** - phases 0-3 (0-1 change no
+   output). §5 cheap wins DONE: post198 (STTM headers), post199 (load strategy), post200
+   (FRD labels), post204 (delimiters). NEXT value normalisers (mine, no decision needed):
+   file format, decimal, marker words ("means nothing": N / NA / Do Not Map / `-`).
+   Pairing is Phase 2 (6 matchers differ on purpose).
+3. **Tracker decisions (Soham), incidents 9-17** (tracker export: Office Script in H26):
+   #12 rest (STGDELTA `TGT_DATA_TYPE` precision - the tester: drop; the pair-1 golden
+   keeps it); #14 (a DataTypeCastRule - reverses post171); #16 (no grand master for a
+   Workflow run - changes post166); #9 / #10 (fixed-width -> `SRC_FORMAT = CSV`,
+   delimiter `|` - confirm for EVERY fixed-width feed, then a cited constant); #11 / #13
+   set Resolved.
+4. **Small, mine:** (c) a source header written only `Field` stays a question (a synonym
+   only with more evidence); (d) "Landing Location:" lines unread
+   (`requirement_landing_labels`) - no effect on any run today.
+5. **The Standard Abbreviation List v28 - ASKED (Lokesh, via Soham, 2026-11-13)** + Data
+   Domains SOR SOT.xlsx, the Data Modelling Guidelines, an IIG Framework sample (land in
+   the Workspace `standards_docs` folder). Waiting on it: NM-001, NM-004, NM-006.
+6. **DL-006 (Soham's call):** raw files by `abfss://` vs a Unity Catalog volume - ask ACFC.
+7. **Incident 2 (Lokesh):** external tables - property set, `LOCATION` format, which field
+   marks a table external.
+8. **PY-006 on feeds with many DATA_QUALITY_RULES rows** (pair_12) - Soham's call.
+9. **DECIDED, do not re-raise:** the standard TBLPROPERTIES stay as post185 has them; the
+   Naming Standards win for grand master names; pair_12 is a Workflow (WF_). Still open:
+   reuse an existing grand master? + the NSP / HVR / DLK-vs-HDS questions (H23 draft).
+10. **TDD training** (Venu): two TDDs in `rfc_samples`; training material only.
+11. **A second standard table per stage table** (the 820 pair); **rows 3 / 4 of the
+    delegation workbook** (need the EXPLAIN-only rule changed); NO_OF_CYCLE_PER_DAY "1"
+    on pairs 11 / 12 - Soham's calls.
+12. **`codingapp` deploy** (bootstrap patch imported) - on Soham's word, last in a session.
+13. The STTM cell locator step 3; BSA questions (pairs 05 / 11 DQ sheet, pair_12 recycle);
+    the Apps stop / start schedule (CLAUDE_HISTORY, blocks retired 2026-11-10).
+14. **AGENTS.md is 270 lines** (target ~200, /handoff): move procedures to skills /
+    `.claude/rules/` in a quiet session.
 
 ## Recipes (tracked since 2026-11-10 - `tools/check/`, `/tmp` holds only copies)
 

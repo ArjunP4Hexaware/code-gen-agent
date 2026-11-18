@@ -4,6 +4,35 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post201 — 2026-11-18 (a Comments column in any band is the row's rule text)
+
+A tester's STTM (staging, 2026-11-18) carries its Comments column as the standard band's
+last column on every mapping sheet (date-format and SPLIT_PART notes). The target role
+table knew no Comments header, so nothing read it: no field carried rule text, and her
+notes reached neither STDDelta nor the review copy. A Comments column AFTER the last
+band was placed by the layout (`trailing.comments` -> `rules.comments`) and never read
+either.
+
+- `config/config.yaml :: extractor.discovery.roles.target.comments` (new, the same
+  spellings as the source band's).
+- `extract/generic.py :: _comments` (new): the row's `value_spec` falls back (when no
+  load rule / transformation / business rule states one) to every band's Comments cell -
+  source, trailing, stage, standard - each distinct text once, joined with "; ". The
+  description fallback still reads `source.comments` only (a COMMENT is never rule text).
+- `layout/discover.py :: mapping_differences` ignores a target band's Comments role (the
+  legacy MAPPING- reader reads Comments by its own header table), so a MAPPING- workbook
+  keeps the legacy profile; `label_groups` never counts Comments as span evidence
+  (`_SPAN_NEUTRAL_ROLES`: on a sheet without band titles it stretched a band over the
+  trailing columns - pair_07, caught by the 12-pair check, fixed here).
+- Reach: outcomes and every artefact cell unchanged; pair_10's layout places its standard
+  Comments column (4 sheets).
+- NOT changed: DATA_QUALITY_RULES (still only document-stated checks - post171); what
+  `value_spec` feeds (STDDelta date / trim rows by their regexes, the review copy's
+  transformation text, Layer 2 - OFF).
+
+Tests: `tests/test_target_band_comments_post201.py` (config line reverted -> 2 failed;
+the reader reverted to `source.comments` only -> 2 failed).
+
 ## 0.5.8.post200 — 2026-11-18 (FRD labels match their synonyms with spaces ignored)
 
 The third generic win (`docs/acfc/READER_GENERALIZATION.md` §5, win 1 on the FRD side;

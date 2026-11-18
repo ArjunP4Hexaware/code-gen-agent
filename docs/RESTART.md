@@ -4,15 +4,15 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (session ended 2026-11-18 - staging = post204; dev STOPPED on post194; feature = post204, pushed)
+## Start here (session ended 2026-11-18 - staging = post205; dev STOPPED on post194; feature = post205, pushed)
 
 **First check:** `git fetch && git status -sb` = up to date with
-`origin/feature/multi-table` (head = the hand-off docs commit on top of post204).
-- **staging `codegen-agent-staging` = post204** (`main` = b933626, identical-tree merge;
+`origin/feature/multi-table` (head = docs on top of post205).
+- **staging `codegen-agent-staging` = post205** (`main` = e2b967b, identical-tree merge;
   health + smoke green).
 - **dev `codegen-agent`:** STOPPED, last deployment post194 - starting it bills compute
-  (Soham's call); then `/ship-dev` deploys post204.
-- **This session: post200-post204**, every one with both suites green, CI green, the
+  (Soham's call); then `/ship-dev` deploys post205.
+- **This session: post200-post205**, every one with both suites green, CI green, the
   framework 12-pair outcomes unchanged (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS,
   2 GATE_FAIL, 2 FAIL) and its BUG_FIX_LOG entry (reach, revert). What each did:
   CHANGELOG_ACFC; why: CLAUDE_HISTORY §[H28].
@@ -43,8 +43,9 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
    (punctuation) - a pair-checked version, not a tidy-up.
 2. **DECIDE (Soham): `docs/acfc/READER_GENERALIZATION.md`** - phases 0-3 (0-1 change no
    output). §5 cheap wins DONE: post198 (STTM headers), post199 (load strategy), post200
-   (FRD labels), post204 (delimiters). NEXT value normalisers (mine, no decision needed):
-   file format, decimal, marker words ("means nothing": N / NA / Do Not Map / `-`).
+   (FRD labels), post204 (delimiters), post205 (one "states nothing" list,
+   `extractor.blank_words`). NEXT value normalisers (mine, no decision needed): file
+   format, decimal.
    Pairing is Phase 2 (6 matchers differ on purpose).
 3. **Tracker decisions (Soham), incidents 9-17** (tracker export: Office Script in H26):
    #12 rest (STGDELTA `TGT_DATA_TYPE` precision - the tester: drop; the pair-1 golden

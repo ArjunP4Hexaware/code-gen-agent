@@ -5135,6 +5135,10 @@ filled with the feed's own values (target table, real location):
   table (`extractor.format_delimiters`): '|' vs 'Pipe (|)' had disagreed between documents,
   "Comma or pipe" read as a comma, a sentence comma read as a delimiter, "TSV" implied tab
   on one path only. 12-pair: nothing moved.
+- **post205** one "states nothing" word list (`extractor.blank_words`) merged at load into
+  the three exact-match placeholder lists (FRD, STTM meta, Segment cells) - they had
+  drifted ("Null" blank only in a Segment cell). Not the DQ starts-with list (a "-" would
+  swallow a bulleted rule) nor `unmapped_markers`. 12-pair: nothing moved.
 
 **Soham's decisions (2026-11-18):**
 - The tester's DQ ask (a date-format note as a DateConversionRule): option 1 - no code; she

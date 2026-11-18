@@ -54,7 +54,7 @@ number.
 - **Verified:** `.venv` 2664 passed; `.venv-d1` 2315 passed; ruff clean; 12-pair check
   alone.
 - **Revert:** delete `extractor.blank_words` (the validator then does nothing), or `git revert`.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging e2b967b 2026-11-18.
 
 ## 0.5.8.post204 — generic: one delimiter reader and one format / extension table (the same delimiter read differently by reader)
 

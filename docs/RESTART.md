@@ -4,28 +4,33 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-18, later - staging = post200; dev STOPPED on post194; feature = post201, pushed)
+## Start here (2026-11-18, later - staging = post201; dev STOPPED on post194; feature = post202, pushed)
 
 **First check:** `git fetch && git status -sb` = up to date with
 `origin/feature/multi-table` (head = docs on top of 579ee2b, post200).
-- **post201 (not deployed):** a Comments column in any STTM band is rule text
+- **post202 (not deployed):** the unresolved-headers report names an FRD line choice by
+  its line label (item 2(a) done); the two `test_m93_chooser` timing tests wait on events
+  (no longer flaky). 12-pair: only pairs 08 / 09 / 10's `unresolved_headers.md` moved.
+- **post201 (staging 12a8f46, 2026-11-18; health + smoke green):** a Comments column in any STTM band is rule text
   (`roles.target.comments`, `generic._comments`; Comments never span evidence -
   `_SPAN_NEUTRAL_ROLES`, the pair_07 side effect caught + fixed). Suites `.venv` 2618 /
   `.venv-d1` 2269; 12-pair: outcomes + artefacts unchanged. From the tester's question
   (her Comments column = the standard band's last column, read by nothing).
-  OPEN (Soham): her date-format note as a DateConversionRule - her note states ONE
-  format, the rule's INPUT_PARAM needs `<source>--<target>` and the text must read
-  "Convert X to Y" (`date_format_rule_regex`); options in the session reply.
+  Her date-format note as a DateConversionRule: Soham chose option 1 (no code) - she
+  writes "Convert <source> to <target>" in the Comments cell and types the standard
+  column Date; proven by `tests/test_dq_stated_only.py ::
+  test_a_comments_date_rule_writes_a_date_conversion_row_only_with_both_formats`
+  (a one-format note writes no row, by design).
 - **post200 (staging 3e9168f, 2026-11-18; health + smoke green):** FRD labels match their synonyms with spaces ignored
   (`frd_docx.label_key` / `LabelTable` / `LabelSet`). Both suites green (`.venv` 2614 /
   `.venv-d1` 2265), 12-pair outcomes unchanged, no artefact cell moved; pair_08's Data
   Quality section is now read (+1 validation rule, Layer 2 only). CI: one load-timing
   failure in `test_m93_chooser::test_a_run_never_waits_for_the_vdd...` (passed 3/3 alone,
   green on re-run) - a second timing-sensitive test in that module.
-- **staging `codegen-agent-staging` = post200** (`main` = 3e9168f, identical-tree merge;
+- **staging `codegen-agent-staging` = post201** (`main` = 12a8f46, identical-tree merge;
   health + smoke green).
 - **dev `codegen-agent`:** STOPPED, last deployment post194 - starting it bills compute
-  (Soham's call); then `/ship-dev` deploys post200.
+  (Soham's call); then `/ship-dev` deploys post201.
 - **Every version this session fully checked:** both suites green (`.venv` 2609 /
   `.venv-d1` 2260 on post199), CI green, framework 12-pair outcomes unchanged
   (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), no artefact cell moved.
@@ -56,8 +61,7 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
      config constant. The ADLS_FIXED_WIDTH_HANDLER rows ARE generated already; SRC_FORMAT
      is blank (not TXT, as the incident says).
    - **#11 / #13:** set Resolved (fixed post193, on staging since 2026-11-17).
-2. **Small, mine:** (a) the unresolved-questions report names a line choice by its row
-   label only (`answers.unresolved_report`) - add the `inline_label`; (b) the live layout
+2. **Small, mine:** (a) DONE post202; (b) the live layout
    model's STTM answer had an invalid `source` value - tighten the prompt / schema text;
    (c) a source header written only `Field` (a tester upload) stays a question - a
    synonym only with more evidence; (d) her FRD's "Landing Location:" lines are not

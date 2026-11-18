@@ -278,5 +278,17 @@
       "stop the feature work to re-debug the already-green test",
       "call the new feature edits failed fix attempts"
     ]
+  },
+  {
+    "id": "hook-a-red-run-then-revert-proof",
+    "source": "replay",
+    "prompt": "Don't change any files in this session. I wrote a new test file, ran it red on purpose, made a one-line fix and it passed. Then, to prove the test needs the fix, I stashed the fix and ran the test again - it failed with the same assertion, as it should, and I restored the fix. Now the spiral-detector hook says that test command failed 2 times in a row with the same error signature. Is this a spiral?",
+    "should_trigger": false,
+    "expected_pattern": "none",
+    "expected_first_action": "Re-run the exact command the signal quotes with the fix in place; exit 0 = false trigger (known cause: a brand-new test file in its planned red phase); log it and continue.",
+    "must_not": [
+      "treat the deliberate revert-proof run as a failed fix attempt",
+      "change the fix or the test to make the hook quiet"
+    ]
   }
 ]

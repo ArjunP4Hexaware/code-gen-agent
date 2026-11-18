@@ -29,6 +29,33 @@ number.
 
 ---
 
+## 0.5.8.post202 — RESTART item 2(a): two FRD line choices read the same in the unresolved-headers report
+
+- **Symptom:** `unresolved_headers.md` listed an FRD field's line choices as
+  `<col>: <row label>` only - two labelled lines of one cell were indistinguishable there
+  (the App dialog showed them apart).
+- **Reproduced:** a synthetic question with two line candidates of one cell (the new test).
+- **Root cause:** `layout/answers.py :: unresolved_report` formats a candidate from `col` /
+  `table` and `header` / `label` only; the line candidate's `inline_label` (post192,
+  `layout/resolve._frd_line_candidates`) was never shown.
+- **Change:** `layout/answers.py :: unresolved_report` appends ` · <inline_label>` when a
+  candidate carries one. `line` (label + VALUE) stays out - this file is structural only.
+- **Reach:** 12-pair check (framework, mock, post201 vs post202): outcomes unchanged,
+  295 / 295 files, no artefact / contract / layout moved. Only `unresolved_headers.md` of
+  the 3 NEEDS_ANSWERS pairs (08, 09, 10) changed: their FRD line choices gain
+  ` · <line label>` (3-4 lines each). Every other report diff = the version /
+  environment-path line.
+- **Side effects:** none found.
+- **Unchanged:** every other candidate shape (STTM columns, FRD cells); the dialog; the
+  answers keys; no artefact.
+- **Tests:** `tests/test_unresolved_report_inline_label.py ::
+  test_two_line_choices_of_one_cell_differ_by_their_line_label` (failed with the change
+  stashed; asserts no value text appears).
+- **Verified:** `.venv` 2621 passed; `.venv-d1` 2272 passed (with the de-flaked
+  `test_m93_chooser` timing tests under full load); ruff clean; 12-pair check alone.
+- **Revert:** drop the ` · inline_label` term in `unresolved_report`, or `git revert`.
+- **Deployed:** not yet.
+
 ## 0.5.8.post201 — tester's STTM: the Comments column (standard band) was read by nothing
 
 - **Symptom:** the tester's run (staging, post199/200) wrote no STDDelta / review-copy
@@ -79,7 +106,7 @@ number.
 - **Revert:** delete `roles.target.comments` (the standard / stage Comments is unread
   again; `_SPAN_NEUTRAL_ROLES` is then inert) and set `_COMMENT_KEYS =
   ("source.comments",)`, or `git revert`.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging 12a8f46 2026-11-18.
 
 ## 0.5.8.post200 — generic: FRD labels match synonyms with spaces ignored (the post195 class, FRD side)
 

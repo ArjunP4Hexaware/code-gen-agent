@@ -4,6 +4,24 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post205 — 2026-11-18 (one "states nothing" word list)
+
+The next value normaliser (READER_GENERALIZATION §1 shape 5, "a marker word meaning
+nothing"). Three exact-match placeholder lists had drifted: the FRD's
+`extractor.frd.blank_values` (None, N/A, NA, -, TBD), the STTM meta values'
+`discovery.meta_blank_values` (tbd, n/a, na, -, none) and the Segment cells'
+`discovery.unsegmented_markers` (na, n/a, -, none, null) - "null" was a blank in a Segment
+cell only, "TBD" in no Segment cell, "Not applicable" in none.
+
+- `config/config.yaml :: extractor.blank_words` (new, the one base list: none, n/a, na, -,
+  tbd, null, not applicable); `config.py :: ExtractorConfig._merge_blank_words` merges it at
+  load into the three lists (each keeps its own words; an overlay's list keeps working).
+- NOT merged: `dq_no_check_words` (matched by "starts with" - "-" would swallow a bulleted
+  DQ rule) and `unmapped_markers` ("do not map" drops a field - another meaning); the
+  yes / no `no_values`. Readers unchanged (each compares as before).
+
+Tests: `tests/test_blank_words_post205.py` (5 failed before the change).
+
 ## 0.5.8.post204 — 2026-11-18 (one delimiter reader, one format / extension table)
 
 The next generic win (`docs/acfc/READER_GENERALIZATION.md` §5, one value normaliser per

@@ -5111,3 +5111,82 @@ filled with the feed's own values (target table, real location):
 - Every version: both suites green, the framework 12-pair check outcomes unchanged
   (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL).
 
+## §[H28] Session 2026-11-18: post200-post204 (FRD labels, the tester's Comments column, the health review, delimiters)
+
+**Versions (all on staging by the end; dev STOPPED on post194):**
+- **post200** FRD labels match synonyms with spaces ignored (`frd_docx.label_key`,
+  `LabelTable` / `LabelSet`; exact first, a space-free collision matches neither). 12-pair:
+  pair_08's Data Quality section (its title spaced differently around a "/") read for the
+  first time - +1 validation rule, Layer 2 only.
+- **post201** the tester's question "does the agent use Comments?": her Comments column is
+  the STANDARD band's last column and was read by nothing (the target role table had no
+  `comments`; also a trailing `rules.comments` was placed and never read). Fix: a
+  `roles.target.comments` config line + `generic._comments` (every band's Comments as
+  rule text, never a description). **Side effect caught by the first 12-pair run:** on a
+  sheet without band titles (pair_07) `label_groups` sized the standard band by its
+  target-role run, so Comments stretched it over the trailing DQ-mandatory column (read
+  by nothing then) - fixed in the same version (`_SPAN_NEUTRAL_ROLES`).
+- **post202** the unresolved-headers report names an FRD line choice by its line label
+  (never the line - it carries the value); the two `test_m93_chooser` timing tests wait on
+  events, not the clock (one failed CI on post200; AGENTS.md rule now).
+- **post203** a layout answer's own `source` / `role_sources` / `field_sources` (code-owned)
+  never fail it (`resolve._code_owned`) - an FRD answer was discarded WHOLE by one such slip.
+- **post204** one delimiter reader (`gapfill.delimiter_reading`) + one format / extension
+  table (`extractor.format_delimiters`): '|' vs 'Pipe (|)' had disagreed between documents,
+  "Comma or pipe" read as a comma, a sentence comma read as a delimiter, "TSV" implied tab
+  on one path only. 12-pair: nothing moved.
+
+**Soham's decisions (2026-11-18):**
+- The tester's DQ ask (a date-format note as a DateConversionRule): option 1 - no code; she
+  writes "Convert <source> to <target>" and types the column Date (a one-format note writes
+  no row: the other format is in no document). A test pins it.
+- "Do the easy wins first" -> flaky tests, the report label, the model-bookkeeping fix,
+  delimiters. Kept for his word: removing `emit/rfc.py` / the `dml:` section; merging the
+  two normalisers (changes FRD label matching).
+- Venu wants the DDL tests runnable from the App: two options sent (an "Open in
+  Databricks" button, no rule change; or the App runs them - needs the EXPLAIN-only rule
+  widened, an identity, a warehouse). Discuss before building.
+- Messages for others go as plain paragraphs, never `>`-quoted (he pastes into Teams) -
+  AGENTS.md "Who you work with".
+
+**The health review (Soham asked):** healthy (both suites ~2.6k / 2.3k tests, CI green,
+every fix logged and pair-checked). Risks: the 12-pair check never exercised the tester
+shapes (post196-199 "nothing moved" = no coverage, not safety) -> store tester pairs;
+`frd_docx.py` churn (~880 lines in two weeks) -> READER_GENERALIZATION; 66 private
+cross-module imports; 4 modules over 2.8k lines; dead code kept by rule.
+
+**Process slips and what prevents them:**
+- A doc patch's assertion failed AFTER `git commit --amend` in the same chained command,
+  so post201 was pushed with "PENDING" in its BUG_FIX_LOG entry (fixed by a docs commit
+  minutes later). Next time: run the patch, check it, THEN amend / push - never chain an
+  edit script with the push.
+- Two diagnostic commands printed client sheet / feed names into the session (masking
+  only runs of 6+ letters, and a raw JSON key diff) - nothing reached a file or commit.
+  Next time: mask whole names (`s/[A-Za-z0-9_]+/w/g`), never print profile keys raw.
+- A wait loop `pgrep -f` matched its own command line and never ended (RESTART warns
+  about this for `pkill -f`) - poll a PID or a log line instead.
+- A sub-batch built from an empty file list ran the WHOLE suite (11 min) - check the list
+  before passing it to pytest.
+- The spiral detector fired on a planned red run + a revert proof - a false trigger,
+  logged (`docs/spiral-log.md`, known-causes, a replay scenario).
+
+### Retired RESTART.md block (2026-11-18): State (2026-11-17 — post195 to post199)
+
+- **post195** STTM source header `FieldName` -> the field name (config synonym).
+- **post196** FRD Solution Requirements read beside F1 section tables: "Load Type" blocks
+  (`load_type_block_labels`), `<file name.ext>` lines (`requirement_file_name_labels`),
+  format from the extension when nothing states one. `FrdFieldSource.block_layer` (written
+  only when set).
+- **post197** a Load Type line's keys ("using keys ...", `load_type_key_phrases`) -> each
+  feed's key statement by its requirement's file; `primary_key._match` accepts the
+  table's audit columns.
+- **post198** `layout/discover.header_key`: STTM / VDD header -> role lookups ignore
+  spaces; a test guards that no two roles share a key.
+- **post199** one load-strategy alias table (`extractor.frd.load_strategy_synonyms`) for
+  every document and answer (`resolve/gapfill.strategy_reading`); "Incremental" dropped.
+- **pair_13** (the Accumulators pair) in `/Workspace/Users/<me>/frd_sttm_pairs/pair_13`;
+  not in the 12-pair default (`--pairs 13`). The tester's newer pair is NOT stored there
+  (her uploads are on staging: `codegen/inputs/codegen-agent-staging/uploads`).
+- **The codebase deck** (manager walkthrough): `/Workspace/Users/<me>/CodeGen_Agent_
+  Codebase_Walkthrough.pptx`; slide 42 says post192 (update if reused).
+

@@ -639,6 +639,36 @@ class ExtractorConfig(BaseModel):
     # otherwise makes every scan create a cell per row
     # (codegen.layout.extent). 0 = trust max_row (the old behaviour).
     used_range_empty_rows: int = Field(default=500, ge=0)
+    # post205: the words a cell writes for "states nothing" ("None", "N/A", "TBD", "-",
+    # "Null", "Not applicable") - the ONE base list, merged at load into every
+    # EXACT-match placeholder list (frd.blank_values, discovery.meta_blank_values,
+    # discovery.unsegmented_markers), each keeping its own extra words. Not merged into
+    # the DQ section's dq_no_check_words (matched by "starts with": "-" would swallow a
+    # bulleted rule), nor unmapped_markers ("do not map" drops a field - another meaning).
+    blank_words: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _merge_blank_words(cls, data):
+        if not isinstance(data, dict) or not data.get("blank_words"):
+            return data
+        base = list(data["blank_words"])
+
+        def merged(words):
+            have = {str(w).strip().lower() for w in words or []}
+            return [*(words or []), *(b for b in base if str(b).strip().lower() not in have)]
+
+        def section(key):
+            value = data.get(key)
+            if value is None:
+                return {}
+            return value.model_dump() if isinstance(value, BaseModel) else dict(value)
+
+        frd, disc = section("frd"), section("discovery")
+        frd["blank_values"] = merged(frd.get("blank_values"))
+        disc["meta_blank_values"] = merged(disc.get("meta_blank_values"))
+        disc["unsegmented_markers"] = merged(disc.get("unsegmented_markers"))
+        return {**data, "frd": frd, "discovery": disc}
 
     @model_validator(mode="after")
     def _check_header_synonym_keys(self) -> ExtractorConfig:

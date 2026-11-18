@@ -29,6 +29,33 @@ number.
 
 ---
 
+## 0.5.8.post205 — generic: one "states nothing" word list (three placeholder lists had drifted)
+
+- **Symptom (class):** the same placeholder read as blank in one place and as a value in
+  another: "Null" blank in a Segment cell, a VALUE in an FRD cell or an STTM meta row;
+  "Not applicable" a value everywhere but the DQ section.
+- **Reproduced:** the new test (an FRD cell "Not applicable" / "Null", an STTM meta value
+  "Null" / "Not applicable") - read as values before.
+- **Root cause:** three hand-kept config lists (`extractor.frd.blank_values`,
+  `discovery.meta_blank_values`, `discovery.unsegmented_markers`), each grown by its own
+  fix (M9.0, D1 post51 ...).
+- **Change:** `config/config.yaml :: extractor.blank_words` (new);
+  `config.py :: ExtractorConfig._merge_blank_words` (a before-validator: base words
+  appended to each list unless present). Readers unchanged. Why no new reader pass: one
+  config list, the READER_GENERALIZATION shape-5 normaliser.
+- **Reach:** 12-pair check (framework, mock, post204 vs post205): outcomes unchanged,
+  295 / 295 files, nothing moved but the version / environment-path report line - no
+  pair writes "Null" / "Not applicable" (or "TBD" in a Segment cell) where it is read.
+- **Side effects:** none found.
+- **Unchanged:** `dq_no_check_words` (starts-with matching), `unmapped_markers` (drop a
+  field), `no_values` (yes / no); each reader's own comparison (a delimiter character
+  is still a value - `is_blank_placeholder`).
+- **Tests:** `tests/test_blank_words_post205.py` (10; 5 failed before the change).
+- **Verified:** `.venv` 2664 passed; `.venv-d1` 2315 passed; ruff clean; 12-pair check
+  alone.
+- **Revert:** delete `extractor.blank_words` (the validator then does nothing), or `git revert`.
+- **Deployed:** not yet.
+
 ## 0.5.8.post204 — generic: one delimiter reader and one format / extension table (the same delimiter read differently by reader)
 
 - **Symptom (class):** a delimiter read differently by which reader met it: '|' vs
@@ -65,7 +92,7 @@ number.
 - **Verified:** `.venv` 2654 passed; `.venv-d1` 2305 passed; ruff clean; 12-pair check
   alone.
 - **Revert:** `git revert` (code + config move together).
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging b933626 2026-11-18.
 
 ## 0.5.8.post203 — RESTART item 2(b): the live layout model's invalid `source` value failed its answer
 
@@ -96,7 +123,7 @@ number.
 - **Verified:** `.venv` 2623 passed; `.venv-d1` 2274 passed (committed tree); ruff
   clean; 12-pair check alone.
 - **Revert:** make `_code_owned` return `answer` unchanged, or `git revert`.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging b933626 2026-11-18.
 
 ## 0.5.8.post202 — RESTART item 2(a): two FRD line choices read the same in the unresolved-headers report
 
@@ -123,7 +150,7 @@ number.
 - **Verified:** `.venv` 2621 passed; `.venv-d1` 2272 passed (with the de-flaked
   `test_m93_chooser` timing tests under full load); ruff clean; 12-pair check alone.
 - **Revert:** drop the ` · inline_label` term in `unresolved_report`, or `git revert`.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging c67ba0e 2026-11-18.
 
 ## 0.5.8.post201 — tester's STTM: the Comments column (standard band) was read by nothing
 

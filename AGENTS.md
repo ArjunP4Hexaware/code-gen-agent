@@ -73,7 +73,8 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   pair, outcome and counts only; a live CLI / harness run on client pairs outside the App
   still follows the client-document process; mock runs need none. Real client documents (and `IIG test cells.xlsx`) are read in place,
   outputs go to a scratch dir, and only SCORES are reported — never copy client names or
-  values into the repo, commits or replies. `scripts/scrub_check.py` must report zero NEW
+  values into the repo, commits or replies. A diagnostic over client files masks WHOLE names
+  (`s/[A-Za-z0-9_]+/w/g`), never prints profile keys or file names raw. `scripts/scrub_check.py` must report zero NEW
   hits over tracked files (`docs/acfc/LEAK_LEDGER.md` holds the known ones;
   `tests/test_tracked_scrub.py`). Client terms never in the repo — the leak gate
   (`codegen.leakgate`) reads its denylist from the state volume.
@@ -102,6 +103,8 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   merges anywhere without Soham's word.
 - **Others push to this branch from ACFC:** `git fetch` and rebase before work, never
   force-push.
+- **Never chain an edit script with `commit --amend` / `push`:** run it, check it, then
+  commit (a failed patch once pushed a PENDING BUG_FIX_LOG entry, 2026-11-18).
 - **Stage files explicitly, never `git add -A`.** Gitignored local-only files (never
   stage): `docs/acfc/denylist_local.txt`, `PROJECT_HANDOFF.md`,
   `CODEGEN_INDEPENDENT_REVIEW.md`.

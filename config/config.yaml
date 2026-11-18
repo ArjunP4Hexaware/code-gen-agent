@@ -159,6 +159,10 @@ extractor:
   # skipped_rows flag, citing the cell — never a note only (post74: read
   # with the conventions profile's skip_row_markers).
   unmapped_markers: ["do not map", "dnm", "not mapped", "n/a", "na", "none"]
+  # post205: what a cell writes for "states nothing" - the ONE base list, merged at load
+  # into every exact-match placeholder list (frd.blank_values, discovery.meta_blank_values,
+  # discovery.unsegmented_markers); never into dq_no_check_words or unmapped_markers.
+  blank_words: ["none", "n/a", "na", "-", "tbd", "null", "not applicable"]
   # A delimiter stated as a word -> the character every artefact writes
   # (first real-row scorecard, 2026-10-08: never the word in an IIG cell).
   delimiter_words: {comma: ",", pipe: "|", tab: "\t", semicolon: ";", caret: "^", tilde: "~", colon: ":"}

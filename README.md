@@ -2,10 +2,10 @@
 
 Generates production-shaped Databricks ingestion pipelines (PySpark +
 Delta Lake) from approved machine-readable contracts — one FRD feed
-contract plus one STTM mapping contract per feed. Third agent of five in
-the AI-in-Engineering program at AmeriHealth Caritas: downstream of the
-BRD→FRD/STTM agent (which produces the contracts), upstream of the Code
-Review Agent (which reviews what this agent emits).
+contract plus one STTM mapping contract per feed. Second agent of three in
+the AI-in-Engineering program at AmeriHealth Caritas (FRD→STTM → CodeGen →
+Code Review): downstream of the FRD→STTM agent (which produces the STTM),
+upstream of the Code Review Agent (which reviews what this agent emits).
 
 Design rationale: [`docs/DESIGN.md`](docs/DESIGN.md). Operating workflow:
 [`docs/WORKFLOW.md`](docs/WORKFLOW.md). Demo UI + guided tour:

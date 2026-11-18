@@ -50,8 +50,11 @@ number.
   `resolve/resolver._resolve_delimiter`, `extract/generic.py`, `extract/segmented.py`,
   `layout/resolve.py` (format gap fill) pass `config.extractor.format_delimiters`; the
   three code tables removed.
-- **Reach:** PENDING (12-pair check).
-- **Side effects:** PENDING.
+- **Reach:** 12-pair check (framework, mock, post203 vs post204): outcomes unchanged,
+  295 / 295 files, NOTHING moved but the build stamp - no pair's delimiter, format or
+  agreement check reads differently (none states a two-delimiter or sentence-comma value,
+  a "TSV" format, or a '|' vs 'Pipe (|)' pair).
+- **Side effects:** none found.
 - **Unchanged:** `delimiter_in_format` (format cells: "<word> delimited" phrases only);
   `segmented._metadata_delimiter`'s "delimit" guard; `delimiter_words`; every artefact
   writes the character, never the word; `same_value` for non-delimiter values.
@@ -59,7 +62,8 @@ number.
   a disagreement, the config table, the no-code-table guard; the old readers give ','
   for the two pick cases and False for 3 of the 4 agreements);
   `tests/test_frd_multi_object.py`, `tests/test_format_from_extension.py` pass the table.
-- **Verified:** PENDING.
+- **Verified:** `.venv` 2654 passed; `.venv-d1` 2305 passed; ruff clean; 12-pair check
+  alone.
 - **Revert:** `git revert` (code + config move together).
 - **Deployed:** not yet.
 

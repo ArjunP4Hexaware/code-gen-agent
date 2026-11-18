@@ -4,10 +4,15 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-18, later - staging = post202; dev STOPPED on post194; feature = post202, pushed)
+## Start here (2026-11-18, later - staging = post202; dev STOPPED on post194; feature = post204, pushed)
 
 **First check:** `git fetch && git status -sb` = up to date with
 `origin/feature/multi-table` (head = docs on top of 579ee2b, post200).
+- **post203 / post204 (not deployed):** post203 = a layout answer's own `source` /
+  `role_sources` never fail it (`resolve._code_owned`; item 2(b)); post204 = one delimiter
+  reader (`gapfill.delimiter_reading`) + one format / extension table
+  (`extractor.format_delimiters`) - the delimiter win of READER_GENERALIZATION §5. Both:
+  suites green, 12-pair nothing moved. Staging on Soham's word.
 - **post202 (staging c67ba0e, 2026-11-18; health + smoke green):** the unresolved-headers report names an FRD line choice by
   its line label (item 2(a) done); the two `test_m93_chooser` timing tests wait on events
   (no longer flaky). 12-pair: only pairs 08 / 09 / 10's `unresolved_headers.md` moved.
@@ -46,8 +51,8 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
    (phases 0-3; 0-1 change no output). The cheap wins (§5): post198 DONE (STTM / VDD
    headers, spaces ignored), post199 DONE (one strategy alias table, "Incremental"
    dropped), post200 DONE (FRD labels, spaces ignored - the synonym containers only,
-   `normalize_label` unchanged). **NEXT: the delimiter readers** (5+ functions, 4 files)
-   as the next value normaliser. Pairing is NOT a cheap win (6 matchers differ on purpose) - Phase 2.
+   `normalize_label` unchanged), post204 DONE (one delimiter reader + one format table).
+   NEXT value normalisers: format, decimal, marker words (§1 shape 4 / 5). Pairing is NOT a cheap win (6 matchers differ on purpose) - Phase 2.
 1. **Tracker decisions (Soham), from incidents 9-17** (tracker export: Office Script in
    H26):
    - **#12 rest:** should STGDELTA `TGT_DATA_TYPE` drop the precision too? (the tester:

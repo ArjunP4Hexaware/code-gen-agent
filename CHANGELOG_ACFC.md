@@ -4,6 +4,21 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post209 — 2026-11-19 (a label | value STTM sheet states the format / delimiter / frequency)
+
+The tester's report (2026-11-19) item 2: her STTM states the file type and delimiter on
+a separate "File Details" tab of `<label> | <value>` rows, which the layout read nothing
+from (kind `ignore`) - both were asked.
+- `layout/resolve.py :: _detail_sheet_meta` (new, called by `_sttm_facts`): an `ignore`
+  sheet's two-cell rows are read with the mapping sheets' meta-row labels
+  (`extractor.discovery.meta_synonyms`) for file_format / delimiter / frequency; a
+  mapping sheet's own meta row wins; sheets that disagree fill nothing. The fill is the
+  usual `frd_unstated:<field> source_used:<sheet>!<cell> ('<label>')`.
+- `config/config.yaml :: extractor.discovery.meta_synonyms.delimiter` + "file delimitor"
+  (her STTM's spelling).
+
+Tests: `tests/test_detail_sheet_meta_post209.py` (6; 3 failed before the change).
+
 ## 0.5.8.post208 — 2026-11-19 (a section's Name row never names the feed; the stated archive path compared)
 
 The tester's report (2026-11-19), the feed name and the Archive Location:

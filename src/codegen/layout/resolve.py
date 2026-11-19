@@ -1691,7 +1691,44 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
                     "frequency_cell": (f"{sp.name}!{get_column_letter(freq_col + 1)}{row_index}"
                                        if freq_col is not None else None),
                 })
+    _detail_sheet_meta(profile, workbook, config, facts)
     return facts
+
+
+_DETAIL_SHEET_KEYS = ("file_format", "delimiter", "frequency")
+
+
+def _detail_sheet_meta(profile: LayoutProfile, workbook, config: Config, facts: dict) -> None:
+    """post209 (the tester's STTM, 2026-11-19): a sheet the layout reads nothing from
+    (kind ``ignore``) whose rows are ``<label> | <value>`` - a "File Details" tab with
+    "File Type | .txt", "File Delimiter | Pipe" - states the workbook's file format /
+    delimiter / frequency with the SAME labels as a mapping sheet's meta rows
+    (``extractor.discovery.meta_synonyms``). Only a row of exactly two cells, label
+    first; a mapping sheet's own meta row wins (setdefault); a key two such sheets state
+    differently is read from neither (never a pick). Why a pass (READER_GENERALIZATION):
+    the meta-row grammar on its own sheet, no new vocabulary."""
+    disc = config.extractor.discovery
+    synonyms = {normalize(s): key for key, spellings in disc.meta_synonyms.items()
+                for s in spellings if key in _DETAIL_SHEET_KEYS}
+    found: dict[str, list[tuple[str, str]]] = {}
+    for sp in profile.sheets:
+        if sp.kind != "ignore" or sp.name not in workbook.sheetnames:
+            continue
+        ws = workbook[sp.name]
+        for row_index, row in enumerate(ws.iter_rows(max_row=disc.scan_rows, values_only=True),
+                                        start=1):
+            cells = [(i + 1, text(c)) for i, c in enumerate(row) if text(c) is not None]
+            if len(cells) != 2:
+                continue
+            (_label_col, label), (value_col, value) = cells
+            key = synonyms.get(normalize(label))
+            if key is None or is_blank_placeholder(value, disc.meta_blank_values):
+                continue
+            found.setdefault(key, []).append(
+                (value, f"{sp.name}!{get_column_letter(value_col)}{row_index} ({label!r})"))
+    for key, stated in found.items():
+        if len({normalize(v) for v, _c in stated}) == 1:
+            facts["meta"].setdefault(key, stated[0])
 
 
 def _vdd_facts(vdd_profile: LayoutProfile | None, workbook) -> dict[str, list[tuple[str, str]]]:

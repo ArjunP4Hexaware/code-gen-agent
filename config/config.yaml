@@ -279,7 +279,8 @@ extractor:
       file_name_example: ["file name example"]
       frequency: ["frequency", "file frequency"]
       file_format: ["file format text csv", "file format", "file type"]
-      delimiter: ["file delimiter", "delimiter"]
+      # post209: "File Delimitor" (sic) - the label as a client STTM's File Details tab writes it
+      delimiter: ["file delimiter", "delimiter", "file delimitor"]
       last_update_date: ["last update date"]
       version: ["version"]
       lob: ["lob"]

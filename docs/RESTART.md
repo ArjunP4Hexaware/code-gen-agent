@@ -32,6 +32,13 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 - After a container reset: `~/bootstrap`, then the OAuth login (recipe below).
 
 **Open, in order:**
+-5. **post213 (the "Derived" standard-type question) - committed, NOT pushed / shipped:**
+   suites `.venv-d1` 2367 passed; `.venv` 1 failed = `test_demo_ui.py::
+   test_choosing_an_sttm_auto_pairs_its_frd` (`frd_chosen`/`frd_paired` False) - passes
+   alone 3/3 and as a file (33/33): a load flake in the selection job (not touched by
+   post213); re-run the `.venv` suite (or that file under `-n 4`) before the push. If it
+   recurs, make the test wait on the job's own event (AGENTS: App timing tests wait on
+   an event, never a wall clock).
 -4. **Tracker triage 2026-11-19 - #5, #7, #18, #19, #20 FIXED in post212 (staging); the
    update Office Script given in the chat (/tmp only, client text); (export of sheet CodeGen, 22 incidents; reproduced on
    pair_13, mock):** NEW / re-opened: #5 SRC_FILE_NAME = family `prefix_star` turns the

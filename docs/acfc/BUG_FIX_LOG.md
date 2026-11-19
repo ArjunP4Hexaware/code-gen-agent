@@ -38,9 +38,13 @@ number.
   (`prefix_star`, learned from production IIGs) to every pattern, the FRD's own glob too.
 - **Change:** an FRD-stated pattern holding a wildcard (`_STATED_GLOB_RE`) is written as
   stated, unless a feed override or the data engineer's style choice says otherwise.
-- **Reach:** 12-pair check - pending; pair_13 (mock): see the symptom - now as expected.
-- **Side effects:** pending.
-- **Verified:** pending.
+- **Reach:** 12-pair check (post211 vs post212, framework, mock): outcomes unchanged; ADLS
+  SRC_FILE_NAME on pair_04 (1 cell: the FRD's leading-wildcard glob) and pair_12 (18
+  cells: the FRD's glob instead of the prefix_star form - pair_12's production IIG uses
+  that form, so its golden score on this column drops by design); pair_13 = the FRD's
+  pattern.
+- **Side effects:** none found (10 DDL test pins updated for the new statements).
+- **Verified:** pending (suites).
 - **Deployed:** dev not yet (STOPPED); staging not yet.
 - **Unchanged:** derived patterns (a sample name with date tokens) keep the convention;
   STTM-sourced patterns keep it.
@@ -60,9 +64,11 @@ number.
   `frd_archive_main:` flag), `_labelled_paths`; `resolve/stated.environment_address` (the
   archive's account / container like the landing's); `metadata_template._paths` +
   `_stated_archive_tail` + `stated_archive_tabs` (config).
-- **Reach:** 12-pair check - pending; pair_13 (mock): see the symptom - now as expected.
-- **Side effects:** pending.
-- **Verified:** pending.
+- **Reach:** 12-pair check: SRC_ADLS_ARCHVL_PATH on pair_01 (3 ADLS + 3 FIXED_WIDTH
+  cells: the FRD's stated archive); pair_13 = `.../archive/` on both sheets (the tester's
+  expected value); FRD contracts gain `archive_location` where stated.
+- **Side effects:** none found (10 DDL test pins updated for the new statements).
+- **Verified:** pending (suites).
 - **Deployed:** dev not yet (STOPPED); staging not yet.
 - **Unchanged:** STGDELTA's archive (the stage-to-standard step's, not the raw file's)
   keeps its shape + the post208 note; an archive outside the landing's folder keeps the
@@ -82,9 +88,11 @@ number.
   post158 guard stays closed); `run_artefacts` merge banners. Columns: every standard
   column (audit included) as String + REJECT_REASON / SRC_TABLE_NAME / RUNID (the tester's
   instruction, cited).
-- **Reach:** 12-pair check - pending; pair_13 (mock): see the symptom - now as expected.
-- **Side effects:** pending.
-- **Verified:** pending.
+- **Reach:** 12-pair check: every ACFC DDL (and the combined sets, the DDL test cases)
+  gains one reject table per standard table; outcomes unchanged; pair_13 = the table the
+  tester named.
+- **Side effects:** none found (10 DDL test pins updated for the new statements).
+- **Verified:** pending (suites).
 - **Deployed:** dev not yet (STOPPED); staging not yet.
 - **Unchanged:** no stage reject table (not asked); the IIG.
 - **Tests:** #18 block (3); `test_ddl_runsafe` / `test_ddl_parse_gate` /
@@ -99,9 +107,10 @@ number.
   the FRD's Description row was placed (`description#descriptive`) but never carried.
 - **Change:** `FrdFeed.description`, `ResolvedFeedSpec.frd_description`, the resolver;
   `_table_comment` uses it when the STTM states none.
-- **Reach:** 12-pair check - pending; pair_13 (mock): see the symptom - now as expected.
-- **Side effects:** pending.
-- **Verified:** pending.
+- **Reach:** 12-pair check: the table COMMENTs of the F1 pairs open with the FRD's
+  Description; FRD contracts gain `description`; pair_13 = its Descriptive Description.
+- **Side effects:** none found (10 DDL test pins updated for the new statements).
+- **Verified:** pending (suites).
 - **Deployed:** dev not yet (STOPPED); staging not yet.
 - **Unchanged:** the STTM's Table Description wins; post140's "description + load
   strategy" join; F2 FRDs (no Descriptive section) still the load strategy alone.

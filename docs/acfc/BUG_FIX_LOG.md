@@ -29,6 +29,98 @@ number.
 
 ---
 
+## 0.5.8.post212 — tracker #5: SRC_FILE_NAME not the FRD's file pattern
+
+- **Symptom:** the FRD states `*_<A>_*_<B>*`; ADLS SRC_FILE_NAME was `<A>_<B>*` - it no
+  longer matches the real file names (they start with a number).
+- **Reproduced:** pair_13 (the Accumulators pair), mock, post211.
+- **Root cause:** `metadata_template._src_file_name_cell` applied the family convention
+  (`prefix_star`, learned from production IIGs) to every pattern, the FRD's own glob too.
+- **Change:** an FRD-stated pattern holding a wildcard (`_STATED_GLOB_RE`) is written as
+  stated, unless a feed override or the data engineer's style choice says otherwise.
+- **Reach:** 12-pair check (post211 vs post212, framework, mock): outcomes unchanged; ADLS
+  SRC_FILE_NAME on pair_04 (1 cell: the FRD's leading-wildcard glob) and pair_12 (18
+  cells: the FRD's glob instead of the prefix_star form - pair_12's production IIG uses
+  that form, so its golden score on this column drops by design); pair_13 = the FRD's
+  pattern.
+- **Side effects:** none found (10 DDL test pins updated for the new statements).
+- **Verified:** `.venv` 2715 passed; `.venv-d1` 2363 passed; ruff clean; 12-pair check
+  alone + pair_13.
+- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Unchanged:** derived patterns (a sample name with date tokens) keep the convention;
+  STTM-sourced patterns keep it.
+- **Tests:** `test_tracker_fixes_post212.py` #5 block (3; 1 failed reverted, 2 pin the rest).
+- **Revert:** remove the `elif` branch in `_src_file_name_cell`.
+
+## 0.5.8.post212 — tracker #7 / #20: archive paths were template shapes, not the FRD's
+
+- **Symptom:** ADLS SRC_ADLS_ARCHVL_PATH `.../Archive/` (the FRD: `.../archive/`), the
+  fixed-width handler's `/Archive/<container>/...` (#20).
+- **Reproduced:** pair_13, mock, post211: the FRD's three "Archive Path:" lines (main /
+  daily / monthly) unread.
+- **Root cause:** no reader for "Archive Path" (post208 read only requirement "Archive
+  Location" lines) and option C (template kept) - reversed by Soham: "FRD path wins, use
+  the main one".
+- **Change:** `extractor.frd.archive_line_labels`, `frd_docx._archive` (first path,
+  `frd_archive_main:` flag), `_labelled_paths`; `resolve/stated.environment_address` (the
+  archive's account / container like the landing's); `metadata_template._paths` +
+  `_stated_archive_tail` + `stated_archive_tabs` (config).
+- **Reach:** 12-pair check: SRC_ADLS_ARCHVL_PATH on pair_01 (3 ADLS + 3 FIXED_WIDTH
+  cells: the FRD's stated archive); pair_13 = `.../archive/` on both sheets (the tester's
+  expected value); FRD contracts gain `archive_location` where stated.
+- **Side effects:** none found (10 DDL test pins updated for the new statements).
+- **Verified:** `.venv` 2715 passed; `.venv-d1` 2363 passed; ruff clean; 12-pair check
+  alone + pair_13.
+- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Unchanged:** STGDELTA's archive (the stage-to-standard step's, not the raw file's)
+  keeps its shape + the post208 note; an archive outside the landing's folder keeps the
+  shape + the note.
+- **Tests:** #7 / #20 block (5).
+- **Revert:** `archive_line_labels: []` and `stated_archive_tabs: []`.
+
+## 0.5.8.post212 — tracker #18: no standard reject table in the DDL
+
+- **Symptom:** the STGDELTA row names TGT_RJT_TABLE_NAME `<stage table>_reject` under the
+  standard catalog / schema; the DDL creates no such table.
+- **Reproduced:** pair_13, mock, post211 (2 CREATEs: stage, standard).
+- **Root cause:** never built.
+- **Change:** `ConventionsProfileConfig.standard_reject_table` (`StandardRejectTableConfig`;
+  on in `acfc_prx`, null in the pair-1 overlay); `emit/framework._standard_reject_blocks`;
+  the `ddl_parses` allow-list (`_defined_table_names` + the reject names - computed, the
+  post158 guard stays closed); `run_artefacts` merge banners. Columns: every standard
+  column (audit included) as String + REJECT_REASON / SRC_TABLE_NAME / RUNID (the tester's
+  instruction, cited).
+- **Reach:** 12-pair check: every ACFC DDL (and the combined sets, the DDL test cases)
+  gains one reject table per standard table; outcomes unchanged; pair_13 = the table the
+  tester named.
+- **Side effects:** none found (10 DDL test pins updated for the new statements).
+- **Verified:** `.venv` 2715 passed; `.venv-d1` 2363 passed; ruff clean; 12-pair check
+  alone + pair_13.
+- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Unchanged:** no stage reject table (not asked); the IIG.
+- **Tests:** #18 block (3); `test_ddl_runsafe` / `test_ddl_parse_gate` /
+  `test_ddl_comments` / `test_table_comment` pins updated (statement counts).
+- **Revert:** `standard_reject_table: null` in the ACFC profile.
+
+## 0.5.8.post212 — tracker #19: the table COMMENT was the load strategy
+
+- **Symptom:** every table's COMMENT read "Load strategy: ..." - no business description.
+- **Reproduced:** pair_13, mock, post211 (the STTM states no Table Description).
+- **Root cause:** `emit/framework._table_comment` had only the STTM's Table Description;
+  the FRD's Description row was placed (`description#descriptive`) but never carried.
+- **Change:** `FrdFeed.description`, `ResolvedFeedSpec.frd_description`, the resolver;
+  `_table_comment` uses it when the STTM states none.
+- **Reach:** 12-pair check: the table COMMENTs of the F1 pairs open with the FRD's
+  Description; FRD contracts gain `description`; pair_13 = its Descriptive Description.
+- **Side effects:** none found (10 DDL test pins updated for the new statements).
+- **Verified:** `.venv` 2715 passed; `.venv-d1` 2363 passed; ruff clean; 12-pair check
+  alone + pair_13.
+- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Unchanged:** the STTM's Table Description wins; post140's "description + load
+  strategy" join; F2 FRDs (no Descriptive section) still the load strategy alone.
+- **Tests:** #19 block (3).
+- **Revert:** drop the `or getattr(spec, "frd_description", None)` in `_table_comment`.
+
 ## 0.5.8.post211 — Soham 2026-11-19: the App and its files named the BSA as the agent's user
 
 - **Symptom:** the App's output option ("DDL + BSA-annotated IIG"), the review copy's
@@ -55,7 +147,7 @@ number.
   286; tsc + ruff clean; 12-pair check alone.
 - **Revert:** the owner labels are config (`iig_review.owner_labels`); `git revert` the
   wording.
-- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Deployed:** dev not yet (STOPPED); staging 602b360 2026-11-19.
 
 ## 0.5.8.post210 — second tester 2026-11-19: unreadable FRD questions; a feed-name dead end
 

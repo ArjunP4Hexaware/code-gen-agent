@@ -4,7 +4,7 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (session ended 2026-11-19 - staging = post205; dev STOPPED on post194; feature = post205, pushed)
+## Start here (2026-11-19 evening - staging = post211 (602b360); dev STOPPED on post194; feature = post211, pushed)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
@@ -32,6 +32,26 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 - After a container reset: `~/bootstrap`, then the OAuth login (recipe below).
 
 **Open, in order:**
+-4. **Tracker triage 2026-11-19 (export of sheet CodeGen, 22 incidents; reproduced on
+   pair_13, mock):** NEW / re-opened: #5 SRC_FILE_NAME = family `prefix_star` turns the
+   FRD's `*_X_*_Y*` into `X_Y*` (no longer matches the files; the App's
+   src_file_name_style "pattern" is the workaround); #7 + #20 archive paths are the
+   template shapes (capital "Archive", "/Archive{landing}" on FIXED_WIDTH) - this FRD
+   states three "Archive Path:" lines (main / daily / monthly), unread (label unknown,
+   three paths); #18 no reject table DDL (stage or standard); #19 table COMMENT = the
+   load strategy (no FRD description field); #3 comment: stage + stage-reject
+   TBLPROPERTIES not ACFC's (template needed). Ready to mark resolved on staging: #11,
+   #13 (post193), #21 (post195-199 + 206-210), #22 (post201). Decisions: #9/#10, #12
+   rest, #14, #16 (item 3 below).
+-3. **Done 2026-11-19 (post206-211, all on staging):** typed / blank FRD answers (206),
+   Landing Location + "Domain -" (207), feed name never from a non-descriptive section +
+   Archive Location compared (208), the STTM File Details tab (209), FRD questions offer
+   only plausible cells + no feed-name question (210, P1 of the question-UX plan), the
+   data engineer (not the BSA) everywhere (211). Next: "Derived"-type cells asked as a
+   question (post158's guard keeps the stop); P2 / P3 of the question UX; tester pairs
+   A / B / C stored as pair_14-16; MandatoryColumnCheckRule (waits on the tester's 4
+   answers). The user manual: Workspace `code-gen-agent-documentation.docx` (builder
+   was /tmp/t/doc/build_cg_manual.py - gone after a reset; the doc is the source now).
 -2. **A second tester's run (staging post208, 2026-11-19; pair C = the same program's third
    vendor, copied to /tmp/t/ik/pairs/pair_93; her run is PAUSED on staging - do not touch):**
    she found the question block impenetrable, and the File format question listed ~16-20
@@ -150,7 +170,9 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
    `extractor.blank_words`). NEXT value normalisers (mine, no decision needed): file
    format, decimal.
    Pairing is Phase 2 (6 matchers differ on purpose).
-3. **Tracker decisions (Soham), incidents 9-17** (tracker export: Office Script in H26):
+3. **Tracker decisions (Soham), incidents 9-17** (tracker export: Soham runs the Office
+   Script `tools/tracker/export_incident_tracker.ts` (tracked since 2026-11-19) and pastes
+   `_JSON_EXPORT` column A; an update script is written per change, DRY_RUN first):
    #12 rest (STGDELTA `TGT_DATA_TYPE` precision - the tester: drop; the pair-1 golden
    keeps it); #14 (a DataTypeCastRule - reverses post171); #16 (no grand master for a
    Workflow run - changes post166); #9 / #10 (fixed-width -> `SRC_FORMAT = CSV`,

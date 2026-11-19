@@ -434,21 +434,28 @@ def _stated_pattern(rows, config: FrdExtractorConfig) -> tuple[str, str, list[st
     return pattern, label, samples
 
 
-def _labelled_path(text: str, labels: set[str], spaced_ok: bool = False) -> str | None:
-    """The path a cell states under one of ``labels``: ``<label> : <path>`` on
-    one line, or the label line followed by the path line; None otherwise."""
+def _labelled_paths(text: str, labels: set[str], spaced_ok: bool = False) -> list[str]:
+    """post212: every path a cell states under one of ``labels`` (same line or the next),
+    in document order."""
     lines = [line.strip() for line in text.split("\n")]
     paths = []
     for at, line in enumerate(lines):
         pair = _PAIR_RE.match(line)
         if pair is None or normalize_label(pair.group(1)) not in labels:
             continue
-        # post208: "Archive Location: (Raw Layer - ADLS Gen 2 container)" - a note in
-        # brackets after the label is no value; the path is on the next line
         value = re.sub(r"^\([^)]*\)$", "", pair.group(2).strip()).strip() or next(
             (n for n in lines[at + 1:] if n), "")
         if (_SPACED_PATH_RE if spaced_ok else _PATH_RE).match(value):
             paths.append(value)
+    return paths
+
+
+def _labelled_path(text: str, labels: set[str], spaced_ok: bool = False) -> str | None:
+    """The path a cell states under one of ``labels``: ``<label> : <path>`` on
+    one line, or the label line followed by the path line; None otherwise."""
+    # post208: "Archive Location: (Raw Layer - ADLS Gen 2 container)" - a note in brackets
+    # after the label is no value; the path is on the next line (_labelled_paths)
+    paths = _labelled_paths(text, labels, spaced_ok)
     # post207 (the tester's FRDs): one landing line per environment block ("Prod:" /
     # "QA:") - read only when every labelled line states the same path (spaces
     # ignored: "a/ b" = "a/b"), the first as written; paths that differ = None, never
@@ -1716,6 +1723,29 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         value = _landing_value(prefix)
         return _folder(path, value) if value else value
 
+    archive_labels = LabelSet(frd_config.archive_line_labels)
+
+    def _archive(prefix: str) -> str | None:
+        """post212 (tracker #7 / #20): the ADLS Location cell's "Archive Path:" line(s)
+        (the path on the same or the next line); several = the FIRST, the main one
+        (Soham, 2026-11-19), the others named in a flag."""
+        source = profile.fields.get(f"{prefix}.landing_location")
+        if not archive_labels or source is None:
+            return None
+        row = content.tables[source.table][source.row]
+        col = source.value_col if source.value_col is not None else source.col + 1
+        if col >= len(row):
+            return None
+        paths = _labelled_paths(row[col], archive_labels, spaced_ok=True)
+        if not paths:
+            return None
+        path = f"{prefix}.archive_location"
+        if len({re.sub(r"\s+", "", p).lower() for p in paths}) > 1:
+            flags.append(f"frd_archive_main:{path} — the {cell_of(f'{prefix}.landing_location')} "
+                         f"cell states {len(paths)} archive paths; the first (the main one) is "
+                         f"used: {paths[0]!r}")
+        return _folder(path, paths[0])
+
     def _landing_value(prefix: str) -> str:
         path = f"{prefix}.landing_location"
         primary = get(path)
@@ -2012,6 +2042,9 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             lob_table=lob_table,
             **_domain_fields(prefix, domain_text, domain_parts),
             landing_location=_landing(prefix) or None,
+            archive_location=_archive(prefix),
+            # post212 (tracker #19): the Descriptive section's Description row
+            description=get(f"{prefix}.description#descriptive") or None,
             stage_target=TargetSpec(catalog=stage_catalog, schema=stage_schema, tables=tables,
                                     load_strategy=stage_strategy),
             standard_target=TargetSpec(catalog=std_catalog, schema=std_schema,

@@ -359,7 +359,10 @@ def _table_comment(profile, spec, layer: str, table, strategy, layer_label: str,
     load = _load_strategy_comment(profile, strategy, layer_label)
     if not profile.table_description_comment:
         return load
-    description = spec.table_descriptions.get(f"{layer}.{getattr(table, 'table', table)}")
+    description = (spec.table_descriptions.get(f"{layer}.{getattr(table, 'table', table)}")
+                   # post212 (tracker #19): the FRD's business description when the STTM
+                   # states no Table Description (never the load strategy alone)
+                   or getattr(spec, "frd_description", None))
     if not description:
         undescribed.append(f"{layer} {getattr(table, 'table', table)}")
         return load
@@ -551,10 +554,47 @@ def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None 
                 "tblproperties": list(((profile.standard_tblproperties if layer == "standard"
                                         else profile.stage_tblproperties) or {}).items()),
                 "tags": tags})
+    blocks += _standard_reject_blocks(definitions, profile, tags, flags)
     if not blocks:
         return None
     template = _environment().get_template("framework/combined_ddl.txt.j2")
     return template.render(ddl=profile, blocks=blocks)
+
+
+def _standard_reject_blocks(definitions: list[TableDefinition], profile, tags,
+                            flags: list[str] | None) -> list[dict]:
+    """post212 (tracker #18): one CREATE per standard table for its reject table
+    (``profile.standard_reject_table``), after every standard block: named as the IIG's
+    STGDELTA TGT_RJT_TABLE_NAME (stage table + suffix) under the standard table's catalog
+    and schema, every standard column (audit included) as the configured type, then the
+    framework's extra columns; the rule's COMMENT (a cited constant); the standard
+    layer's CLUSTER BY / TBLPROPERTIES."""
+    rule = getattr(profile, "standard_reject_table", None)
+    if rule is None:
+        return []
+    out = []
+    for definition in definitions:
+        standard = definition.standard
+        if standard is None or not standard.qualified:
+            continue
+        head, _sep, _table = standard.qualified.rpartition(".")
+        name = f"{definition.stage.table.table}{rule.suffix}"
+        qualified = f"{head}.{name}" if head else name
+        columns = [(c, rule.column_type, None) for c, _t in standard.columns
+                   if c.upper() not in {k.upper() for k in rule.extra_columns}]
+        columns += [(c, t, None) for c, t in rule.extra_columns.items()]
+        out.append({
+            "banner": rule.banner, "qualified": qualified, "columns": columns,
+            "using_prefix": profile.block_using_prefix.get("standard", ""),
+            "table_comment": (_sql_comment(rule.comment.format(table=standard.qualified))
+                              if rule.comment else None),
+            "cluster_by": (profile.cluster_by or {}).get("standard"),
+            "tblproperties": list((profile.standard_tblproperties or {}).items()),
+            "tags": tags})
+        if flags is not None:
+            flags.append(f"ddl_standard_reject_table:{qualified} — the standard reject table "
+                         f"the STGDELTA row names: {len(columns)} column(s) ({rule.citation})")
+    return out
 
 
 def _provenance_banner_rows(spec: ResolvedFeedSpec, faq: LoadPatternFaq,
@@ -1078,6 +1118,10 @@ def emit_framework(
                   check_ddl_identifiers(definitions), check_ddl_types(definitions)]
     if config.gate.ddl_parse_dialect:
         tables = _defined_table_names(spec, definitions)
+        # post212 (tracker #18): the standard reject tables the DDL defines (names computed
+        # from the definitions - post158's allow-list stays closed to anything else)
+        tables += [b["qualified"] for b in _standard_reject_blocks(definitions, profile, None,
+                                                                    None)]
         ddl_checks.append(check_ddl_parses(ddl_texts, config.gate.ddl_parse_dialect, tables))
         if test_texts:
             ddl_checks.append(check_ddl_tests_read_only(test_texts,

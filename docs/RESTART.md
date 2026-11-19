@@ -32,6 +32,17 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 - After a container reset: `~/bootstrap`, then the OAuth login (recipe below).
 
 **Open, in order:**
+-4. **Tracker triage 2026-11-19 (export of sheet CodeGen, 22 incidents; reproduced on
+   pair_13, mock):** NEW / re-opened: #5 SRC_FILE_NAME = family `prefix_star` turns the
+   FRD's `*_X_*_Y*` into `X_Y*` (no longer matches the files; the App's
+   src_file_name_style "pattern" is the workaround); #7 + #20 archive paths are the
+   template shapes (capital "Archive", "/Archive{landing}" on FIXED_WIDTH) - this FRD
+   states three "Archive Path:" lines (main / daily / monthly), unread (label unknown,
+   three paths); #18 no reject table DDL (stage or standard); #19 table COMMENT = the
+   load strategy (no FRD description field); #3 comment: stage + stage-reject
+   TBLPROPERTIES not ACFC's (template needed). Ready to mark resolved on staging: #11,
+   #13 (post193), #21 (post195-199 + 206-210), #22 (post201). Decisions: #9/#10, #12
+   rest, #14, #16 (item 3 below).
 -3. **Done 2026-11-19 (post206-211, all on staging):** typed / blank FRD answers (206),
    Landing Location + "Domain -" (207), feed name never from a non-descriptive section +
    Archive Location compared (208), the STTM File Details tab (209), FRD questions offer

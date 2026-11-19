@@ -24,6 +24,11 @@ description: The complete user-experience specification of the CodeGen / Data En
 
 ## Part 1 — UX doctrine (the rules every screen obeys)
 
+**The user is a data engineer, not a BSA** (2026-11-19 - why it is the CodeGen Data
+Engineer Agent): every question, hint, review note and label is written for a data
+engineer running the agent on an approved FRD + STTM; a question about what a document
+means belongs to the document's owner, never to the App's user.
+
 These are the things a "guessed" rebuild most often gets wrong. Treat each
 as a requirement, not a style preference.
 

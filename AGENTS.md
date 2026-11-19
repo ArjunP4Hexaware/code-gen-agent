@@ -28,6 +28,13 @@ Data Dictionary. It is the **second agent** of the three-agent AI-in-Engineering
 AmeriHealth Caritas (ACFC): FRD→STTM → **CodeGen** → Code Review. BRD→FRD and SQL
 Optimization were dropped (2026-08-21) — do not build them or depend on them.
 
+**Who uses it: a DATA ENGINEER, not a BSA** (Soham, 2026-11-19) - hence its name, the
+CodeGen Data Engineer Agent ("codegen agent" for short). The data engineer runs it on an
+approved FRD + STTM, answers its questions, reviews its outputs (the IIG review copy
+included) and takes them on to deployment. Write questions, review notes, docs and
+manuals for that reader; the BSA owns the documents (a question about what a document
+means goes to them), not the App.
+
 **Where this runs:** Hexaware builds, ACFC rebuilds. This repo is the reference
 implementation; the production agent is rebuilt inside ACFC from the contracts, config and
 docs — anything not re-derivable from those does not survive the hand-off. ACFC runs it
@@ -211,6 +218,7 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
 - **Client-facing text names no person** (Soham, 2026-10-29): the App, generated files
   and the shared spreadsheet never say whose estimate / ask a thing was ("a conservative
   estimate", not "<name>'s"); the spreadsheet is in Soham's voice ("I", never "Soham").
+  Internal manuals (shared inside the team) may name Soham as the contact (2026-11-19).
 - **The hand-off to the Code Review agent** (the third agent; Soham, 2026-11-10: not
   built into CodeGen, but no known issue at the hand-off that can be fixed here): a
   notebook-template change is re-checked with Code Review's exact rules (`review.py

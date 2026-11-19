@@ -1272,6 +1272,12 @@ _FREQUENCY_TOKEN_RE = re.compile(r"\b(daily|weekly|monthly|yearly|annual(?:ly)?)
                                  re.IGNORECASE)
 
 
+def frequency_token(text: str) -> str | None:
+    """post210: the public name of :func:`_frequency_token` (the FREQUENCY cell's reader),
+    for the layout questions' value check."""
+    return _frequency_token(text)
+
+
 def _frequency_token(text: str) -> str | None:
     """One framework frequency token from FRD / FAQ text: the LEADING word
     when it is one ("Monthly Run; … yearly twice" -> Monthly — the run

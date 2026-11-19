@@ -29,6 +29,50 @@ number.
 
 ---
 
+## 0.5.8.post210 — second tester 2026-11-19: unreadable FRD questions; a feed-name dead end
+
+- **Symptom:** the layout dialog asked 6 questions, each listing the same 16 FRD cells
+  (labels such as Name / IS Owner / requirement lines) - none stating any of them; the
+  feed name asked with no way to answer it; after "proceed" the live run CRASHED
+  (`TemplateGapError: no SQL type mapping`), its feed named after the Data Quality section.
+- **Reproduced:** her staging uploads (pair C, /tmp only), mock, post209: 5 questions x
+  16 candidates; with answers the run CRASHED on one standard-band type cell that is no
+  type. The live naming: staging's status (`data_quality_rules`), the model path.
+- **Root cause:** (a) `layout/resolve.py :: _frd_questions` gave every unresolved FRD field
+  the whole candidate list (every unused labelled row + every labelled line), never
+  checked against the field; (b) post208 made an unplaced feed name an FRD question with
+  no text box (`answerable_frd_field` is false for it); (c) `_model_label_reason` accepts
+  a "Name" row in any section for the feed name (post208 covered the synonyms only);
+  (d) the CRASH: `emit/context.py :: sql_type` stops on a standard-band type cell that is
+  no type ("Derived") - post158's deliberate guard (pentest CS-1), NOT changed here (a
+  first version wrote it as stated; `test_ddl_types_gate` failed - withdrawn). Next: ask
+  for that cell's type, like a blank stage type.
+- **Change:** `_frd_questions` (skip `feeds[i].feed_name`), `_plausible_candidates`,
+  `_value_reads_as`, `_candidate_value` (new); `_model_label_reason` (the section rule);
+  `metadata_template.frequency_token` (public, the frequency's reader);
+  `layout/answers.py` (a typed feed-name answer still refused with its reason);
+  `LayoutQuestions.tsx :: typedOnly`. No reader pass, no new vocabulary: the field readers that exist.
+- **Reach:** 12-pair check (framework, mock, post209 vs post210): outcomes unchanged,
+  295 / 295 files, no artefact moved; 3 reports (pairs 08 / 09 / 10) lose candidate lines
+  of their open questions (removals only). Questions on the tester pairs (mock): pair C 5 x 16
+  -> 4 (LOBs 0, domain 0, the strategies 4 each); pair A 4 (LOBs 0, strategies 2 each);
+  pair B 2 questions with no cell list.
+- **Side effects:** the first suite run caught 5: the feed-name answer's refusal note
+  (restored), post158's type guard (the context change withdrawn), and post192's
+  frequency lines (a frequency reader added; its dialog test now pins the filter).
+- **Unchanged:** STTM / VDD column questions; FRD fields a person may not type (every
+  cell, as before); the never-guess rule (no value is filled); a model proposal stays a
+  pre-selection.
+- **Tests:** `tests/test_frd_questions_post210.py` (7; 4 failed with HEAD's resolve.py
+  before the model-claim case was added), `LayoutQuestions.test.tsx` post210 block (1 of 2
+  failed with HEAD's component - the other pins the unchanged case); Playwright on a local
+  mock App (her question shapes: 3 radios, no console error).
+- **Verified:** `.venv` 2701 passed; `.venv-d1` 2349 passed (second run, after the 5
+  fixes); vitest 286; tsc + ruff clean; 12-pair check alone.
+- **Revert:** `git revert` the version; `_plausible_candidates` returning `candidates`
+  restores the old lists.
+- **Deployed:** dev not yet (STOPPED); staging not yet.
+
 ## 0.5.8.post209 — tester report 2026-11-19 (2): the STTM's File Details tab unread
 
 - **Symptom:** file format and delimiter asked though her STTM's "File Details" tab
@@ -52,7 +96,7 @@ number.
 - **Verified:** `.venv` 2694 passed; `.venv-d1` 2342 passed; ruff clean; 12-pair check
   alone.
 - **Revert:** `git revert` the version (or `_detail_sheet_meta` returning at once).
-- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Deployed:** dev not yet (STOPPED); staging c2a3019 2026-11-19.
 
 ## 0.5.8.post208 — tester report 2026-11-19: the feed named after a Data Quality section; the stated archive path unread
 

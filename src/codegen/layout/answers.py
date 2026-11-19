@@ -395,7 +395,9 @@ def apply_answers(answers: AnswersFile, questions: list, names: dict[str, str],
             # carried without a note - the layout stage never asks it.
             out["gaps"][key] = {"value": value["value"], "layer": value.get("layer"),
                                 "source": "user"}
-        elif key in frd_fields:
+        elif key in frd_fields or (key.startswith("feeds[") and key.endswith("].feed_name")):
+            # post210: an unplaced feed name is no longer asked - its answer is still
+            # refused WITH the reason (an answer cannot rename a feed)
             notes.append(f"gaps[{key!r}] is not applied - {unanswerable_frd_reason(key)}")
         else:
             notes.append(f"gaps[{key!r}] matches no open question")

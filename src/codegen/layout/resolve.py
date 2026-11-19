@@ -1111,9 +1111,15 @@ def _frd_questions(profile: FrdLayoutProfile, content, config: Config) -> list[L
     candidates += _frd_line_candidates(profile, content, used)
     questions = []
     for item in profile.unresolved:
-        title, hint, suggested = frd_field_help(item.field, candidates, config)
+        if _FEED_NAME_PATH.match(item.field):
+            # post210 (the second tester's run, 2026-11-19): an unplaced feed name is never
+            # asked - it blocks nothing (the layout stage names the feed after the STTM
+            # stage band) and no answer can rename a feed (unanswerable_frd_reason)
+            continue
+        offered = _plausible_candidates(item.field, candidates, item.candidates, content, config)
+        title, hint, suggested = frd_field_help(item.field, offered, config)
         suggested_reason = ""
-        proposed = next((i for i, c in enumerate(candidates)
+        proposed = next((i for i, c in enumerate(offered)
                          if f"{c['table']}:{c['row']}:{c['col']}" in item.candidates), None)
         if item.reason.endswith(_PROPOSAL) and proposed is not None:
             # P1-3: the layout model's placement, as a pre-selection a person confirms
@@ -1121,10 +1127,62 @@ def _frd_questions(profile: FrdLayoutProfile, content, config: Config) -> list[L
             suggested_reason = ("the layout model proposed this row; its label is not one "
                                 "of the field's known labels - confirm it or pick another")
         questions.append(LayoutQuestion(document="frd", sheet=None, layer=None, role=item.field,
-                                        reason=item.reason, header=[], candidates=candidates,
+                                        reason=item.reason, header=[], candidates=offered,
                                         title=title, hint=hint, suggested=suggested,
                                         suggested_reason=suggested_reason))
     return questions
+
+
+_FEED_NAME_PATH = re.compile(r"^feeds\[\d+\]\.feed_name$")
+
+
+def _candidate_value(c: dict, content) -> str:
+    """The text a candidate cell / line would give its field (what the reader copies)."""
+    if c.get("line"):
+        return c["line"].split(":", 1)[1].strip() if ":" in c["line"] else ""
+    rows = content.tables[c["table"]]
+    row = rows[c["row"]] if c["row"] < len(rows) else []
+    col = c.get("value_col", c["col"] + 1)
+    return row[col].strip() if col is not None and col < len(row) else ""
+
+
+def _value_reads_as(field: str, value: str, config: Config) -> bool | None:
+    """post210: whether ``value`` reads as ``field``'s value through the field's ONE
+    reader (post199 / post204 / round 7) - None for a field with no reader (LOBs, the
+    domain, the landing ...: any text could be one)."""
+    from codegen.resolve.gapfill import delimiter_reading, is_format_text, strategy_reading
+
+    frd = config.extractor.frd
+    if field == "file_format":
+        return is_format_text(value, frd.format_tokens)
+    if field == "delimiter":
+        return delimiter_reading(value, config.extractor.delimiter_words) is not None
+    if field in ("stage_target.load_strategy", "standard_target.load_strategy"):
+        return strategy_reading(value, frd.load_strategy_synonyms, leading=True)[0] is not None
+    if field == "frequency":
+        from codegen.metadata_template import frequency_token
+
+        return bool(value) and frequency_token(value) is not None
+    return None
+
+
+def _plausible_candidates(path: str, candidates: list[dict], proposed: list[str], content,
+                          config: Config) -> list[dict]:
+    """post210 (the second tester's run, 2026-11-19: ~16 choices per question - every
+    labelled cell of the FRD, the SAME list for every field, none stating any of them):
+    for a field a person may TYPE (``answerable_frd_field``) only the cells whose value
+    reads as the field's value are offered (a field with no reader: none - the text box
+    asks); the layout model's own proposal is always kept. Any other field: every cell,
+    as before."""
+    if not answerable_frd_field(path):
+        return candidates
+    field = _FEED_PREFIX.sub("", path)
+    out = []
+    for c in candidates:
+        if f"{c['table']}:{c['row']}:{c['col']}" in proposed or \
+                _value_reads_as(field, _candidate_value(c, content), config):
+            out.append(c)
+    return out
 
 
 def _frd_line_candidates(profile: FrdLayoutProfile, content, used: set) -> list[dict]:
@@ -1177,7 +1235,13 @@ def _model_label_reason(path: str, source: FrdFieldSource, label_cell: str,
     The model says WHERE a field the synonyms missed sits; it never decides that
     a label they do not know names the field. A reason (coordinates only) when
     the claim is a proposal for a person, else None."""
-    from codegen.extract.frd_docx import _RULE_LABELS, _lookup, _paths_for, normalize_label
+    from codegen.extract.frd_docx import (
+        _FALLBACK_FIELDS,
+        _RULE_LABELS,
+        _lookup,
+        _paths_for,
+        normalize_label,
+    )
 
     frd = config.extractor.frd
     where = f"table {source.table} row {source.row} col {source.col}"
@@ -1199,6 +1263,13 @@ def _model_label_reason(path: str, source: FrdFieldSource, label_cell: str,
     if key == "functional_requirement" and source.section == "recycle":
         shapes |= {"recycle_rule"}
     shape = _field_shape(path).split("#", 1)[0]
+    if (shape == "feed_name" and _FALLBACK_FIELDS.get(key or "") == "feed_name"
+            and source.section not in frd.feed_name_sections):
+        # post210 (the second tester's live run): post208's rule holds for a MODEL claim
+        # too - a Data Quality / Vendor ... section's Name row names its section
+        return (f"the {source.section} section's Name row ({where}) names the section, not "
+                "the feed (extractor.frd.feed_name_sections); kept as a proposal for a "
+                "person, not placed")
     if shape in {s.split("#", 1)[0] for s in shapes}:
         return None          # a label of the field (one label may state two: schema stg/std)
     bound = {_field_shape(p).split("#", 1)[0] for p, f in profile.fields.items()

@@ -4,6 +4,36 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post210 — 2026-11-19 (P1: FRD questions offer only cells that read as the field; no feed-name question)
+
+A second tester's run (staging post208): six questions, each listing the SAME ~16 FRD
+cells (every labelled cell / line of the document), none stating any of them; a live run
+that then CRASHED. P1 of the question-UX plan (RESTART):
+- `layout/resolve.py :: _frd_questions`: an unplaced feed name is never asked (it blocks
+  nothing - the layout stage names the feed; no answer can rename it - it was a
+  post208 regression when the FRD has no Descriptive section).
+  `_plausible_candidates` / `_value_reads_as`: a field a person may type is offered only
+  the cells whose value its ONE reader reads (format `is_format_text`, delimiter
+  `delimiter_reading`, load strategies `strategy_reading`); a field with no reader (LOBs,
+  domain, landing ...) is offered none; the layout model's proposal is always kept; any
+  other field as before.
+- `layout/resolve.py :: _model_label_reason`: post208's `feed_name_sections` holds for a
+  MODEL claim too (the live run's model put the feed name on the Data Quality section's
+  Name row) - a proposal, not placed.
+- NOT changed (withdrawn before the push): a standard-band type cell that is no type
+  ("Derived") still stops the run (`emit/context.sql_type`) - that stop is post158's
+  guard (pentest CS-1: no type cell may reach the DDL); asking for the cell's type
+  instead is the next fix.
+- The frequency's reader for the question filter: `metadata_template.frequency_token`
+  (the FREQUENCY cell's token reader, made public).
+- `layout/answers.py`: a typed feed-name answer is still refused WITH the reason.
+- `ui/frontend :: LayoutQuestions.tsx` (`typedOnly`): a typed FRD question with no
+  plausible cell is the text box alone (no radios, no "None of these", the reason folded).
+
+Tests: `tests/test_frd_questions_post210.py` (7), 2 vitest cases;
+`test_frd_line_fields_post192.py::test_the_dialog_offers_each_labelled_line` now pins
+the filter (only the frequency line).
+
 ## 0.5.8.post209 — 2026-11-19 (a label | value STTM sheet states the format / delimiter / frequency)
 
 The tester's report (2026-11-19) item 2: her STTM states the file type and delimiter on

@@ -265,6 +265,10 @@ class FrdFeed(BaseModel):
     # compared with the IIG's SRC_ADLS_ARCHVL_PATH shape, never written over it.
     # Absent from the JSON when unstated.
     archive_location: str | None = None
+    # post212 (tracker #19): the FRD Descriptive Metadata section's Description row (the
+    # business description of the feed) - the DDL table COMMENT when the STTM states no
+    # Table Description. Absent from the JSON when unstated.
+    description: str | None = None
 
     @property
     def is_segmented(self) -> bool:

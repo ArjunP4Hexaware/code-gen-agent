@@ -1011,9 +1011,21 @@ def _paths(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
     cells = {}
     uri = location_scheme(feed.landing_location)
     landing_rel = _landing_rel(tpl, tab, landing)
+    stated_tail = _stated_archive_tail(feed) if tab in tpl.stated_archive_tabs else None
     for header, pattern in tpl.path_patterns.get(tab, {}).items():
         if header == "RECYCL_ADLS_PATH":
             continue                     # _recycle_cells: only when a recycle is stated
+        if header == "SRC_ADLS_ARCHVL_PATH" and stated_tail is not None:
+            # post212 (tracker #7 / #20, Soham: "FRD path wins"): the FRD's archive path,
+            # as the landing + its own tail, so it takes SRC_ADLS_PATH's form exactly
+            src_shape = (tpl.path_patterns.get(tab, {}).get("SRC_ADLS_PATH")
+                         or tpl.path_patterns.get(ADLS_TAB, {}).get("SRC_ADLS_PATH") or "")
+            value = (landing_rel if "{landing_rel}" in src_shape else landing) + stated_tail
+            cells[header] = _path_cell(tpl, tab, header, value.replace("//", "/"), "from_frd",
+                                       f"the FRD's archive path {feed.archive_location!r} "
+                                       "(stated - it wins over the template shape "
+                                       f"{pattern!r})")
+            continue
         if uri and any(p in pattern for p in _RELATIVE_PLACEHOLDERS):
             continue                     # a location URI has no container-relative path
         if uri:
@@ -1053,6 +1065,21 @@ def _paths(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
                                    _path_tooltip(tpl, tab, header, pattern), lowered)
     _note_stated_archive(tpl, tab, feed, cells)
     return cells
+
+
+def _stated_archive_tail(feed: FrdFeed) -> str | None:
+    """post212: the FRD's archive path minus the landing it sits under ("archive/" for
+    ".../vendor/archive/" under ".../vendor/"), '/'-ended; None when no archive is stated
+    or it is not under the landing (then the template shape stays, with a review note)."""
+    stated = (getattr(feed, "archive_location", None) or "").replace("\\", "/").strip()
+    landing = (feed.landing_location or "").replace("\\", "/").strip()
+    if not stated or not landing or location_scheme(landing):
+        return None
+    base = landing.strip("/") + "/"
+    body = stated.lstrip("/")
+    if not body.lower().startswith(base.lower()) or len(body) <= len(base):
+        return None
+    return body[len(base):].strip("/") + "/"
 
 
 def _path_key(path: str) -> str:
@@ -1192,6 +1219,9 @@ def _prefix_middle(pattern: str, tokens: list[str] | None, bound: list[str] | No
     return f"*{core}*" + (f"{dot}{ext}" if ext else "")
 
 
+_STATED_GLOB_RE = re.compile(r"[*?]")
+
+
 def _src_file_name_cell(tpl: MetadataTemplateConfig, pattern: str, stated: str,
                         badge: str, feed_id: str | None = None, faq=None) -> dict:
     """ADLS SRC_FILE_NAME by the family convention (or the feed's
@@ -1213,6 +1243,14 @@ def _src_file_name_cell(tpl: MetadataTemplateConfig, pattern: str, stated: str,
         else ""
     if chosen in STYLES:
         style, why = chosen, f"the data engineer's choice src_file_name_style: {chosen}"
+    elif (badge == "from_frd" and _STATED_GLOB_RE.search(stated or "")
+          and not (override is not None and override.src_file_name)):
+        # post212 (tracker #5, Soham 2026-11-19): the FRD states a wildcard pattern (the
+        # source team's own glob, "*_X_*_Y*") - written as stated; the family convention
+        # (learned from production IIGs) only shapes a pattern the agent derived from a
+        # sample name. A feed override or the data engineer's choice still wins.
+        return _cell(stated, badge, f"stated {stated!r} - the FRD's own file pattern, "
+                                    f"written as stated (not the {style} convention)")
     if style == "prefix_middle":
         value = _prefix_middle(pattern, tpl.object_name_strip_tokens,
                                tpl.object_name_bound_tokens)

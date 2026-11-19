@@ -399,8 +399,11 @@ def write_combined(out_root: Path, sttm: str, kept: list[KeptFeed],
         written["ddl_tests_xlsx"] = names["ddl_tests_xlsx"]
     ddl_skipped, conflicts = 0, []
     if ddl_texts:
+        reject = getattr(profile, "standard_reject_table", None)
+        # post212: the standard reject tables are their own layer, after the standard
         banners = tuple(b for b in (getattr(profile, "stage_banner", None),
-                                    getattr(profile, "standard_banner", None)) if b)
+                                    getattr(profile, "standard_banner", None),
+                                    reject.banner if reject is not None else None) if b)
         text, ddl_skipped, conflicts = merge_ddl(ddl_texts, banners or ("--stage table",
                                                                       "--standard table"))
         (folder / names["ddl"]).write_text(text, encoding="utf-8", newline="")

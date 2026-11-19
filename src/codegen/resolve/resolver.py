@@ -1376,6 +1376,7 @@ def _resolve_one(
         lob_unkeyed=lob_unkeyed,
         lob_question_key=lob_key if lob_unkeyed else None,
         table_descriptions=dict(sttm_feed.table_descriptions),
+        frd_description=frd_feed.description,
         frd_tables_set_aside=set_aside,
     )
     check_table_names(spec, feed_index)

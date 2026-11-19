@@ -194,6 +194,9 @@ class ResolvedFeedSpec(BaseModel):
     # post140: the STTM's Table Description per target table, keyed
     # "<layer>.<table>" (SttmFeed.table_descriptions) - the DDL table COMMENT.
     table_descriptions: dict[str, str] = Field(default_factory=dict)
+    # post212 (tracker #19): the FRD's Descriptive Metadata Description (FrdFeed.description)
+    # - the table COMMENT's description when the STTM states none.
+    frd_description: str | None = None
     # post70: the FRD's key statement (FrdFeed.key_statement) — one of the
     # explicit key signals codegen.primary_key reads; None = the FRD states none.
     frd_key_statement: str | None = None

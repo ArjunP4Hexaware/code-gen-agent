@@ -28,7 +28,7 @@ from codegen.emit.framework import _combined_ddl_text
 from codegen.run_artefacts import merge_ddl
 from test_derivations import FRD_CATALOG, REPO, _pair11_specs
 
-BANNERS = ("--stage table", "--standard table")
+BANNERS = ("--stage table", "--standard table", "--standard reject table")   # post212
 
 
 @pytest.fixture(scope="module")
@@ -60,8 +60,9 @@ def test_every_statement_is_rerunnable_and_terminated(pair11):
     statements = _statements(ddl)
     creates = [s for s in statements if s.startswith("CREATE")]
     alters = [s for s in statements if s.startswith("ALTER TABLE")]
-    assert len(creates) == len(alters) == 2                       # stage + standard
-    assert len(statements) == 4
+    # stage + standard + (post212) the standard reject table
+    assert len(creates) == len(alters) == 3
+    assert len(statements) == 6
     assert all(s.startswith("CREATE TABLE IF NOT EXISTS ") for s in creates)
     assert ddl.endswith(";")                                      # the golden's: no final newline
 
@@ -107,7 +108,7 @@ def test_a_blank_sub_domain_writes_no_tags_and_one_flag(pair11, shipped):
     assert "SET TAGS" not in ddl
     (flag,) = [f for f in flags if f.startswith("ddl_tags_blank")]
     assert flag.startswith(f"ddl_tags_blank:{spec.feed_slug} — the FRD states no Sub-Domain;")
-    assert len(_statements(ddl)) == 2                             # the two CREATEs, terminated
+    assert len(_statements(ddl)) == 3                             # the CREATEs (post212: + reject)
 
 
 def test_a_quote_in_the_domain_is_backslash_escaped(pair11, shipped):
@@ -120,9 +121,9 @@ def test_a_quote_in_the_domain_is_backslash_escaped(pair11, shipped):
 def test_the_combined_set_keeps_each_tag_statement_with_its_create(pair11):
     _spec, ddl, _flags = pair11
     text, skipped, conflicts = merge_ddl([("a", ddl), ("b", ddl)], BANNERS)
-    assert skipped == 2 and conflicts == []                       # identical blocks once
-    assert text.count("CREATE TABLE IF NOT EXISTS") == text.count("SET TAGS") == 2
-    assert len(_statements(text)) == 4
+    assert skipped == 3 and conflicts == []                       # identical blocks once
+    assert text.count("CREATE TABLE IF NOT EXISTS") == text.count("SET TAGS") == 3
+    assert len(_statements(text)) == 6
 
 
 def test_the_pair1_overlay_switches_the_run_safe_knobs_off(pair1_config):
@@ -146,7 +147,7 @@ def test_a_naive_split_on_the_terminator_never_cuts_a_literal(pair11, shipped):
     assert " — Primary key (STTM Primary Key)'" in ddl
     literals = re.findall(r"'(?:[^'\\]|\\.)*'", ddl)
     assert not [lit for lit in literals if ";" in lit]
-    assert [s.split()[0] for s in _statements(ddl)] == ["CREATE", "ALTER"] * 2
+    assert [s.split()[0] for s in _statements(ddl)] == ["CREATE", "ALTER"] * 3   # + reject
 
 
 def test_every_profile_is_run_safe_by_default(shipped):

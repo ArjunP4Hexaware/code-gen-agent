@@ -38,7 +38,8 @@ def test_the_shipped_gate_parses_under_databricks(shipped):
 def test_the_run_safe_ddl_parses(pair11_ddl):
     check = check_ddl_parses([("VC_DDL.txt", pair11_ddl)], "databricks")
     assert check.passed and not check.not_run
-    assert check.details.startswith("4 statement(s) in 1 DDL file(s) parse")
+    # post212: + the standard reject table's CREATE and its SET TAGS
+    assert check.details.startswith("6 statement(s) in 1 DDL file(s) parse")
 
 
 @needs_golden

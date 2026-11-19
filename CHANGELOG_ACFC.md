@@ -4,6 +4,34 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post212 — 2026-11-19 (tracker #5, #7 / #20, #18, #19)
+
+The incident tracker's re-opened and new CodeGen items (triage 2026-11-19, reproduced on
+pair_13, mock; Soham: "yes to all, FRD path wins, use the main one"):
+- #5 `metadata_template._src_file_name_cell`: an FRD-stated wildcard pattern is
+  SRC_FILE_NAME as stated (the family convention shapes only a pattern derived from a
+  sample name; a feed override / the data engineer's choice still wins).
+- #7 / #20 `extractor.frd.archive_line_labels: ["Archive Path"]` (new) +
+  `frd_docx._archive` / `_labelled_paths`: the ADLS Location cell's archive lines, the
+  first = the feed's (`frd_archive_main:` names the others); `resolve/stated
+  .environment_address` rewrites it like the landing; `metadata_template._paths` +
+  `stated_archive_tabs` (ADLS_DELTA, ADLS_FIXED_WIDTH_HANDLER): SRC_ADLS_ARCHVL_PATH = the
+  FRD's archive in SRC_ADLS_PATH's form (the landing + the archive's tail); STGDELTA keeps
+  its shape (a review note when the stated path differs).
+- #18 `conventions.profiles.acfc_prx.standard_reject_table` (new) +
+  `emit/framework._standard_reject_blocks`: the combined DDL writes each standard table's
+  reject table (`<stage table>_reject`, the IIG's TGT_RJT_TABLE_NAME) - every standard
+  column as String + REJECT_REASON / SRC_TABLE_NAME / RUNID, a constant COMMENT, the
+  standard layer's CLUSTER BY / TBLPROPERTIES / tags; the ddl_parses allow-list and the
+  combined set's merge (`run_artefacts`, a third banner) know it. Pair 1's overlay: off.
+- #19 `FrdFeed.description` / `ResolvedFeedSpec.frd_description` (new, absent from the
+  JSON when unstated): the FRD Descriptive Metadata Description is the table COMMENT's
+  description when the STTM states no Table Description (post140's "description + load
+  strategy" kept).
+
+Tests: `tests/test_tracker_fixes_post212.py` (14; 9 failed with the fixes reverted); 10
+DDL pins updated for the reject table / the description.
+
 ## 0.5.8.post211 — 2026-11-19 (the data engineer, not the BSA, in every App / file text)
 
 Soham, 2026-11-19: the agent's user is a data engineer (the CodeGen Data Engineer Agent),

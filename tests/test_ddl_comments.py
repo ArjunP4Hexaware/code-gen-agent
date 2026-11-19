@@ -76,10 +76,13 @@ def test_column_comments_are_the_sttm_descriptions(pair11):
 def test_the_table_comment_names_each_layers_frd_load_strategy(pair11):
     spec, ddl, _flags = pair11
     stage, standard = _block(ddl, "--stage table"), _block(ddl, "--standard table")
-    assert (f"USING delta\nCOMMENT 'Load strategy: {spec.stage_load_strategy} "
-            "(FRD Load Strategy STG)'") in stage
-    assert (f"USING delta\nCOMMENT 'Load strategy: {spec.standard_load_strategy} "
-            "(FRD Load Strategy STD)'") in standard
+    # post212 (tracker #19): the description (the FRD's when the STTM states none) leads
+    assert re.search(rf"USING delta\nCOMMENT '[^\n]*Load strategy: "
+                     rf"{re.escape(spec.stage_load_strategy)} \(FRD Load Strategy STG\)'",
+                     stage)
+    assert re.search(rf"USING delta\nCOMMENT '[^\n]*Load strategy: "
+                     rf"{re.escape(spec.standard_load_strategy)} \(FRD Load Strategy STD\)'",
+                     standard)
 
 
 def test_tblproperties_per_layer_in_config_order(pair11, shipped):
@@ -262,7 +265,8 @@ def test_a_comments_cell_repeating_the_field_description_keeps_the_column_commen
     assert all(f["description_from_comments"] for f in fields)
     assert [f.get("field_description") for f in fields] == FIELDS
     (ddl,) = [p for p in (tmp_path / "out").rglob("*_DDL.txt") if "combined" not in p.parts]
-    text = ddl.read_text(encoding="utf-8")
+    # post212: the standard reject table's columns carry no COMMENT - stage + standard only
+    text = ddl.read_text(encoding="utf-8").split("--standard reject table", 1)[0]
     for name in FIELDS:
         column = name.upper().replace(" ", "_")
         lines = [ln for ln in text.splitlines() if ln.strip().startswith(f"{column} ")]

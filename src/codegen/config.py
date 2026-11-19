@@ -484,6 +484,9 @@ class FrdExtractorConfig(BaseModel):
     # post208: the label a Solution Requirement states its file's ARCHIVE path under
     # (read like the landing; compared with the IIG's template shape). Empty = not read.
     requirement_archive_labels: list[str] = Field(default_factory=list)
+    # post212 (tracker #7 / #20): the ADLS Location cell's archive line labels ("Archive
+    # Path:", next to the landing's "Raw Path:"). Empty = not read.
+    archive_line_labels: list[str] = Field(default_factory=list)
     inline_pair_separators: list[str] = Field(default_factory=lambda: [";"])
     # post196 (a staging FRD, 2026-11-17): a Solution Requirement cell's "<label>:" line
     # (no value) followed by layer headings ("STG:-" / "STD:-", target_schema_markers)
@@ -1430,6 +1433,25 @@ DdlTestCase = Literal["file_available", "file_location", "column_mapping",
                       "notification_emails"]
 
 
+class StandardRejectTableConfig(BaseModel):
+    """post212 (tracker #18): the standard layer's reject table in the combined DDL -
+    named as the IIG's STGDELTA TGT_RJT_TABLE_NAME (the stage table + ``suffix``, the IIG
+    template's ``reject_table_suffix``) under the standard table's catalog and schema; its
+    columns = every standard column (audit included) as ``column_type``, then
+    ``extra_columns`` (name -> type) in order."""
+
+    model_config = _MODEL_CONFIG
+
+    banner: str
+    suffix: str
+    column_type: str
+    extra_columns: dict[str, str]
+    # the table COMMENT, {table} = the standard table's qualified name (a cited
+    # constant: no document describes the reject table); None = no COMMENT
+    comment: str | None = None
+    citation: str
+
+
 class ConventionsProfileConfig(BaseModel):
     """One client conventions profile (M4): how the deployment DDL is laid
     out. ``edo_sfmc`` (two files, the SFMC reference goldens) is today's
@@ -1496,6 +1518,9 @@ class ConventionsProfileConfig(BaseModel):
     # the standard tables' TBLPROPERTIES, in order (None = none; an overlay
     # switches them off with null - an empty mapping merges as no change).
     standard_tblproperties: dict[str, str] | None = None
+    # post212 (tracker #18): the standard reject table's CREATE after the standard
+    # tables (None = none - every profile but ACFC's, the pair-1 golden unchanged).
+    standard_reject_table: StandardRejectTableConfig | None = None
     # post105 (Soham, 2026-10-26: the DDL is RUN by the engineer, so every
     # statement must be safe to re-run) — combined layout only; each off / null
     # reproduces the pair-1 golden's bare shape. The text ending every statement
@@ -2150,6 +2175,11 @@ class MetadataTemplateConfig(BaseModel):
     # tab -> header -> path shape with {landing} {stage_table} {reject_table}
     # (the golden spells the archive path differently per sheet).
     path_patterns: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # post212 (tracker #7 / #20): the sheets whose SRC_ADLS_ARCHVL_PATH is the FRD's stated
+    # archive path (the raw file's archive) when the FRD states one under the landing; the
+    # other sheets keep their shape (a review note when the stated path differs).
+    stated_archive_tabs: list[str] = Field(default_factory=lambda: [
+        "ADLS_DELTA_INGESTION_DETAILS", "ADLS_FIXED_WIDTH_HANDLER"])
     # post86: path conventions other than path_patterns (the default), by name,
     # and which feeds use one: path_family_by_source maps the leading words of
     # the FRD's source (case-insensitive, whole words; the longest match wins)

@@ -38,7 +38,9 @@ def _tables(tmp_path, edit=None):
     contract = json.loads((tmp_path / "sttm.json").read_text(encoding="utf-8"))
     (ddl,) = [p for p in (tmp_path / "out").rglob("*_DDL.txt") if "combined" not in p.parts]
     text = ddl.read_text(encoding="utf-8")
-    comments = re.findall(r"^COMMENT '((?:\\.|[^'\\])*)'$", text, re.M)
+    # post212: the stage + standard tables only (the reject table's COMMENT is a constant)
+    comments = re.findall(r"^COMMENT '((?:\\.|[^'\\])*)'$",
+                          text.split("--standard reject table", 1)[0], re.M)
     report = "\n".join(p.read_text(encoding="utf-8") for p in (tmp_path / "reports").glob("*.md"))
     return contract["feeds"][0], comments, report, done.stdout
 

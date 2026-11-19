@@ -90,8 +90,19 @@ def _real(value: str | None) -> str | None:
 
 def environment_address(feed: FrdFeed, feed_index: int, config: Config,
                         profile: ConventionsProfileConfig, flags: list[str]) -> FrdFeed:
-    """Rule (b): the landing's account + container from the run's environment."""
-    landing = feed.landing_location
+    """Rule (b): the landing's account + container from the run's environment - post212:
+    the stated archive path the same way (it lives in the same container), silently (the
+    landing's flag names the environment)."""
+    feed = _environment_address(feed, feed_index, config, profile, flags, "landing_location")
+    if getattr(feed, "archive_location", None):
+        feed = _environment_address(feed, feed_index, config, profile, [], "archive_location")
+    return feed
+
+
+def _environment_address(feed: FrdFeed, feed_index: int, config: Config,
+                         profile: ConventionsProfileConfig, flags: list[str],
+                         field: str) -> FrdFeed:
+    landing = getattr(feed, field)
     env = _environment(config)
     if not landing or env is None:
         return feed
@@ -116,10 +127,10 @@ def environment_address(feed: FrdFeed, feed_index: int, config: Config,
                                                    ("container", container, env_container))
                if env_side is not None and stated.lower() != env_side.lower()]
     if differs:
-        flags.append(f"environment_mismatch:feeds[{feed_index}].landing_location — document "
+        flags.append(f"environment_mismatch:feeds[{feed_index}].{field} — document "
                      f"states another environment ({', '.join(differs)}); the address is "
                      f"environment {env.name}'s, the folder under the container the document's")
-    return feed.model_copy(update={"landing_location": rewritten})
+    return feed.model_copy(update={field: rewritten})
 
 
 def _environment(config: Config):

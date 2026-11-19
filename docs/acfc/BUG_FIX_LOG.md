@@ -50,13 +50,18 @@ number.
   `layout.resolve.resolve_structured_fields` binds it per feed like the landing;
   `metadata_template._note_stated_archive` (the review note). Why passes: the feed-name
   one is a config gate on an existing rule; the archive reuses the landing reader.
-- **Reach:** 12-pair check - pending.
+- **Reach:** 12-pair check (framework, mock, post207 vs post208): outcomes unchanged,
+  295 / 295 files, no REAL change on any pair (build stamps only) - no pair has a Name
+  row outside a descriptive section as its feed's name, nor an Archive Location line.
+  On her pair A: the feed named after the STTM stage band; the stated archive agrees
+  with both sheets' shapes (no note).
 - **Side effects:** a test stub feed without the new attribute (getattr default).
 - **Unchanged:** the archive cell's value (always the template shape - option C); a
   Descriptive section's Name row; the vendor-name fallback for the source system.
 - **Tests:** `tests/test_feed_name_archive_post208.py` (10; with HEAD's `frd_docx.py` +
   config.yaml 4 failed, with the note a no-op 1 failed).
-- **Verified:** pending.
+- **Verified:** `.venv` 2688 passed; `.venv-d1` 2336 passed; ruff clean; 12-pair check
+  alone.
 - **Revert:** `feed_name_sections` listing every section restores the old fallback;
   `requirement_archive_labels: []` stops the archive reading; or `git revert`.
 - **Deployed:** dev not yet (STOPPED); staging not yet.

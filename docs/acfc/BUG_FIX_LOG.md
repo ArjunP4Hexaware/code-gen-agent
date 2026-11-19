@@ -41,13 +41,16 @@ number.
   extractor.discovery.meta_synonyms.delimiter` + "file delimitor". Why a pass
   (READER_GENERALIZATION): the meta-row grammar applied on its own sheet - the same
   labels, no new vocabulary beyond one spelling seen in a client STTM.
-- **Reach:** 12-pair check - pending.
-- **Side effects:** pending.
+- **Reach:** 12-pair check (framework, mock, post208 vs post209): outcomes unchanged,
+  295 / 295 files, no REAL change on any pair (build stamps only). On her pair A: file
+  format + delimiter filled from the tab (cited), no longer asked.
+- **Side effects:** none found.
 - **Unchanged:** a mapping sheet's meta rows (they win); tabular file_details sheets; the
   other labels of such a tab (delivery method, naming convention) - not read.
 - **Tests:** `tests/test_detail_sheet_meta_post209.py` (6; 3 failed with HEAD's
   `resolve.py` + config).
-- **Verified:** pending.
+- **Verified:** `.venv` 2694 passed; `.venv-d1` 2342 passed; ruff clean; 12-pair check
+  alone.
 - **Revert:** `git revert` the version (or `_detail_sheet_meta` returning at once).
 - **Deployed:** dev not yet (STOPPED); staging not yet.
 

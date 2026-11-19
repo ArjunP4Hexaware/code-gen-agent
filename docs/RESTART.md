@@ -4,7 +4,7 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-19 evening - staging = post211 (602b360); dev STOPPED on post194; feature = post211, pushed)
+## Start here (2026-11-19 night - staging = post212 (049c6e8); dev STOPPED on post194; feature = post212, pushed)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
@@ -32,7 +32,8 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 - After a container reset: `~/bootstrap`, then the OAuth login (recipe below).
 
 **Open, in order:**
--4. **Tracker triage 2026-11-19 (export of sheet CodeGen, 22 incidents; reproduced on
+-4. **Tracker triage 2026-11-19 - #5, #7, #18, #19, #20 FIXED in post212 (staging); the
+   update Office Script given in the chat (/tmp only, client text); (export of sheet CodeGen, 22 incidents; reproduced on
    pair_13, mock):** NEW / re-opened: #5 SRC_FILE_NAME = family `prefix_star` turns the
    FRD's `*_X_*_Y*` into `X_Y*` (no longer matches the files; the App's
    src_file_name_style "pattern" is the workaround); #7 + #20 archive paths are the

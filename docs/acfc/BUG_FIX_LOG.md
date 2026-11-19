@@ -46,7 +46,7 @@ number.
 - **Side effects:** none found (10 DDL test pins updated for the new statements).
 - **Verified:** `.venv` 2715 passed; `.venv-d1` 2363 passed; ruff clean; 12-pair check
   alone + pair_13.
-- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Deployed:** dev not yet (STOPPED); staging 049c6e8 2026-11-19.
 - **Unchanged:** derived patterns (a sample name with date tokens) keep the convention;
   STTM-sourced patterns keep it.
 - **Tests:** `test_tracker_fixes_post212.py` #5 block (3; 1 failed reverted, 2 pin the rest).
@@ -71,7 +71,7 @@ number.
 - **Side effects:** none found (10 DDL test pins updated for the new statements).
 - **Verified:** `.venv` 2715 passed; `.venv-d1` 2363 passed; ruff clean; 12-pair check
   alone + pair_13.
-- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Deployed:** dev not yet (STOPPED); staging 049c6e8 2026-11-19.
 - **Unchanged:** STGDELTA's archive (the stage-to-standard step's, not the raw file's)
   keeps its shape + the post208 note; an archive outside the landing's folder keeps the
   shape + the note.
@@ -96,7 +96,7 @@ number.
 - **Side effects:** none found (10 DDL test pins updated for the new statements).
 - **Verified:** `.venv` 2715 passed; `.venv-d1` 2363 passed; ruff clean; 12-pair check
   alone + pair_13.
-- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Deployed:** dev not yet (STOPPED); staging 049c6e8 2026-11-19.
 - **Unchanged:** no stage reject table (not asked); the IIG.
 - **Tests:** #18 block (3); `test_ddl_runsafe` / `test_ddl_parse_gate` /
   `test_ddl_comments` / `test_table_comment` pins updated (statement counts).
@@ -115,7 +115,7 @@ number.
 - **Side effects:** none found (10 DDL test pins updated for the new statements).
 - **Verified:** `.venv` 2715 passed; `.venv-d1` 2363 passed; ruff clean; 12-pair check
   alone + pair_13.
-- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Deployed:** dev not yet (STOPPED); staging 049c6e8 2026-11-19.
 - **Unchanged:** the STTM's Table Description wins; post140's "description + load
   strategy" join; F2 FRDs (no Descriptive section) still the load strategy alone.
 - **Tests:** #19 block (3).

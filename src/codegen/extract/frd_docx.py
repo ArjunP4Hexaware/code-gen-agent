@@ -412,6 +412,10 @@ def sr_signal(index: int, rows: list[list[str]], content: DocxContent,
 
 
 _PATH_RE = re.compile(r"^[^\s:]+(?:/[^\s]+)+/?$")
+# post208: a path with a stray space next to a separator ("a/ b") - accepted only where
+# the path is compared, never written (the archive path; whitespace in a written path is
+# the gate's path_whitespace call, post57)
+_SPACED_PATH_RE = re.compile(r"^[^\s:]+(?:\s*/\s*[^\s/]+)+\s*/?$")
 
 
 def _stated_pattern(rows, config: FrdExtractorConfig) -> tuple[str, str, list[str]] | None:
@@ -430,7 +434,7 @@ def _stated_pattern(rows, config: FrdExtractorConfig) -> tuple[str, str, list[st
     return pattern, label, samples
 
 
-def _labelled_path(text: str, labels: set[str]) -> str | None:
+def _labelled_path(text: str, labels: set[str], spaced_ok: bool = False) -> str | None:
     """The path a cell states under one of ``labels``: ``<label> : <path>`` on
     one line, or the label line followed by the path line; None otherwise."""
     lines = [line.strip() for line in text.split("\n")]
@@ -439,8 +443,11 @@ def _labelled_path(text: str, labels: set[str]) -> str | None:
         pair = _PAIR_RE.match(line)
         if pair is None or normalize_label(pair.group(1)) not in labels:
             continue
-        value = pair.group(2).strip() or next((n for n in lines[at + 1:] if n), "")
-        if _PATH_RE.match(value):
+        # post208: "Archive Location: (Raw Layer - ADLS Gen 2 container)" - a note in
+        # brackets after the label is no value; the path is on the next line
+        value = re.sub(r"^\([^)]*\)$", "", pair.group(2).strip()).strip() or next(
+            (n for n in lines[at + 1:] if n), "")
+        if (_SPACED_PATH_RE if spaced_ok else _PATH_RE).match(value):
             paths.append(value)
     # post207 (the tester's FRDs): one landing line per environment block ("Prod:" /
     # "QA:") - read only when every labelled line states the same path (spaces
@@ -454,7 +461,8 @@ def _labelled_path(text: str, labels: set[str]) -> str | None:
 _IDENT_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+\b")
 
 
-def requirement_landings(content: DocxContent, config: FrdExtractorConfig
+def requirement_landings(content: DocxContent, config: FrdExtractorConfig,
+                         labels: list[str] | None = None, spaced_ok: bool = False
                          ) -> list[tuple[str, str, int, int]]:
     """post84 (pair_11): ``(key, path, table, row)`` per Solution Requirement
     table whose Name row names the requirement and ONE row states one landing
@@ -462,7 +470,7 @@ def requirement_landings(content: DocxContent, config: FrdExtractorConfig
     two different paths is skipped — never a pick). ``key`` = the Name plus the
     ``word_word`` identifiers only THIS requirement's text names (a descriptive
     Name — "Full member roster …" — still names its file / table there)."""
-    labels = LabelSet(config.requirement_landing_labels)
+    labels = LabelSet(config.requirement_landing_labels if labels is None else labels)
     out = []
     for index, rows in enumerate(content.tables):
         if sr_signal(index, rows, content, config) is None:
@@ -471,7 +479,7 @@ def requirement_landings(content: DocxContent, config: FrdExtractorConfig
                      if len(row) > 1 and normalize_label(row[0]) == "name" and row[1].strip()),
                     "")
         found = {(path, row_index) for row_index, row in enumerate(rows) for cell in row[1:]
-                 if (path := _labelled_path(cell, labels))}
+                 if (path := _labelled_path(cell, labels, spaced_ok))}
         if name and len({path for path, _r in found}) == 1:
             path, row_index = min(found, key=lambda f: f[1])
             idents = {m.lower() for row in rows for cell in row[1:]
@@ -610,6 +618,13 @@ def _discover_f1(tables, f1_tables, labels, digest, config) -> FrdLayoutProfile:
                 rule_counts[feed_index] = n + 1
                 if key == "recycle_process":
                     fields[f"feeds[{feed_index}].recycle_rule"] = source
+                continue
+            if (key in _FALLBACK_FIELDS and _FALLBACK_FIELDS[key] == "feed_name"
+                    and section not in config.feed_name_sections):
+                # post208: a Data Quality / Vendor / ... section's Name row names the
+                # section, never the feed (extractor.frd.feed_name_sections)
+                notes.append(f"table {table_index} ({title}) row {row_index}: the {section} "
+                             f"section's {label!r} row names the section, not the feed")
                 continue
             paths = [] if key is None else _paths_for(key, feed_index, section, rule_counts)
             if not paths:
@@ -2076,22 +2091,34 @@ def _requirement_landing_blocks(content: DocxContent, config: FrdExtractorConfig
     landing lines as per-file blocks — the layout stage then gives every
     derived feed the block whose requirement Name names it
     (``layout.resolve.resolve_structured_fields``); nothing is picked here."""
-    key = "feeds[0].landing_location"
+    structured = _requirement_path_blocks(
+        content, config, structured, feeds, ambiguities, "landing_location",
+        config.requirement_landing_labels, "landing")
+    # post208 (the tester's FRDs): each requirement's "Archive Location" line - the
+    # stated archive path, compared with the IIG's template shape (never written over it)
+    return _requirement_path_blocks(
+        content, config, structured, feeds, ambiguities, "archive_location",
+        config.requirement_archive_labels, "archive")
+
+
+def _requirement_path_blocks(content, config, structured: dict, feeds: list,
+                             ambiguities: list, field: str, labels: list[str],
+                             word: str) -> dict:
+    key = f"feeds[0].{field}"
     current = structured.get(key)
-    if len(feeds) != 1 or feeds[0].landing_location or (
+    if not labels or len(feeds) != 1 or getattr(feeds[0], field, None) or (
             current is not None and current.kind != "multiline"):
         return structured
-    found = requirement_landings(content, config)
+    found = requirement_landings(content, config, labels, spaced_ok=field == "archive_location")
     if not found:
         return structured
     from codegen.contracts.frd import StructuredRow, StructuredValue
 
     _name, _path, table, row = found[0]
-    ambiguities.append(f"frd_requirement_landing:{key} — {len(found)} Solution Requirement(s) "
-                       "state their own landing; given per derived feed by requirement name")
+    ambiguities.append(f"frd_requirement_{word}:{key} — {len(found)} Solution Requirement(s) "
+                       f"state their own {word}; given per derived feed by requirement name")
     return {**structured, key: StructuredValue(
-        kind="per_file_blocks", table=table, row=row, col=1,
-        label=config.requirement_landing_labels[0],
+        kind="per_file_blocks", table=table, row=row, col=1, label=labels[0],
         rows=[StructuredRow(key=name, values={"path": path}) for name, path, _t, _r in found])}
 
 

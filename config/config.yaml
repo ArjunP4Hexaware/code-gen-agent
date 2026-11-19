@@ -402,6 +402,9 @@ extractor:
       vendor: ["Vendor Metadata"]
       recycle: ["Reject /Recycle Process"]
       email: ["Email"]
+    # post208: the F1 sections whose "Name" row may name the feed (Object Name's
+    # fallback); a Name row elsewhere (Data Quality, Vendor ...) names its section.
+    feed_name_sections: [descriptive]
     fixed_rows:
       name: ["Name"]
       description: ["Description"]
@@ -455,6 +458,10 @@ extractor:
     # post84 (pair_11, the label as the client FRD writes it): a requirement's own
     # landing line, read per requirement when the ADLS Location cell lists several
     requirement_landing_labels: ["Raw ADLS Location", "ADLS Location", "Landing Location"]
+    # post208 (the tester's FRDs): a requirement's "Archive Location: (<note>)" line, the
+    # path on the next line - compared with SRC_ADLS_ARCHVL_PATH's template shape (a
+    # review note when they differ; the cell keeps the shape)
+    requirement_archive_labels: ["Archive Location"]
     inline_pair_separators: [";"]
     # post196 (a staging FRD, 2026-11-17, the labels as it writes them): a requirement's
     # "Load Type:" block (STG / STD headings, one strategy line each) and the requirement

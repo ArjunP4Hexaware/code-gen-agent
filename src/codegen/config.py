@@ -455,6 +455,11 @@ class FrdExtractorConfig(BaseModel):
         default_factory=dict)
     # Rows 1-3 of every F1 section table (and the F2 SR rows) by label.
     fixed_rows: dict[str, list[str]] = Field(default_factory=dict)
+    # post208 (the tester's FRD: no Descriptive Metadata table, its first section table
+    # Data Quality - "Data Quality rules" became the feed's name): the F1 sections whose
+    # "Name" row may name the FEED (the fallback when Object Name is blank / absent); a
+    # Name row in any other section names that section.
+    feed_name_sections: list[str] = Field(default_factory=lambda: ["descriptive"])
     solution_requirement_prefix: str = "Solution Requirement"
     # 0-based row index whose first cell names the metadata section (F2); a
     # table whose row there names none is scanned for the row that does.
@@ -476,6 +481,9 @@ class FrdExtractorConfig(BaseModel):
     # requirement (its Name row) when the metadata's ADLS Location cell lists several
     requirement_landing_labels: list[str] = Field(default_factory=lambda: [
         "Raw ADLS Location", "ADLS Location"])
+    # post208: the label a Solution Requirement states its file's ARCHIVE path under
+    # (read like the landing; compared with the IIG's template shape). Empty = not read.
+    requirement_archive_labels: list[str] = Field(default_factory=list)
     inline_pair_separators: list[str] = Field(default_factory=lambda: [";"])
     # post196 (a staging FRD, 2026-11-17): a Solution Requirement cell's "<label>:" line
     # (no value) followed by layer headings ("STG:-" / "STD:-", target_schema_markers)

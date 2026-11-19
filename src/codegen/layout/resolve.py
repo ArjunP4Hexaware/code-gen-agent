@@ -3046,13 +3046,13 @@ def resolve_structured_fields(contract: FrdContract, config: Config
                                  f"names this feed's file uniquely ({where}); unstated")
                     continue
                 row = item.rows[row_index]
-                if field == "landing_location":
+                if field in ("landing_location", "archive_location"):
                     value = _path_column(item.headers, row.values, row.key)
                     if value is None:
                         flags.append(f"frd_{item.kind}:{key} — row {row.key!r} carries no path "
                                      f"({where}); unstated")
                         continue
-                    feeds[index] = _feed_set(feed, "landing_location", value)
+                    feeds[index] = _feed_set(feed, field, value)
                     flags.append(f"frd_nested:{key} source_used:{where} row {row.key!r}: "
                                  f"{value!r}")
                 elif field == "key_statement" and row.values.get("key"):

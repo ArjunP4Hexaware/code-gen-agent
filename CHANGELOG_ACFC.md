@@ -4,6 +4,25 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post208 — 2026-11-19 (a section's Name row never names the feed; the stated archive path compared)
+
+The tester's report (2026-11-19), the feed name and the Archive Location:
+- `config/config.yaml :: extractor.frd.feed_name_sections: [descriptive]` (new) +
+  `frd_docx._discover_f1`: a "Name" row names the FEED (Object Name's fallback) only in
+  those sections; elsewhere (Data Quality, Vendor ...) it names its section - a note.
+  Her FRD has no Descriptive Metadata table, so its feed was named "Data Quality rules";
+  it is now named after the STTM stage band (the existing rule for an unnamed feed).
+- `config/config.yaml :: extractor.frd.requirement_archive_labels: ["Archive Location"]`
+  (new): read like the landing (`frd_docx._requirement_path_blocks`; a bracketed note
+  after the label is no value; a stray space next to a '/' accepted - the path is only
+  compared) into `FrdFeed.archive_location` / `ResolvedFeedSpec.archive_location` (new,
+  absent from the JSON when unstated). `metadata_template._note_stated_archive` (option
+  C): SRC_ADLS_ARCHVL_PATH keeps the template shape; a stated path that differs (spaces,
+  case, slashes ignored; leading root folders allowed) is a review note
+  `iig_archive_path_differs:`. On her pairs the stated path agrees with the shapes.
+
+Tests: `tests/test_feed_name_archive_post208.py` (10).
+
 ## 0.5.8.post207 — 2026-11-19 ("Landing Location" lines; "Domain -" cells)
 
 The tester's report (2026-11-19) items 3 and 1 (domain):

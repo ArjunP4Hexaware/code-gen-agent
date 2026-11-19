@@ -1051,7 +1051,34 @@ def _paths(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
         # silently; the INPUT's punctuation is normalised and flagged.
         cells[header] = _path_cell(tpl, tab, header, value.replace("//", "/"), "synthetic",
                                    _path_tooltip(tpl, tab, header, pattern), lowered)
+    _note_stated_archive(tpl, tab, feed, cells)
     return cells
+
+
+def _path_key(path: str) -> str:
+    return re.sub(r"\s+", "", path).strip("/\\").replace("\\", "/").lower()
+
+
+def _note_stated_archive(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
+                         cells: dict[str, dict]) -> None:
+    """post208 (option C, Soham 2026-11-19): the archive path a Solution Requirement
+    states (``FrdFeed.archive_location``) never replaces the template shape; when it
+    differs from the cell (spaces / case / slashes ignored; the stated path may carry
+    the container folder in front) the cell keeps the shape and says so - a review note
+    (``iig_archive_path_differs:``) the BSA confirms."""
+    stated = getattr(feed, "archive_location", None)
+    cell = cells.get("SRC_ADLS_ARCHVL_PATH")
+    if not stated or cell is None:
+        return
+    ours, theirs = _path_key(str(cell.get("value") or "")), _path_key(stated)
+    if ours and (theirs == ours or theirs.endswith("/" + ours)):
+        return
+    pattern = tpl.path_patterns.get(tab, {}).get("SRC_ADLS_ARCHVL_PATH")
+    note = (f"iig_archive_path_differs:{tab}.SRC_ADLS_ARCHVL_PATH — the FRD states the "
+            f"archive path {stated!r}; the cell keeps the template shape {pattern!r} - "
+            "confirm which one the framework expects")
+    entry = cell["badge_entry"]
+    entry["note"] = f"{entry['note']}; {note}" if entry.get("note") else note
 
 
 def _path_tooltip(tpl: MetadataTemplateConfig, tab: str, header: str, pattern: str) -> str:

@@ -4,6 +4,27 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post206 — 2026-11-19 (an FRD field no cell states can be typed or left blank)
+
+The tester's dead end (staging post205): an FRD field the reader could not place (file
+format, LOBs, domain ...) was asked as a choice over FRD table cells only. When none
+states it, the person had "None of these" alone; "proceed" held the feed and the
+Answers-needed list asked the SAME question again - no way out in the App.
+
+- `ui/backend/demo.py :: typed_frd_question` (new): an FRD role question whose typed
+  value the layout stage already applies (`layout.resolve.answerable_frd_field`) carries
+  `typed: true`, the field's example and `leave_blank` (post170's token, only for
+  `answers.blankable_fields`). Applied to the layout dialog's questions, the questions
+  owed after "proceed" and the held-back feeds' questions. No change under `src/`.
+- `ui/frontend :: LayoutQuestions.tsx` (`TypedFrdValue`): a typed FRD question shows
+  "Not in any cell above? Type it:" + "Leave blank and continue" where allowed; posted
+  under `gaps:` (source = user); a cell pick and a typed value exclude each other.
+- Output unchanged for a run with the same answers (the backend path existed since
+  Chunk B); the CLI is unchanged.
+
+Tests: `tests/test_typed_frd_answer_post206.py` (3), 5 vitest cases in
+`LayoutQuestions.test.tsx`.
+
 ## 0.5.8.post205 — 2026-11-18 (one "states nothing" word list)
 
 The next value normaliser (READER_GENERALIZATION §1 shape 5, "a marker word meaning

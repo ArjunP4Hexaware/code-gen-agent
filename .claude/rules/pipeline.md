@@ -94,7 +94,10 @@ bend, working rules, tests) stay in the root `AGENTS.md`. Moved here verbatim fr
   (the ONE table, every document and answer; "Incremental" is a load type, never a
   strategy). Never add an alias table in code. Delimiters likewise (post204): one reader,
   `resolve.gapfill.delimiter_reading` (two named characters = None, never a pick), one
-  format / extension table, `extractor.format_delimiters`.
+  format / extension table, `extractor.format_delimiters`. A "states nothing" word
+  (post205) goes in `extractor.blank_words` - merged at load into the exact-match
+  placeholder lists (FRD `blank_values`, `meta_blank_values`, `unsegmented_markers`);
+  never into `dq_no_check_words` (starts-with matching) or `unmapped_markers`.
 - **A new optional field on a profile / contract model** is serialised only when set (or
   every cached profile and tracked fixture moves - post196's `block_layer`).
 - **Agreement between documents** goes through `gapfill.same_value(a, b, words)`: a

@@ -29,6 +29,31 @@ number.
 
 ---
 
+## 0.5.8.post209 — tester report 2026-11-19 (2): the STTM's File Details tab unread
+
+- **Symptom:** file format and delimiter asked though her STTM's "File Details" tab
+  states them ("File Type", "File Delimitor" rows).
+- **Reproduced:** her staging uploads, mock, post208, /tmp only: the tab's layout kind
+  `ignore`; both values asked.
+- **Root cause:** `layout/resolve.py :: _sttm_facts` read meta facts from mapping sheets'
+  meta rows and tabular `file_details` sheets only; a label | value sheet is neither.
+- **Change:** `layout/resolve.py :: _detail_sheet_meta` (new); `config ::
+  extractor.discovery.meta_synonyms.delimiter` + "file delimitor". Why a pass
+  (READER_GENERALIZATION): the meta-row grammar applied on its own sheet - the same
+  labels, no new vocabulary beyond one spelling seen in a client STTM.
+- **Reach:** 12-pair check (framework, mock, post208 vs post209): outcomes unchanged,
+  295 / 295 files, no REAL change on any pair (build stamps only). On her pair A: file
+  format + delimiter filled from the tab (cited), no longer asked.
+- **Side effects:** none found.
+- **Unchanged:** a mapping sheet's meta rows (they win); tabular file_details sheets; the
+  other labels of such a tab (delivery method, naming convention) - not read.
+- **Tests:** `tests/test_detail_sheet_meta_post209.py` (6; 3 failed with HEAD's
+  `resolve.py` + config).
+- **Verified:** `.venv` 2694 passed; `.venv-d1` 2342 passed; ruff clean; 12-pair check
+  alone.
+- **Revert:** `git revert` the version (or `_detail_sheet_meta` returning at once).
+- **Deployed:** dev not yet (STOPPED); staging not yet.
+
 ## 0.5.8.post208 — tester report 2026-11-19: the feed named after a Data Quality section; the stated archive path unread
 
 - **Symptom:** her first pair's only feed was named "Data Quality rules" (the run's
@@ -64,7 +89,7 @@ number.
   alone.
 - **Revert:** `feed_name_sections` listing every section restores the old fallback;
   `requirement_archive_labels: []` stops the archive reading; or `git revert`.
-- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Deployed:** dev not yet (STOPPED); staging 237caa3 2026-11-19.
 
 ## 0.5.8.post207 — tester report 2026-11-19 (3, 1): "Landing Location" unread; "Domain -" cell unread
 

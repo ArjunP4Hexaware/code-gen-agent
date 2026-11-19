@@ -29,6 +29,23 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 - After a container reset: `~/bootstrap`, then the OAuth login (recipe below).
 
 **Open, in order:**
+-2. **A second tester's run (staging post208, 2026-11-19; pair C = the same program's third
+   vendor, copied to /tmp/t/ik/pairs/pair_93; her run is PAUSED on staging - do not touch):**
+   she found the question block impenetrable, and the File format question listed ~16-20
+   choices that are FRD labels (Name, IS Owner, "Container Name", "History" lines ...) -
+   the SAME 16 for all 6 questions (feed name, format, LOBs, domain, both strategies);
+   none states any of them. Root causes: (a) an FRD role question offers EVERY labelled
+   cell / line of the document, never filtered by what the field's value looks like;
+   (b) the person is asked WHERE a value is (a location question - the layout's job),
+   not WHAT it is; (c) keys / table-row coordinates up front, plain words folded.
+   REGRESSION from post208: with no Descriptive section `feeds[0].feed_name` is now asked
+   (16 cells, no text box) though it blocks nothing (the stage band names the feed) - on
+   pairs A and C. On post209 pair C still asks 5 (feed name, LOBs, domain, 2 strategies).
+   Game plan given to Soham (chat 2026-11-19): P1 stop the feed-name question + a value
+   validator on FRD candidates (none valid -> a plain value question); P2 FRD questions
+   become VALUE questions (values, deduped, cited; coordinates folded); P3 the dialog
+   rewritten in plain words per feed (what each answer sets in the IIG); P4 the question
+   count per pair as the measure. Waiting on his pick.
 -1. **The tester's 2026-11-19 report (staging post205; 5 items, IN PROGRESS this session).**
    Her pairs are called pair A / pair B here (no client names). Reproduce on HER uploads
    (mock, /tmp) before any fix; then a BUG_FIX_LOG entry for each fix.

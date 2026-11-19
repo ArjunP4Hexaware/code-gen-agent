@@ -46,7 +46,7 @@ describe("presentedArtefacts", () => {
 
 describe("APPROVAL_NOTE", () => {
   it("names the IIG as the approval artefact and CI/CD as what applies the DDL", () => {
-    expect(APPROVAL_NOTE).toContain("BSA-annotated IIG is the approval artefact");
+    expect(APPROVAL_NOTE).toContain("annotated IIG (the review copy) is the approval artefact");
     expect(APPROVAL_NOTE).toContain("CI/CD pipeline applies the DDL after approval");
   });
 

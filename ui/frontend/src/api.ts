@@ -345,7 +345,7 @@ export interface DemoStatus {
   // 2026-10-14: values the last run's IIG workbooks were written WITHOUT
   // (INPUT_NEEDED, e.g. ACTIVE_START_DATE) — never blocking, a banner only
   inputs_needed?: InputNeededItem[];
-  // post59: the input choices the BSA confirmed — key -> {choice, standard}
+  // post59: the input choices the data engineer confirmed — key -> {choice, standard}
   input_choices?: Record<string, ConfirmedChoice>;
   // post60: the run's generate outcome (CODEGEN_STAGES.json): PASS |
   // PASS_WITH_OPEN_INPUTS | NEEDS_ANSWERS | GATE_FAIL | CRASHED | FAIL
@@ -848,7 +848,7 @@ export interface InputNeededItem {
 
 export type InputChoice = "use_default" | "naming_standard" | "leave_blank";
 
-// post59: a choice the BSA confirmed (status.input_choices) — applied by the next Generate
+// post59: a choice the data engineer confirmed (status.input_choices) — applied by the next Generate
 export interface ConfirmedChoice {
   choice: InputChoice;
   standard?: string;

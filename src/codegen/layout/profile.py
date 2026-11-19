@@ -316,7 +316,7 @@ class LayoutProfile(BaseModel):
     strategy: str
     unresolved: list[UnresolvedRole] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
-    # post59: the BSA's answer to "which file feeds this sheet's table?" (the
+    # post59: the data engineer's answer to "which file feeds this sheet's table?" (the
     # split step's tie), cached with the profile — sheet -> file as answered;
     # the next run of the same workbook takes it without asking. Omitted from
     # the dump while empty (cached profiles stay byte-identical).

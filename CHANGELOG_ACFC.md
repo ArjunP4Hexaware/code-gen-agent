@@ -4,6 +4,22 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post211 — 2026-11-19 (the data engineer, not the BSA, in every App / file text)
+
+Soham, 2026-11-19: the agent's user is a data engineer (the CodeGen Data Engineer Agent),
+and "everything involved with this agent is the data engineer".
+- Wording only, every generated / App text that named the BSA as the one who chooses,
+  answers, reviews or certifies: "the data engineer". The review copy's Owner labels:
+  `iig_review.owner_labels` = Data Engineer / Data Engineer (technical value) / Data
+  Engineer (confirm) (keys and colours unchanged); `review_flag_owner` Data Engineer.
+  "BSA-annotated IIG" -> "annotated IIG (the review copy)" (the App's output option,
+  the files panel, the report, LOG.md's review flow: "Data engineer review").
+  "Confirm with the BSA that the FRD ..." -> "Confirm that the FRD ...".
+- Unchanged: the comments recording the framework owner's 2026-10-14 rule ("PIPELINE_NAME
+  is BSA-assigned") - history, re-decided here; what any cell holds.
+
+Tests: the 9 tests pinning the old wording / labels updated (counts unchanged).
+
 ## 0.5.8.post210 — 2026-11-19 (P1: FRD questions offer only cells that read as the field; no feed-name question)
 
 A second tester's run (staging post208): six questions, each listing the SAME ~16 FRD

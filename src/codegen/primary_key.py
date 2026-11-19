@@ -259,8 +259,8 @@ def key_cell(tab: str, table: TableKey, spec, faq, offer: KeyProposal, *,
         kind, value, template = how
         if kind == "blank":
             cell = _cell("", "needs_template", "left blank by choice (leave_blank)")
-            cell["badge_entry"]["note"] = (f"iig_owed_blank:{where} — left blank: the BSA chose "
-                                           f"leave_blank for {KEY}")
+            cell["badge_entry"]["note"] = (f"iig_owed_blank:{where} — left blank: the data "
+                                           f"engineer chose leave_blank for {KEY}")
             return cell
         if kind == "profile":
             # post81: primary_key_autoset — the explicit signal's key, written unasked
@@ -284,7 +284,7 @@ def key_cell(tab: str, table: TableKey, spec, faq, offer: KeyProposal, *,
         names = statement_names(value)
         columns = _match(names, table) or tuple(names)
         given = f"naming_standard {template!r}" if template else "answers file"
-        return _cell(",".join(columns), "from_faq", f"the BSA's key ({given})")
+        return _cell(",".join(columns), "from_faq", f"the data engineer's key ({given})")
     if offer:
         shown = (f"proposed {offer.value!r} from {offer.source}: not written until chosen")
         cell = _cell("", "needs_template", f"owed: the table's key — {shown}")

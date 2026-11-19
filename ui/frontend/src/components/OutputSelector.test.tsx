@@ -22,11 +22,11 @@ describe("OutputSelector", () => {
     expect(html).toContain('aria-pressed="true"');
   });
 
-  it("describes the framework output as the DDL + the BSA-annotated IIG", () => {
+  it("describes the framework output as the DDL + the annotated IIG (post211)", () => {
     const html = renderToStaticMarkup(
       <OutputSelector options={OPTIONS} selected={new Set(["framework"])} onToggle={() => {}} />,
     );
-    expect(html).toContain('title="DDL + BSA-annotated IIG for the existing ingestion framework"');
+    expect(html).toContain('title="DDL + annotated IIG (the review copy) for the existing ingestion framework"');
     expect(html).not.toMatch(/insert|config row/i);
   });
 });

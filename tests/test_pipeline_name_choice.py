@@ -173,7 +173,7 @@ def test_a_naming_standard_renders_all_four_and_a_flow_may_stay_blank(tmp_path, 
     assert records["pipeline_name.stg_to_std"]["chosen"] is True     # chosen blank: not open
     assert _pipeline_lines(out, spec.feed_id) == []
     report = _report(tmp_path, spec)
-    assert "source_used:the BSA's naming standard 'acme {source} {layer}'" in report
+    assert "source_used:the data engineer's naming standard 'acme {source} {layer}'" in report
     assert "iig_owed_blank:DATA_FACTORY_PIPELINE_SCHEDULE.PIPELINE_NAME[stg_to_std]" in report
 
 

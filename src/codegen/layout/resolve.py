@@ -2836,12 +2836,12 @@ def _split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, con
         chosen = gaps.get(key)
         cached = (remember or {}).get(entry["sheet"]) if chosen is None else None
         if chosen is not None and remember is not None and len(sheet_tables) > 1:
-            # post59: the BSA's answer is cached with the layout profile
+            # post59: the data engineer's answer is cached with the layout profile
             remember[entry["sheet"]] = chosen["value"]
         if cached is not None and any(n == cached for n, _c in candidates):
             patterns = [cached]
-            flags.append(f"frd_unstated:{key} source_used:the BSA's earlier answer (cached in "
-                         f"the layout profile): {cached!r}")
+            flags.append(f"frd_unstated:{key} source_used:the data engineer's earlier answer "
+                         f"(cached in the layout profile): {cached!r}")
         elif chosen is None and entry.get("list_position") is not None:
             # post179: a list-cell split - the file at this table's position
             name, cell = entry["own_files"][0]

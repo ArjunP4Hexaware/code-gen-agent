@@ -1125,7 +1125,7 @@ def emit_framework(
         if header in set(blank_list)
     ]
     flagged = sorted(set(always_blank))
-    # IIG-first M3: the BSA's review copy and the clean copy CI/CD loads —
+    # IIG-first M3: the review copy and the clean copy CI/CD loads —
     # behind the profile's emit_iig_review switch (off: output as before).
     from codegen.iig_review import review_flags
 
@@ -1207,15 +1207,15 @@ def _held_iig_artefacts(files, flags, checks, held, empty_by_rule) -> FrameworkA
 
 
 def _review_flow(ddl_list: str, review_name: str, clean_name: str) -> str:
-    """The run LOG.md's review flow: IIG -> BSA review -> CI/CD applies the DDL
+    """The run LOG.md's review flow: IIG -> data engineer review -> CI/CD applies the DDL
     (written only when the combined IIG is; post178: the no-IIG wording went
     with the per-feed ADDITION.md)."""
-    first = (f"1. **IIG** — the agent writes `{clean_name}` and the BSA's review copy "
+    first = (f"1. **IIG** — the agent writes `{clean_name}` and the review copy "
              f"`{review_name}`: every cell it could not fill is open, highlighted and "
              "commented with its reason and owner.")
-    second = (f"2. **BSA review** — the BSA fills or corrects the open cells in "
-              f"`{review_name}` and certifies `{clean_name}`. The BSA-annotated IIG is "
-              "the approval artefact.")
+    second = (f"2. **Data engineer review** — the data engineer fills or corrects the open "
+              f"cells in `{review_name}` and certifies `{clean_name}`. The annotated IIG (the "
+              "review copy) is the approval artefact.")
     third = (f"3. **CI/CD applies the DDL** — after approval, the CI/CD pipeline applies "
              f"{ddl_list} and loads the approved IIG. Nothing is applied before approval.")
     return "\n".join([first, second, third])
@@ -1245,7 +1245,7 @@ def report_section(artefacts: FrameworkArtefacts) -> str:
         "## Framework artefacts",
         "",
         "Under `framework/` — an addition to the existing ingestion framework.",
-        "The BSA-annotated IIG is the approval artefact; the CI/CD pipeline",
+        "The annotated IIG (the review copy) is the approval artefact; the CI/CD pipeline",
         "applies the DDL after approval. The agent never applies anything itself.",
         "",
         "| Artefact | Detail |",

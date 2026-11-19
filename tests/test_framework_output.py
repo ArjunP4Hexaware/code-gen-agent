@@ -350,7 +350,7 @@ def test_the_report_section_matches_the_artefacts_panel():
         row_counts={"ADLS_DELTA_INGESTION_DETAILS": 2},
         coverage={"derived": 3, "synthetic": 0, "needs_template": 1, "total": 4}))
     assert "## Framework artefacts" in section
-    assert ("The BSA-annotated IIG is the approval artefact; the CI/CD pipeline\n"
+    assert ("The annotated IIG (the review copy) is the approval artefact; the CI/CD pipeline\n"
             "applies the DDL after approval.") in section
     listed = [line.split("`")[1] for line in section.splitlines()
               if line.startswith("| `")]

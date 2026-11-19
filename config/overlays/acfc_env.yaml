@@ -158,7 +158,7 @@ metadata:
   templates:
     iig_v2:
       # post70: TGT_PRIMARY_KEY proposed from an explicit key signal only (never the
-      # not-null list), written when the BSA confirms (codegen.primary_key)
+      # not-null list), written when the data engineer confirms (codegen.primary_key)
       primary_key_input: true
       # Feed-family conventions (docs/acfc/MULTI_TABLE_DESIGN.md, 2026-10-08): the
       # CAQH-style family — LOB codes, an unknown STGDELTA primary key left blank
@@ -330,7 +330,7 @@ metadata:
       # 293 pipelines carry all four), in the corpus's order.
       # 2026-10-14 (framework owner): the email status set varies in the corpus (4
       # statuses: 293 pipelines; 2: 56; 1: 256; the CAQH golden 2, SD 4) - all four by
-      # default, a run-level INPUT_NEEDED run.email_statuses so the BSA can trim it.
+      # default, a run-level INPUT_NEEDED run.email_statuses so the data engineer can trim it.
       email_status_input:
         faq: email_statuses
         scope: run
@@ -542,7 +542,7 @@ metadata:
       # ACTIVE_START_DATE: the per-RFC go-live date — no document states it, no value
       # dominates (19.4%): written empty. D1 post45: APPLICATION_NAME and EMAIL_TO are
       # written WITH a default (the feed's SOURCE; the corpus's dominant recipient, a
-      # D1 placeholder) so the BSA can change them; the NullCheckRule /
+      # D1 placeholder) so the data engineer can change them; the NullCheckRule /
       # DeDuplicationRule INPUT_PARAM shape is in no home golden: open until the D1
       # dump supplies it.
       # 2026-10-14 (framework owner's rule 1): PIPELINE_NAME is BSA-assigned - blank on

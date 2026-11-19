@@ -34,7 +34,7 @@ export function layer2Line(layer2: Layer2State | null | undefined): string | nul
 
 /* The one approval sentence: the artefacts panel's subtitle (2026-10-16, post63). */
 export const APPROVAL_NOTE =
-  "The BSA-annotated IIG is the approval artefact; the CI/CD pipeline applies the DDL after approval.";
+  "The annotated IIG (the review copy) is the approval artefact; the CI/CD pipeline applies the DDL after approval.";
 
 /* post87: the framework-assigned ID columns left blank, said ONCE for the run —
    `common` = the columns every feed leaves blank (the panel's one line), `extra`

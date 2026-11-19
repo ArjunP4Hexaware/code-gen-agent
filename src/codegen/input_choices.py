@@ -1,4 +1,4 @@
-"""The BSA's choice for an owed input that has a default (post59).
+"""The data engineer's choice for an owed input that has a default (post59).
 
 PIPELINE_NAME (one per flow row: grand_master / master / file_to_stg /
 stg_to_std) and the defaulted run inputs (APPLICATION_NAME, EMAIL_TO and the
@@ -8,13 +8,13 @@ email status set, when a default exists) are a three-way choice:
   profile's per-flow template (``pipeline_name_templates``) rendered with the
   feed's {domain} {subdomain} {source} {frequency} {layer} {load_mode}; for the
   others the owed rule's ``default``;
-- ``naming_standard`` — the BSA's own template in the same placeholder syntax
+- ``naming_standard`` — the data engineer's own template in the same placeholder syntax
   (for PIPELINE_NAME one template for the feed renders all four names);
 - ``leave_blank`` — the cell stays empty.
 
 Proposed is not applied (Aruna's rule holds for every unattended run): an
 input whose choice is not stated explicitly — in the answers file
-(``choice:`` / ``standard:``) or by the BSA's Confirm in the App — is written
+(``choice:`` / ``standard:``) or by the data engineer's Confirm in the App — is written
 BLANK, and its INPUT_NEEDED line shows the proposal and its template. A
 default that collides with a PIPELINE_NAME of the loaded goldens / corpus
 (``pipeline_name_corpus``) is never proposed: the line asks instead.
@@ -34,7 +34,7 @@ post61 — two kinds of default (``Defaulted.kind``):
   shown (CLI NOTE line, answers template, the App's panel) as changeable.
 - ``agent_proposal``: the value is rendered or derived by the agent —
   PIPELINE_NAME from its template, APPLICATION_NAME from {source} (and
-  ACTIVE_START_DATE, which has none): shown, never applied without the BSA's
+  ACTIVE_START_DATE, which has none): shown, never applied without the data engineer's
   confirmation (Aruna's rule above).
 
 An owed rule's kind is its ``default_kind``; unset, a default with a {token}

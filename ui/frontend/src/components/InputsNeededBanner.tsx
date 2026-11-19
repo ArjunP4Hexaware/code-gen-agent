@@ -16,7 +16,7 @@ import {
    feed's own (`inputs.feeds.<feed>`).
    post59: a defaulted input (PIPELINE_NAME per flow, APPLICATION_NAME, the
    email status set, …) is a three-way choice — use_default (the proposal,
-   shown with its template), naming_standard (the BSA's template; one box per
+   shown with its template), naming_standard (the data engineer's template; one box per
    feed re-renders all four pipeline names live) or leave_blank. The radio
    rests on use_default, but nothing is applied until Confirm: proposed is not
    applied (the next Generate applies only confirmed choices).

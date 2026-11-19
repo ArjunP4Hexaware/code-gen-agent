@@ -248,10 +248,10 @@ def _owed(tpl: MetadataTemplateConfig, tab: str, cells: dict, faq,
         chosen = chosen_of(answer) if answer is not None else None
         where = f"{tab}.{header}" + (f"[{flow}]" if rule.per_flow else "")
         if chosen is not None and chosen[0] == "blank":
-            # post59: leave_blank — the BSA's explicit choice
+            # post59: leave_blank — the data engineer's explicit choice
             cell = _cell("", "needs_template", f"left blank by choice — {rule.question}")
-            cell["badge_entry"]["note"] = (f"iig_owed_blank:{where} — left blank: the BSA chose "
-                                           f"leave_blank for {label}")
+            cell["badge_entry"]["note"] = (f"iig_owed_blank:{where} — left blank: the data "
+                                           f"engineer chose leave_blank for {label}")
             cells[header] = cell
             continue
         if answer is not None and answer.source != "unknown" and str(answer.value).strip():
@@ -268,9 +268,9 @@ def _owed(tpl: MetadataTemplateConfig, tab: str, cells: dict, faq,
                 continue
             if chosen is not None:
                 # post59: use_default / naming_standard — taken from other
-                # documents (the conventions profile / the BSA's standard): a flag
+                # documents (the conventions profile / the data engineer's standard): a flag
                 what = ("the conventions profile's proposal" if chosen[0] == "default"
-                        else "the BSA's naming standard")
+                        else "the data engineer's naming standard")
                 cells[header]["badge_entry"]["note"] = (
                     f"frd_unstated:{where} source_used:{what} {chosen[1]!r}: "
                     f"{str(answer.value)!r} (chosen: "
@@ -1065,7 +1065,7 @@ def _note_stated_archive(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
     states (``FrdFeed.archive_location``) never replaces the template shape; when it
     differs from the cell (spaces / case / slashes ignored; the stated path may carry
     the container folder in front) the cell keeps the shape and says so - a review note
-    (``iig_archive_path_differs:``) the BSA confirms."""
+    (``iig_archive_path_differs:``) the data engineer confirms."""
     stated = getattr(feed, "archive_location", None)
     cell = cells.get("SRC_ADLS_ARCHVL_PATH")
     if not stated or cell is None:
@@ -1195,7 +1195,7 @@ def _prefix_middle(pattern: str, tokens: list[str] | None, bound: list[str] | No
 def _src_file_name_cell(tpl: MetadataTemplateConfig, pattern: str, stated: str,
                         badge: str, feed_id: str | None = None, faq=None) -> dict:
     """ADLS SRC_FILE_NAME by the family convention (or the feed's
-    ``feed_overrides.<feed_id>.src_file_name``; post61: the BSA's
+    ``feed_overrides.<feed_id>.src_file_name``; post61: the data engineer's
     ``src_file_name_style`` first — a profile default they may change): the
     pattern (date tokens as '*'), the OBJECT_NAME prefix + '*' (prefix_star —
     the SD rows, the suffix wildcard), or '*' + the name core + '*' + the
@@ -1212,7 +1212,7 @@ def _src_file_name_cell(tpl: MetadataTemplateConfig, pattern: str, stated: str,
     chosen = str(answer.value).strip() if answer is not None and answer.source != "unknown" \
         else ""
     if chosen in STYLES:
-        style, why = chosen, f"the BSA's choice src_file_name_style: {chosen}"
+        style, why = chosen, f"the data engineer's choice src_file_name_style: {chosen}"
     if style == "prefix_middle":
         value = _prefix_middle(pattern, tpl.object_name_strip_tokens,
                                tpl.object_name_bound_tokens)
@@ -1430,7 +1430,7 @@ def _faq_header_flag_cells(spec: ResolvedFeedSpec, faq) -> dict:
     pre-existing reading (HEADER_FLAG = the FAQ answer as given; the FILE_*
     flags open): the golden's flags there do not follow header / trailer
     SEGMENTS (an open framework question), so nothing is derived. Unstated
-    -> open (BSA)."""
+    -> open (the data engineer)."""
     header = _faq_cell(faq, "has_header", "load-pattern FAQ answer")
     if not spec.delimiter:
         return {"HEADER_FLAG": header} if header is not None else {}
@@ -2166,7 +2166,7 @@ def _notebook_details(tab, feed, config, spec, faq, tpl) -> list[dict]:
 
 def _notebook_name_choice(row: dict, flow: str, faq) -> dict:
     """post61: the notebook NAME is a profile default (corpus_cells by notebook
-    kind); the BSA's ``notebook_name_<flow>`` (a value, or leave_blank) wins —
+    kind); the data engineer's ``notebook_name_<flow>`` (a value, or leave_blank) wins —
     the PATH stays the profile's."""
     from codegen.input_choices import chosen_of
 
@@ -2179,12 +2179,12 @@ def _notebook_name_choice(row: dict, flow: str, faq) -> dict:
         cell = _cell("", "needs_template", "left blank by choice — the notebook name")
         cell["badge_entry"]["note"] = (
             f"iig_owed_blank:DATABRICKS_NOTEBOOK_DETAILS.DATABRICKS_NOTEBOOK_NAME[{flow}] — "
-            f"left blank: the BSA chose leave_blank for notebook_name.{flow}")
+            f"left blank: the data engineer chose leave_blank for notebook_name.{flow}")
         return {**row, "DATABRICKS_NOTEBOOK_NAME": cell}
     if not value:
         return row
     return {**row, "DATABRICKS_NOTEBOOK_NAME": _cell(
-        value, "from_faq", f"the BSA's notebook name for {flow} (inputs.feeds.<feed>."
+        value, "from_faq", f"the data engineer's notebook name for {flow} (inputs.feeds.<feed>."
                            f"notebook_name.{flow}); DATABRICKS_NOTEBOOK_PATH stays the "
                            "profile's — check it names this notebook")}
 
@@ -2802,7 +2802,7 @@ def dq_not_generated_flags(spec: ResolvedFeedSpec, tpl: MetadataTemplateConfig) 
     if key and frd_dq_check(spec.validation_rules, tpl, "dedup") is None:
         flags.append(f"iig_dq_not_generated:DeDuplicationRule — the STTM marks {len(key)} "
                      "Primary Key column(s), but the FRD states no duplicate check; add the "
-                     "rule if the BSA confirms one")
+                     "rule if the data engineer confirms one")
     columns, unmatched = sttm_dq_null_columns(spec, fields, tpl)
     if unmatched:
         flags.append(f"iig_dq_not_generated:NullCheckRule — the STTM's DQ rules sheet names "
@@ -2811,7 +2811,7 @@ def dq_not_generated_flags(spec: ResolvedFeedSpec, tpl: MetadataTemplateConfig) 
             frd_dq_check(spec.validation_rules, tpl, "null_check") is None:
         flags.append(f"iig_dq_not_generated:NullCheckRule — the STTM marks "
                      f"{len(set(spec.not_null_columns))} required column(s), but no document "
-                     "states a null-check rule; add it if the BSA confirms one")
+                     "states a null-check rule; add it if the data engineer confirms one")
     typed = [f for f in fields if f.standard_column and _base_type(
         f.standard_datatype).lower() not in ("string", "")]
     if typed:

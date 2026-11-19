@@ -63,7 +63,7 @@ def test_an_answer_that_is_no_type_keeps_the_question(config, tmp_path):
 def test_real_type_spellings_are_no_question(config, tmp_path):
     workbook = mapping_workbook(tmp_path / "p.xlsx", {
         0: {"standard_type": "Decimal(12,2)"}, 1: {"standard_type": "Date"},
-        2: {"standard_type": "timestamp(YYYY-MM-DD HH:MM:SS)"}})
+        2: {"standard_type": "timestamp(YYYY-MM-DD HH:MM:SS)"}, 3: {"standard_type": "BIG INT"}})
     contract = extract_contract(workbook, frd(tmp_path / "frd.json"), config,
                                 generated_date=DATE)
     assert contract.needs_answers == []

@@ -655,11 +655,14 @@ def _is_data_type(text: str) -> bool:
     none."""
     from codegen.emit.context import TemplateGapError, sql_type
 
-    try:
-        sql_type(text)
-    except (TemplateGapError, ValueError):
-        return False
-    return True
+    # a type spelled with spaces ("BIG INT", a real STTM's) is a type, never a question
+    for spelling in (text, re.sub(r"\s+", "", text)):
+        try:
+            sql_type(spelling)
+        except (TemplateGapError, ValueError):
+            continue
+        return True
+    return False
 
 
 def _with_value(row: FieldRow, key: str, value: str) -> FieldRow:

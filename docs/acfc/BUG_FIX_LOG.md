@@ -44,7 +44,10 @@ number.
   Why a pass: none - the post74 blank-stage-type question applied to the standard cell.
 - **Reach:** 12-pair check - pending; pair C: CRASHED -> NEEDS_ANSWERS (one question);
   answered "String" -> PASS_WITH_OPEN_INPUTS; answered "Derived too" -> still asked.
-- **Side effects:** pending.
+- **Side effects:** the first 12-pair run caught one: pair_09's 8 "BIG INT" cells (a real
+  type spelled with a space) were asked - `_is_data_type` now also tries the spelling
+  without spaces (no question; pair_09 as before). Known, not new: such a cell still
+  stops the run at `sql_type` if a feed reaches the notebook render (pair_09 does not).
 - **Unchanged:** post158's guard and tests; every cell `sql_type` reads; the stage type
   question (post74 / post95 wording).
 - **Tests:** `tests/test_standard_type_question_post213.py` (5; 4 failed with HEAD's

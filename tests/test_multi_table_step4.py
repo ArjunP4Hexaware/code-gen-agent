@@ -57,7 +57,7 @@ def test_the_review_workbook_lists_the_entries(pair4_config, pair4_payload, tmp_
     summary = load_workbook(review)["REVIEW_SUMMARY"]
     rows = [r for r in summary.iter_rows(min_row=2, values_only=True)
             if r[2] == "additional DQ rules (not generated)"]
-    assert len(rows) == 6 and {r[3] for r in rows} == {"Engineer"}
+    assert len(rows) == 6 and {r[3] for r in rows} == {"Data Engineer (technical value)"}
 
 
 @pytest.mark.parametrize("feed_fixture", ["pair4_payload", "pair1_payload"])

@@ -41,12 +41,15 @@ number.
   engineer`); `config :: iig_review.owner_labels` + `review_flag_owner` (and the model's
   defaults in `config.py`). Keys (`bsa` / `engineer` / `engineer_confirms`), colours and
   every cell's group unchanged.
-- **Reach:** 12-pair check - pending (expected: review copies' Owner labels / notes and
-  the reports' wording only).
-- **Side effects:** pending.
+- **Reach:** 12-pair check (framework, mock, post210 vs post211): outcomes unchanged,
+  295 / 295 files; changed: the review copies only (REVIEW_SUMMARY owner values, the cells'
+  "Owner:" comments on every sheet), the combined LOG.md (6) and the reports (13) -
+  wording; no clean IIG, DDL or test-case file moved.
+- **Side effects:** none; the first full suite run caught a 10th label pin
+  (`test_multi_table_step4`), updated.
 - **Unchanged:** cell values, groups, counts; the 2026-10-14 framework-owner rule's
   comments (history).
-- **Tests:** 9 updated (path whitespace flag, pipeline-name choice, review inventory x2,
+- **Tests:** 10 updated (path whitespace flag, pipeline-name choice, review inventory x2,
   file tie-break, scorecard, framework report, 2 vitest); no new behaviour to pin.
 - **Verified:** pending.
 - **Revert:** the owner labels are config (`iig_review.owner_labels`); `git revert` the

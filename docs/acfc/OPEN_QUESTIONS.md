@@ -54,13 +54,14 @@ with `tools/iig_diff.py --golden-structure`.
 
 - Aruna's rule: PIPELINE_NAME is BSA-assigned, so the agent leaves it blank
   (framework owner's rule 1, post49).
-- Venu's ask: the agent proposes a default name, and the BSA may apply the
-  team's naming standard instead.
-- **Resolved (post59): the BSA chooses, with the default shown.** Every
+- Venu's ask: the agent proposes a default name, and the person running it may apply
+  the team's naming standard instead.
+- **Resolved (post59): the data engineer running the agent chooses, with the default
+  shown** (the App's user is a data engineer, not a BSA - 2026-11-19). Every
   `pipeline_name.<flow>` input (grand_master / master / file_to_stg /
   stg_to_std, per feed) is a three-way choice: `use_default` (the conventions
   profile's per-flow template, rendered from the feed's {domain} {subdomain}
-  {source} {frequency} {layer} {load_mode}), `naming_standard` (the BSA's own
+  {source} {frequency} {layer} {load_mode}), `naming_standard` (the data engineer's own
   template in the same syntax), or `leave_blank`.
 - Aruna's rule still holds for every unattended run (CLI, harness, App with no
   confirmation). The proposal is shown and NOT applied: the cell stays blank,
@@ -82,8 +83,8 @@ with `tools/iig_diff.py --golden-structure`.
   the conventions profile or the ACFC overlay sets (`profile_default`: the email
   status set, EMAIL_TO, the notebook names, the SRC_FILE_NAME wildcard style) is
   written when unanswered — source `profile`, no gate flag, no open input — and
-  still listed (a NOTE line, the answers template, the App's panel) so the BSA
-  can change it. An owed cell's kind is its `default_kind` (unset: a default with
+  still listed (a NOTE line, the answers template, the App's panel) so the data
+  engineer can change it. An owed cell's kind is its `default_kind` (unset: a default with
   a `{token}` is an agent proposal, a literal one a profile default).
 - Still open: the team's naming standard itself (the attach-a-document path
   is deferred).

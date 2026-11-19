@@ -22,6 +22,11 @@ it into an unrelated project.
 
 ## Part A — This agent, concretely
 
+**Who uses it: a data engineer, not a BSA** (2026-11-19) - hence the name CodeGen Data
+Engineer Agent ("codegen agent" for short). The data engineer runs it on an approved FRD +
+STTM, answers its questions, reviews the outputs (the IIG review copy included) and takes
+them on to deployment; the BSA owns the documents.
+
 ### Databricks Unit (DBU) budget — read before generating anything
 
 Arjun and Soham share a **450-DBU/month** pool (recurring, not one-time)

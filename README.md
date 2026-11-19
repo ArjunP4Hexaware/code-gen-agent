@@ -7,6 +7,10 @@ the AI-in-Engineering program at AmeriHealth Caritas (FRD→STTM → CodeGen →
 Code Review): downstream of the FRD→STTM agent (which produces the STTM),
 upstream of the Code Review Agent (which reviews what this agent emits).
 
+**Who uses it: a data engineer, not a BSA** - hence the name, the CodeGen Data Engineer
+Agent ("codegen agent" for short). The data engineer runs it on an approved FRD + STTM,
+answers its questions, reviews what it writes and takes it on to deployment.
+
 Design rationale: [`docs/DESIGN.md`](docs/DESIGN.md). Operating workflow:
 [`docs/WORKFLOW.md`](docs/WORKFLOW.md). Demo UI + guided tour:
 [`ui/README.md`](ui/README.md) —

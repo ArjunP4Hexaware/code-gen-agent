@@ -199,7 +199,8 @@ bend, working rules, tests) stay in the root `AGENTS.md`. Moved here verbatim fr
   it writes its DDL + test cases and HOLDS the IIG (no IIG / review / config rows;
   a flag, a HELD BACK line, one non-blocking NOTE) - never file-ingestion rows
   for a table (post155). Per feed: the deployment DDL (per conventions profile),
-  the IIG workbook + its BSA review copy, `config_rows.xlsx`, and
+  the IIG workbook + its review copy (for the data engineer who runs the agent - never
+  "the BSA", 2026-11-19), `config_rows.xlsx`, and
   (acfc_prx) the DDL test cases `<ABBREV>_DDL_TestCases.txt` — a
   SEPARATE file, never inside the DDL (Venu): read-only SQL the engineer runs after the
   DDL, gate `ddl_tests_read_only`; the same cases as `<ABBREV>_DDL_TestCases.xlsx` in the

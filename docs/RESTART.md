@@ -6,6 +6,9 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 
 ## Start here (session ended 2026-11-19 - staging = post205; dev STOPPED on post194; feature = post205, pushed)
 
+**Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
+AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
+
 **First check:** `git fetch && git status -sb` = up to date with
 `origin/feature/multi-table` (head = docs on top of post205).
 - **staging `codegen-agent-staging` = post205** (`main` = e2b967b, identical-tree merge;

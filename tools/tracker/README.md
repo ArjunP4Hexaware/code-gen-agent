@@ -10,7 +10,10 @@ loses them.
 | `export_incident_tracker.ts` | `AI_Agent_Incident_tracker.xlsx`, sheet `CodeGen` | READ-ONLY export: one JSON line per incident into a `_JSON_EXPORT` sheet (column B `cont` = join to the row above). Soham pastes column A into the chat; it is client text - read, never committed. |
 
 An update script (rows changed by Incident No) is written per change, from the latest
-export: a `DRY_RUN` switch first, idempotent (running it twice changes nothing more).
+export: a `DRY_RUN` switch first (the console lists what it would do), idempotent (an
+"Update <date>:" line already there is not added again), Comments never touched. It
+quotes client text (incident values), so it is given in the chat and kept in /tmp only -
+**never committed** (2026-11-19's: `/tmp/t/osc/update_incident_tracker_2026-11-19.ts`).
 
 ## The failure that keeps happening: Office Scripts is not plain TypeScript
 

@@ -277,7 +277,50 @@ def discover_frd(content: DocxContent, config: FrdExtractorConfig) -> FrdLayoutP
     """The synonyms' profile of a document, then (post192) its single-value fields
     stated only on a labelled line placed there."""
     profile = _place_line_fields(_discover_family(content, config), content, config)
+    profile = _place_domain_cell(profile, content)
     return _place_load_type_blocks(profile, content, config)
+
+
+def _place_domain_cell(profile: FrdLayoutProfile, content: DocxContent) -> FrdLayoutProfile:
+    """post207 (the tester's FRD, 2026-11-19): a single-feed FRD whose domain has no row
+    of its own, but ONE cell anywhere (any column - it may be a row with no label cell)
+    states both labels ("Domain -<x>" / "Subdomain-<y>", :func:`split_domain_labels`):
+    the domain is placed there and split as a "Domain and Subdomain" cell is. Cells that
+    disagree place nothing (a note; the field stays open). Why a pass: the domain is
+    the one field read by its own two-label grammar (not a ``<label>: <value>`` line
+    field, post192), so the same "any cell" rule is applied with that grammar."""
+    feeds = {f.feed_index for f in profile.fields.values()} | {
+        u.feed_index for u in profile.unresolved}
+    path = "feeds[0].domain"
+    if feeds - {0} or path in profile.fields or "feeds[0].sub_domain" in profile.fields:
+        return profile
+    hits = []
+    for t, rows in enumerate(content.tables):
+        for r, row in enumerate(rows):
+            for c, cell in enumerate(row):
+                if (t, r, c) in content.nested:
+                    continue
+                split = split_domain_labels(cell)
+                if split and split[0] and split[1]:
+                    hits.append((t, r, c, split))
+    where = ", ".join(f"table {t} row {r} col {c}" for t, r, c, _s in hits)
+    notes = list(profile.notes)
+    if len({(normalize_label(a), normalize_label(b)) for *_x, (a, b) in hits}) != 1:
+        if hits:
+            notes.append(f"{path}: {len(hits)} cells state the domain labels differently "
+                         f"({where}) - not placed")
+            return profile.model_copy(update={"notes": notes})
+        return profile
+    t, r, c, _split = hits[0]
+    label = _DOMAIN_LABEL_RE.search(content.tables[t][r][c]).group(1)
+    fields = {**profile.fields, path: FrdFieldSource(table=t, row=r, col=c, value_col=c,
+                                                     label=label, feed_index=0)}
+    confidence = {**profile.confidence, path: 1.0}
+    notes.append(f"{path}: placed at the one cell stating the domain labels ({where})")
+    unresolved = [u for u in profile.unresolved
+                  if u.field not in fields and u.field != "feeds[0].sub_domain"]
+    return profile.model_copy(update={"fields": fields, "confidence": confidence,
+                                      "notes": notes, "unresolved": unresolved})
 
 
 def _discover_family(content: DocxContent, config: FrdExtractorConfig) -> FrdLayoutProfile:
@@ -391,13 +434,20 @@ def _labelled_path(text: str, labels: set[str]) -> str | None:
     """The path a cell states under one of ``labels``: ``<label> : <path>`` on
     one line, or the label line followed by the path line; None otherwise."""
     lines = [line.strip() for line in text.split("\n")]
+    paths = []
     for at, line in enumerate(lines):
         pair = _PAIR_RE.match(line)
         if pair is None or normalize_label(pair.group(1)) not in labels:
             continue
         value = pair.group(2).strip() or next((n for n in lines[at + 1:] if n), "")
         if _PATH_RE.match(value):
-            return value
+            paths.append(value)
+    # post207 (the tester's FRDs): one landing line per environment block ("Prod:" /
+    # "QA:") - read only when every labelled line states the same path (spaces
+    # ignored: "a/ b" = "a/b"), the first as written; paths that differ = None, never
+    # a pick
+    if len({re.sub(r"\s+", "", p) for p in paths}) == 1:
+        return paths[0]
     return None
 
 
@@ -1313,13 +1363,16 @@ def classify_cell(content: DocxContent, source: FrdFieldSource, field: str, valu
 # 2026-10-13 (pair_12, CAQH): one cell states BOTH labels, on two lines —
 # "Domain: Member\nSub Domain: Third Party Liability". "Sub Domain" is tried
 # first at each position, and a bare "domain" never matches inside "subdomain".
-_DOMAIN_LABEL_RE = re.compile(r"(?i)(?<![a-z])(sub[\s_-]*domain|domain)\s*[:=]")
+# post207 (the tester's FRD): a hyphen / en dash after the label separates too -
+# "Domain -<value>" / "Subdomain-<value>".
+_DOMAIN_LABEL_RE = re.compile(r"(?i)(?<![a-z])(sub[\s_-]*domain|domain)\s*[:=\-\u2013]")
 
 
 def split_domain_labels(text: str | None) -> tuple[str | None, str | None] | None:
     """``(domain, sub domain)`` when the cell carries a ``Domain:`` AND a
     ``Sub Domain:`` label (any case; ``Sub-Domain`` / ``Subdomain`` /
-    ``Sub_Domain``; ``:`` or ``=``; any separator between them, either order);
+    ``Sub_Domain``; ``:``, ``=``, ``-`` or an en dash (post207); any separator between
+    them, either order);
     None for any other cell — a plain value reads as before."""
     if not text:
         return None

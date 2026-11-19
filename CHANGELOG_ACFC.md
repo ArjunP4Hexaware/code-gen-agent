@@ -4,6 +4,24 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post207 — 2026-11-19 ("Landing Location" lines; "Domain -" cells)
+
+The tester's report (2026-11-19) items 3 and 1 (domain):
+- `config/config.yaml :: extractor.frd.requirement_landing_labels` + "Landing Location"
+  (her FRDs' Solution Requirements, the path on the next line). `SRC_ADLS_PATH` and the
+  archive paths built from it (`path_patterns`) are filled where they were blank.
+- `extract/frd_docx.py :: _labelled_path`: a cell's labelled landing lines (one per
+  environment block, "Prod:" / "QA:") are read only when they all state one path
+  (spaces ignored); different paths = nothing (before: the first line, silently).
+- `extract/frd_docx.py :: _DOMAIN_LABEL_RE`: a hyphen / en dash separates the domain
+  labels too ("Domain -<x>" / "Subdomain-<y>"); `_place_domain_cell` (new): a
+  single-feed FRD with no domain row is placed at the ONE cell stating both labels, in
+  any column (her row has no label cell); cells that disagree place nothing.
+- Unchanged: the archive path stays the `path_patterns` template (a stated "Archive
+  Location" is not read yet - next); a multi-feed FRD's domain.
+
+Tests: `tests/test_landing_domain_post207.py` (11; 9 failed before the change).
+
 ## 0.5.8.post206 — 2026-11-19 (an FRD field no cell states can be typed or left blank)
 
 The tester's dead end (staging post205): an FRD field the reader could not place (file

@@ -454,7 +454,7 @@ extractor:
     solution_requirement_min_labels: 5
     # post84 (pair_11, the label as the client FRD writes it): a requirement's own
     # landing line, read per requirement when the ADLS Location cell lists several
-    requirement_landing_labels: ["Raw ADLS Location", "ADLS Location"]
+    requirement_landing_labels: ["Raw ADLS Location", "ADLS Location", "Landing Location"]
     inline_pair_separators: [";"]
     # post196 (a staging FRD, 2026-11-17, the labels as it writes them): a requirement's
     # "Load Type:" block (STG / STD headings, one strategy line each) and the requirement

@@ -45,7 +45,7 @@ class TemplateItem:
     # post59: a convenience entry (the feed-level pipeline_name choice that
     # covers every flow) — not an input owed, not counted in the header
     shared: bool = False
-    # post61: a profile default the run WROTE (its value) — listed so the BSA
+    # post61: a profile default the run WROTE (its value) — listed so the data engineer
     # can change it, not an input owed, not counted in the header
     applied: str = ""
 

@@ -368,7 +368,7 @@ def check_iig_derivations(payload: dict, config: Config,
 
 def path_whitespace_flag(where: str, kinds: list[str]) -> str:
     return (f"iig_path_whitespace:{where} — {', '.join(kinds)}; kept as the source "
-            "document states it (BSA to confirm)")
+            "document states it (data engineer to confirm)")
 
 
 def path_whitespace_flags(payload: dict, cfg: DerivationsConfig) -> list[str]:

@@ -4,7 +4,7 @@ be easily sourced"). One line per flow row, in the feed's report and the run's L
 
 - the name as written (or why it is open),
 - HOW it got there: the naming-standard pattern written unasked
-  (``pipeline_name_autoset``), a choice the BSA made, an answer given, or open,
+  (``pipeline_name_autoset``), a choice the data engineer made, an answer given, or open,
 - the pattern and the config key it lives under, and
 - every {part} of the pattern: its value and where that value came from (the FRD
   cell / line, which Naming Standards table turned it into a code).
@@ -109,8 +109,8 @@ def _how(answer) -> tuple[str, str]:
         return "answered (answers file / the App's dialog)", ""
     source, template = chosen
     return ({"profile": "the naming-standard pattern, written unasked (pipeline_name_autoset)",
-             "default": "the BSA chose use_default (the pattern)",
-             "standard": "the BSA chose naming_standard",
+             "default": "the data engineer chose use_default (the pattern)",
+             "standard": "the data engineer chose naming_standard",
              }.get(source, f"chosen ({source})"), template)
 
 

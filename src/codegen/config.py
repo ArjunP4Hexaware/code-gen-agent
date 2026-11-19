@@ -1558,7 +1558,7 @@ class ConventionsProfileConfig(BaseModel):
     # post57 (D1 post55 pair_01, derivations [path_whitespace 19]): whitespace in
     # a folder path the documents state. keep = the path is written byte for byte
     # and each cell gets ONE flag naming its coordinates and the kind of
-    # whitespace (double space / leading / trailing / tab) for the BSA to
+    # whitespace (double space / leading / trailing / tab) for the data engineer to
     # confirm; fail = the old derivations check (any whitespace fails the gate).
     path_whitespace: Literal["keep", "fail"] = "keep"
     # post57 (pair_01: the FRD landing cell read "Path : <account>/<container>/
@@ -1590,7 +1590,7 @@ class ConventionsProfileConfig(BaseModel):
     # post59 (PIPELINE_NAME three-way choice, codegen.input_choices): the
     # proposal per flow (grand_master / master / file_to_stg / stg_to_std), a
     # template over {domain} {subdomain} {source} {frequency} {layer}
-    # {load_mode}. Proposed is not applied: only the BSA's explicit choice
+    # {load_mode}. Proposed is not applied: only the data engineer's explicit choice
     # (answers file / App Confirm) fills a cell. {} = no proposal.
     pipeline_name_templates: dict[str, str] = Field(default_factory=dict)
     # ... {layer} per flow, and the rendered name's case (upper | keep)
@@ -1644,7 +1644,7 @@ class ConventionsProfileConfig(BaseModel):
     # profile since the IIG-first flow (2026-10-02): the certified IIG workbook
     # is the deliverable. Both this AND dml.enabled must be true for DML.
     emit_dml: bool = False
-    # IIG-first M3: write <feed>_IIG_REVIEW.xlsx (the BSA's review copy) and
+    # IIG-first M3: write <feed>_IIG_REVIEW.xlsx (the review copy) and
     # <feed>_IIG.xlsx (the clean copy) next to config_rows.xlsx, and list them
     # plus both switches in ADDITION.md. Off for the reference profile so its
     # framework output stays byte-identical.
@@ -1876,7 +1876,7 @@ class OwedCellConfig(BaseModel):
     # ``when`` = the row's cell values it applies to ({RULE_CLASS: NullCheckRule});
     # ``default`` = a shape written while unanswered ({source} ... tokens, a
     # <<D1:...>> placeholder leaves it open) — still an INPUT_NEEDED line,
-    # "with that default", so the BSA can change it.
+    # "with that default", so the data engineer can change it.
     header: str | None = None
     when: dict[str, str] = Field(default_factory=dict)
     default: str | None = None
@@ -2116,7 +2116,7 @@ class MetadataTemplateConfig(BaseModel):
     # these regexes (case-insensitive); every other file_to_stg feed runs the
     # single notebook. None configured = the format alone decides (as before).
     edi_feed_patterns: list[str] = Field(default_factory=list)
-    # 2026-10-14 (framework owner): the email status set is the BSA's — the corpus
+    # 2026-10-14 (framework owner): the email status set is the data engineer's — the corpus
     # writes 4 statuses on 293 pipelines, 2 on 56, 1 on 256. A run-level
     # INPUT_NEEDED (``faq``, scope run) with the default "all four" (every
     # template_rows status); an answer (comma-separated statuses) trims the rows.
@@ -2507,7 +2507,7 @@ IigReason = Literal["framework_assigned", "audit_date", "audit_by", "unstated",
 
 
 class IigReviewConfig(BaseModel):
-    """IIG-first M3: the two IIG workbooks a framework run writes — the BSA's
+    """IIG-first M3: the two IIG workbooks a framework run writes — the data engineer's
     review copy (summary sheet first, open / flagged cells highlighted and
     commented) and the clean copy (the template, values only).
 
@@ -2532,7 +2532,8 @@ class IigReviewConfig(BaseModel):
         "additional_dq_rules": "engineer"})
     owners: dict[str, IigOwner] = Field(default_factory=dict)
     owner_labels: dict[IigOwner, str] = Field(default_factory=lambda: {
-        "bsa": "BSA", "engineer": "Engineer", "engineer_confirms": "Engineer (confirm)",
+        "bsa": "Data Engineer", "engineer": "Data Engineer (technical value)",
+        "engineer_confirms": "Data Engineer (confirm)",
         "set_at_load": "Set at load (CI/CD)"})
     owner_fills: dict[IigOwner, str] = Field(default_factory=lambda: {
         "bsa": "FFC7CE", "engineer": "FFEB9C", "engineer_confirms": "DDEBF7",
@@ -2547,7 +2548,7 @@ class IigReviewConfig(BaseModel):
         "flagged_note": "flagged by the derivation (see note)",
         "additional_dq_rules": "additional DQ rules (not generated)"})
     # post89: a sheet left EMPTY by rule (headers only) gets one summary row, so the
-    # BSA reading the review copy knows the empty sheet is expected:
+    # data engineer reading the review copy knows the empty sheet is expected:
     # [sheet, "", empty_by_rule_label, empty_by_rule_owner, 0, "", the reason's text].
     # Keys of empty_by_rule_reasons = the reasons framework.py records.
     empty_by_rule_label: str = "empty by rule (no rows expected)"
@@ -2560,7 +2561,7 @@ class IigReviewConfig(BaseModel):
         "layout_model_placed:", "frd_crosscheck:", "layout_crosscheck:",
         "frd_tables_set_aside:"])
     review_flag_label: str = "check before approving (layout / cross-document)"
-    review_flag_owner: str = "engineer + BSA"
+    review_flag_owner: str = "Data Engineer"
     empty_by_rule_reasons: dict[str, str] = Field(default_factory=lambda: {
         "MFT": "the file lands by MFT; MFT-landed feeds have no FILE_ADLS rows",
         "delimited": "a delimited file; the fixed-width handler applies only to "

@@ -5,7 +5,7 @@
 
 - the run-level lines (the environment's QUESTIONs, the run's INPUT_NEEDED),
   each held-back feed's lines and each value no document states;
-- every feed through :meth:`GenerateRun.feed` — the BSA's choices
+- every feed through :meth:`GenerateRun.feed` — the data engineer's choices
   (codegen.input_choices), the feed's own owed inputs and LOB question,
   CRASHED (partial emit files removed) / GATE_FAIL (files kept under
   ``quarantine/`` + GATE_FAIL.md) / written;
@@ -356,7 +356,7 @@ class GenerateRun:
             "NOTE", key,
             f"{n} FRD stage table{'s' if n != 1 else ''} no STTM field maps - set aside, "
             "not built (the STTM is authoritative for the table set; flag "
-            "frd_tables_set_aside:stage names them). Confirm with the BSA that the FRD "
+            "frd_tables_set_aside:stage names them). Confirm that the FRD "
             "does not need them."))
         self.open_items.append(run_stages.open_item("INPUT_NEEDED", key, feed=spec.feed_id))
 

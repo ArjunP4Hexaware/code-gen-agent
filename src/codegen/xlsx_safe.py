@@ -3,7 +3,7 @@
 openpyxl binds any ``str`` of two or more characters that starts with ``=`` as a
 FORMULA cell (``data_type == 'f'``): an FRD field or STTM cell such as
 ``=WEBSERVICE("http://...")`` copied into the IIG / review copy / config rows /
-test-record workbook would run when a BSA opens the file. Every workbook the
+test-record workbook would run when a data engineer opens the file. Every workbook the
 agent writes goes through :func:`neutralize_formulas` just before it is saved
 (``metadata_sheet.stable_workbook_bytes`` is the funnel; the two direct
 ``save`` calls call it too), and the gate check ``xlsx_no_formulas``
@@ -16,7 +16,7 @@ Which characters, and why:
   that must have its ``data_type`` forced back to ``'s'`` (a string cell —
   Excel never evaluates a stored string cell on open).
 - ``+ - @`` are formula starters in Excel's own INPUT parser (``+1+1``,
-  ``@SUM(..)``, ``-1+1``): stored as strings they are inert on open, but a BSA
+  ``@SUM(..)``, ``-1+1``): stored as strings they are inert on open, but a data engineer
   who edits the cell and presses Enter has Excel re-parse the text. The cell
   style's ``quotePrefix`` (Excel's "text, typed with a leading apostrophe"
   flag) stops that re-parse, so every string starting with ``= + - @`` gets

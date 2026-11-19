@@ -308,7 +308,7 @@ def test_generated_pair1_against_the_golden_pairs_every_row(pair1_scorecard, cap
     assert summaries["TOTAL"]["paired"] == 26
     # The open cells carry their review-copy owner, not "no review entry".
     assert "owner: no review entry" not in out
-    assert "owner: BSA" in out and "owner: Engineer" in out
+    assert "owner: Data Engineer" in out and "owner: Data Engineer (technical value)" in out
     # The scorecard agrees with Chunk A's every-cell classification
     # (test_m4_acceptance): a DIFF is a pinned deviation, an ALIAS a masked
     # sequence id, an OPEN cell one the golden fills and ours leaves open.

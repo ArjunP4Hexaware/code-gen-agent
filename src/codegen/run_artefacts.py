@@ -487,9 +487,9 @@ def _log_text(sttm, kept, excluded, names, written, merge, ddl_skipped, conflict
                      "workbook, one sheet per feed: the tester fills in the result columns. |")
     if "iig" in written:
         lines.append(f"| `{written['iig']}` | The IIG: the template's sheets and columns, "
-                     "values only — the file the BSA certifies and the CI/CD pipeline "
+                     "values only — the file the data engineer certifies and the CI/CD pipeline "
                      "loads. |")
-        lines.append(f"| `{written['review']}` | The BSA's review copy: sheet "
+        lines.append(f"| `{written['review']}` | The data engineer's review copy: sheet "
                      f"`{config.iig_review.summary_sheet}` first, then the template sheets "
                      "with every open cell highlighted by owner and commented; each feed's "
                      "first row is marked. |")

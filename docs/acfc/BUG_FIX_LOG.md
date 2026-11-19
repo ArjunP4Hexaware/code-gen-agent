@@ -29,6 +29,30 @@ number.
 
 ---
 
+## 0.5.8.post211 — Soham 2026-11-19: the App and its files named the BSA as the agent's user
+
+- **Symptom:** the App's output option ("DDL + BSA-annotated IIG"), the review copy's
+  Owner column (BSA / Engineer), its notes ("left blank: the BSA chose ..."), the DQ
+  suggestions ("if the BSA confirms one"), the report and LOG.md ("BSA review ... the BSA
+  certifies") named the BSA; the agent's user is the data engineer.
+- **Reproduced:** n/a (wording).
+- **Root cause:** the M3-era wording (2026-10) assumed the BSA reviews the IIG.
+- **Change:** text only, ~40 strings across src / ui / config (`the BSA` -> `the data
+  engineer`); `config :: iig_review.owner_labels` + `review_flag_owner` (and the model's
+  defaults in `config.py`). Keys (`bsa` / `engineer` / `engineer_confirms`), colours and
+  every cell's group unchanged.
+- **Reach:** 12-pair check - pending (expected: review copies' Owner labels / notes and
+  the reports' wording only).
+- **Side effects:** pending.
+- **Unchanged:** cell values, groups, counts; the 2026-10-14 framework-owner rule's
+  comments (history).
+- **Tests:** 9 updated (path whitespace flag, pipeline-name choice, review inventory x2,
+  file tie-break, scorecard, framework report, 2 vitest); no new behaviour to pin.
+- **Verified:** pending.
+- **Revert:** the owner labels are config (`iig_review.owner_labels`); `git revert` the
+  wording.
+- **Deployed:** dev not yet (STOPPED); staging not yet.
+
 ## 0.5.8.post210 — second tester 2026-11-19: unreadable FRD questions; a feed-name dead end
 
 - **Symptom:** the layout dialog asked 6 questions, each listing the same 16 FRD cells
@@ -71,7 +95,7 @@ number.
   fixes); vitest 286; tsc + ruff clean; 12-pair check alone.
 - **Revert:** `git revert` the version; `_plausible_candidates` returning `candidates`
   restores the old lists.
-- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Deployed:** dev not yet (STOPPED); staging 13d098e 2026-11-19.
 
 ## 0.5.8.post209 — tester report 2026-11-19 (2): the STTM's File Details tab unread
 

@@ -396,7 +396,7 @@ class DemoRunner:
         # post80: which pause the dialog is ("layout" — before any value is read —
         # or "before_generate": the run's blocking questions, then one generate)
         self.pause_kind = "layout"
-        # post59: the BSA's CONFIRMED input choices (key -> input_choices.Choice):
+        # post59: the data engineer's CONFIRMED input choices (key -> input_choices.Choice):
         # the panel's radio sits on use_default, but only a Confirm records it,
         # and only a recorded choice is applied by the next Generate
         self.input_choices: dict = {}
@@ -2089,7 +2089,7 @@ class DemoRunner:
             # post80: every blocking line the last run left open ({key, scope, feed})
             "blocking": list(self.blocking_lines),
             "pause_kind": self.pause_kind,
-            # post59: the choices the BSA confirmed (applied by the next Generate)
+            # post59: the choices the data engineer confirmed (applied by the next Generate)
             "input_choices": {key: {"choice": c.choice, "standard": c.standard}
                               for key, c in self.input_choices.items()},
             "needs_answers_inputs": ({"sttm": Path(self._run_inputs[0]).name,
@@ -2537,7 +2537,7 @@ class DemoRunner:
                         sttm_path: Path | None = None):
         """post60: the App's generate — the CLI's entry point
         (codegen.generate_run.GenerateRun over cli.generate_feed_result): the
-        BSA's confirmed choices, the owed inputs, CRASHED / GATE_FAIL /
+        data engineer's confirmed choices, the owed inputs, CRASHED / GATE_FAIL /
         written and ``<run>/CODEGEN_STAGES.json``, built by the same code as
         ``codegen generate``. Returns (runs by slug, the failed feeds, the
         manifest); :attr:`outcome` is the manifest's."""
@@ -2686,7 +2686,7 @@ class DemoRunner:
                 and (choice.standard or "").strip()}
 
     def confirm_input_choices(self, choices: dict) -> dict:
-        """post59: record the BSA's confirmed choices — ``{key: {choice,
+        """post59: record the data engineer's confirmed choices — ``{key: {choice,
         standard?}}`` (``null`` withdraws one). Applied by the next Generate
         (CLI parity: the answers file's ``choice:`` / ``standard:``).
         ValueError = HTTP 400."""

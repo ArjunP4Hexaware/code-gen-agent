@@ -788,7 +788,7 @@ def cancel_run() -> dict:
 
 @app.post("/api/demo/input-choices")
 def confirm_input_choices(req: InputChoicesRequest) -> dict:
-    """post59: the BSA's Confirm on the inputs panel — ``{"choices": {"<inputs
+    """post59: the data engineer's Confirm on the inputs panel — ``{"choices": {"<inputs
     key>": {"choice": "use_default" | "naming_standard" | "leave_blank",
     "standard": "<template>"} | null}}``. Recorded, never applied until the next
     Generate (proposed is not applied). 400 on an unknown choice / placeholder."""

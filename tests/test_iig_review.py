@@ -39,12 +39,15 @@ from test_derivations import FRD_CATALOG, REPO, _pair11_specs, _scoped
 # RECYCL_ENBL_FLG (4 ADLS rows) is badged synthetic, no longer from_frd — Engineer
 # (confirm) +4.
 INVENTORY = {
-    "pair1": {"BSA": 96, "Engineer": 145, "Engineer (confirm)": 147, "Set at load (CI/CD)": 52},
+    # post211: the labels name the data engineer (the groups and counts unchanged)
+    "pair1": {"Data Engineer": 96, "Data Engineer (technical value)": 145,
+              "Data Engineer (confirm)": 147, "Set at load (CI/CD)": 52},
     # 2026-10-08 (first real-row scorecard): +3 Engineer (confirm) — the shipped
     # family leaves RECYCL_* open (9 cells) instead of writing the NA constants
     # (6 cells). (FREQUENCY = the run cadence since post22: pair 11's FRD states
     # no run statement, so its cells carry no note.)
-    "pair11": {"BSA": 174, "Engineer": 153, "Engineer (confirm)": 156, "Set at load (CI/CD)": 60},
+    "pair11": {"Data Engineer": 174, "Data Engineer (technical value)": 153,
+               "Data Engineer (confirm)": 156, "Set at load (CI/CD)": 60},
 }
 
 
@@ -149,8 +152,9 @@ def test_owner_reassignment_is_a_config_change(pair1_config, pair1_spec, tmp_pat
     config = pair1_config.model_copy(update={
         "iig_review": pair1_config.iig_review.model_copy(update={"owners": owners})})
     totals, _ = _owner_totals(_run([pair1_spec], config, tmp_path))
-    assert totals["BSA"] == INVENTORY["pair1"]["BSA"] - 4          # 4 pipeline rows
-    assert totals["Engineer"] == INVENTORY["pair1"]["Engineer"] + 4
+    assert totals["Data Engineer"] == INVENTORY["pair1"]["Data Engineer"] - 4  # 4 pipeline rows
+    assert totals["Data Engineer (technical value)"] == (
+        INVENTORY["pair1"]["Data Engineer (technical value)"] + 4)
 
 
 def test_the_owner_table_is_validated():

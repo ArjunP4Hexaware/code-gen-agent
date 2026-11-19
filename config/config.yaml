@@ -1286,7 +1286,7 @@ conventions:
       audit_flag_datatypes: [tinyint, int, smallint, boolean]
       audit_flag_suffixes: [_flag, _ind]
       # post57: whitespace in a path the documents state - keep (written byte for
-      # byte, one iig_path_whitespace flag per cell for the BSA) | fail (the gate
+      # byte, one iig_path_whitespace flag per cell for the data engineer) | fail (the gate
       # fails it). The PRX golden's own paths carry double spaces.
       path_whitespace: keep
       # post57: record-segment codes, canonical -> spellings (the PRX golden's
@@ -1299,7 +1299,7 @@ conventions:
       # post59: PIPELINE_NAME proposals per flow (codegen.input_choices) over
       # {domain} {subdomain} {source} {frequency} {layer} {load_mode} ({layer} per
       # flow: pipeline_flow_layers). A proposal is shown, never applied: the cell
-      # is written only after the BSA's explicit choice (use_default /
+      # is written only after the data engineer's explicit choice (use_default /
       # naming_standard / leave_blank). Rendered names: non-name characters ->
       # '_', upper case. A proposal colliding with a PIPELINE_NAME of
       # pipeline_name_corpus (the overlay's goldens folder) is not offered.
@@ -1326,7 +1326,7 @@ conventions:
       # notebooks again (emit/dml.py is kept, unchanged); the run report says
       # "DML not generated (disabled)" while it is off.
       emit_dml: false
-      # IIG-first M3: the BSA review copy + clean copy of the IIG workbook
+      # IIG-first M3: the review copy + clean copy of the IIG workbook
       # (iig_review: section below), listed in ADDITION.md with both switches.
       emit_iig_review: true
       # M7 §4: off — the combined DDL is byte-compared with the pair-1 golden;
@@ -1612,7 +1612,7 @@ iig_review:
   # next to config_rows.xlsx: <feed>_IIG_REVIEW.xlsx (summary sheet first;
   # every open / flagged cell highlighted by owner and commented with its
   # reason, citation and owner) and <feed>_IIG.xlsx (the clean copy: the
-  # template's sheets and columns, values only). The BSA reviews and
+  # template's sheets and columns, values only). The data engineer reviews and
   # certifies; CI/CD loads the config tables from the certified clean copy.
   review_file_pattern: "{feed}_IIG_REVIEW.xlsx"
   clean_file_pattern: "{feed}_IIG.xlsx"
@@ -1643,9 +1643,9 @@ iig_review:
                          "frd_cell_line_ignored:", "frd_cell_line_conflict:",
                          "frd_model_located:", "frd_line_located:"]
   review_flag_label: "check before approving (layout / cross-document)"
-  review_flag_owner: "engineer + BSA"
+  review_flag_owner: "Data Engineer"
   owners:
-    # Technical values no input states: the engineer, not the BSA.
+    # Technical values no input states (the 'technical value' group).
     FILE_ADLS_INGESTION_DETAILS.SRC_ROOT_DIR: engineer
     ADLS_DELTA_INGESTION_DETAILS.MAPPING_EXPRESSION: engineer
     ADLS_DELTA_INGESTION_DETAILS.SRC_COL_LNGTH: engineer
@@ -1665,10 +1665,13 @@ iig_review:
     DATABRICKS_NOTEBOOK_DETAILS.DATABRICKS_NOTEBOOK_PATH: engineer
     DATABRICKS_NOTEBOOK_DETAILS.DELETE_DATABRICKS_NOTEBOOK_NAME: engineer
     DATABRICKS_NOTEBOOK_DETAILS.DQ_NOTEBOOK_PATH: engineer
+  # post211 (Soham, 2026-11-19): everything the agent's files ask for is the DATA
+  # ENGINEER's (the agent's user) - the three groups keep their colours and keys
+  # (bsa = values no document states), only the labels name the one owner.
   owner_labels:
-    bsa: BSA
-    engineer: Engineer
-    engineer_confirms: Engineer (confirm)
+    bsa: Data Engineer
+    engineer: Data Engineer (technical value)
+    engineer_confirms: Data Engineer (confirm)
     set_at_load: Set at load (CI/CD)
   owner_fills: {bsa: FFC7CE, engineer: FFEB9C, engineer_confirms: DDEBF7, set_at_load: E7E6E6}
   reason_labels:

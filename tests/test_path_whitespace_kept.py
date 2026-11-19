@@ -68,7 +68,8 @@ def test_a_double_space_passes_through_unchanged_with_exactly_one_flag():
     payload = _payload(path)
     flags = path_whitespace_flags(payload, config.gate.derivations)
     assert flags == ["iig_path_whitespace:ADLS_DELTA_INGESTION_DETAILS!B2 (SRC_ADLS_PATH) — "
-                     "double space; kept as the source document states it (BSA to confirm)"]
+                     "double space; kept as the source document states it (data engineer "
+                     "to confirm)"]
     assert payload["tabs"]["ADLS_DELTA_INGESTION_DETAILS"]["rows"][0]["values"][
         "SRC_ADLS_PATH"] == path                                    # byte for byte
     assert check_iig_derivations(payload, config, "keep").passed

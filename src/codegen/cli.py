@@ -187,7 +187,7 @@ def generate_feed_result(
     stage("emitting code")
     # Three-input model: file answers (fixtures/faq/<slug>.faq.yaml) plus
     # contract prefills; missing file => all defaults, flagged by the gate.
-    # post59: the BSA's explicit choices ride faq_answers (codegen.input_choices).
+    # post59: the data engineer's explicit choices ride faq_answers (codegen.input_choices).
     faq = with_faq_answers(faq_for_spec(spec, config, base_dir=base_dir), faq_answers)
 
     duplicate_outcome = next(
@@ -752,7 +752,7 @@ def _run_pairs(
     # feeds[<i>].src_adls_path) reaches the resolver like a gaps: answer
     gaps = {**{k: v for k, v in inputs.items() if k.startswith("feeds")},
             **_answers_gaps(answers_path)}
-    # post59: the BSA's explicit choices (use_default / naming_standard /
+    # post59: the data engineer's explicit choices (use_default / naming_standard /
     # leave_blank) — proposed is never applied without one
     choices = _answers_choices(answers_path)
     from codegen.environments import EnvironmentSelectionError

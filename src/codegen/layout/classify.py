@@ -18,7 +18,7 @@ tell the two apart:
   the IIG template's sheet names (``iig_sheets``): at least two of the
   workbook's sheets are IIG template tabs (DATA_FACTORY_PIPELINE_SCHEDULE …);
   with the review copy's summary sheet (``review_sheet``) as well it is the
-  BSA's review copy. Never an input — the App's chooser leaves both out of
+  data engineer's review copy. Never an input — the App's chooser leaves both out of
   its lists. Callers that pass no sheet names (the CLI's pair folders) get
   the three kinds below, as before;
 * **unclassified** — neither. Never hidden: the chooser lists it with a badge,

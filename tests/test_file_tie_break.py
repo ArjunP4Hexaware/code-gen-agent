@@ -110,7 +110,8 @@ def test_the_bsa_answer_is_remembered_with_the_layout_profile(tmp_path):
                                                       remember=dict(remember))
     assert "feeds[1].file_name_patterns" not in [q.key for q in questions]
     assert split.feeds[1].file_name_patterns == ["vendor_feed_one_YYYYMMDD.csv"]
-    assert any("the BSA's earlier answer (cached in the layout profile)" in f for f in flags)
+    assert any("the data engineer's earlier answer (cached in the layout profile)" in f
+               for f in flags)
 
 
 def test_the_cache_rides_the_profile_and_stays_out_of_an_empty_dump():

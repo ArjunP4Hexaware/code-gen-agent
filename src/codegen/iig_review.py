@@ -1,4 +1,4 @@
-"""IIG-first M3: the two IIG workbooks a framework run hands to the BSA.
+"""IIG-first M3: the two IIG workbooks a framework run hands to the data engineer.
 
 * ``<feed>_IIG_REVIEW.xlsx`` — a summary sheet first (one row per sheet /
   column / reason / owner group: cell count, example cell, example

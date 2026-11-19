@@ -93,7 +93,7 @@ def unstated_source_cell() -> dict:
     blank and flagged (``iig_blank:``), never the docx reader's placeholder."""
     return _cell("", "needs_template",
                  "the FRD states no source (no Data Source / Vendor label) - to be "
-                 "filled by the BSA")
+                 "filled by the data engineer")
 
 
 def _source_system_cell(feed: FrdFeed) -> dict:

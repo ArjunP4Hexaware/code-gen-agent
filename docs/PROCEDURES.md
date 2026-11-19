@@ -38,6 +38,11 @@ Moved verbatim from `AGENTS.md` on 2026-11-10 (they load only when needed). The 
   previous day's bold, the C1 header names the date). Keep it short; detail goes to the
   day's work.
 - **Gotchas:**
+  - **Office Scripts compile stricter than `tsc`** (it happens often, and it is not a
+    paste problem): an array method's callback must be an arrow function written in place
+    (`row.some(v => isFilled(v))`, never `row.some(isFilled)`), no `function` callbacks,
+    no `any`. Run `tools/tracker/check_office_script.py` on every script before giving it
+    to Soham (`tools/tracker/README.md`);
   - the DEFAULT Databricks profile's PAT lives 15 minutes (the coding App rotates it
     every 10): a CLI call that waits longer fails "Invalid access token" - use the OAuth
     profile (RESTART.md) for slow calls;

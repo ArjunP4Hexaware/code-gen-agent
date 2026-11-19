@@ -41,10 +41,10 @@ function main(workbook: ExcelScript.Workbook) {
     const values = used.getValues();
     const formats = used.getNumberFormats();
     const top = used.getRowIndex();       // 0-based
-    const filled = (v: string | number | boolean) => v !== "" && v !== null && v !== undefined;
-
     // header = the first row with 2+ filled cells
-    const h = values.findIndex(row => row.filter(filled).length >= 2);
+    // Office Scripts: an array method's callback must be an arrow function written in
+    // place - never a function passed by name (row.filter(isFilled) fails to compile)
+    const h = values.findIndex(row => row.filter(v => isFilled(v)).length >= 2);
     if (h < 0) {
       lines.push(JSON.stringify({ _sheet: name, _error: "no header row found" }));
       continue;
@@ -64,11 +64,11 @@ function main(workbook: ExcelScript.Workbook) {
 
     for (let r = h + 1; r < values.length; r++) {
       const row = values[r];
-      if (!row.some(filled)) continue;
+      if (!row.some(v => isFilled(v))) continue;
       const rec: { [k: string]: string | number | boolean } = { _sheet: name, _row: top + r + 1 };
       for (let c = 0; c < headers.length; c++) {
         const v = row[c];
-        if (!filled(v)) continue;
+        if (!isFilled(v)) continue;
         rec[headers[c]] = typeof v === "number" && isDateFormat(formats[r][c]) ? serialToIso(v) : v;
       }
       lines.push(JSON.stringify(rec));
@@ -93,6 +93,11 @@ function main(workbook: ExcelScript.Workbook) {
   target.setValues(rows);
   out.activate();
   console.log(`${records} record(s) from ${SHEETS.join(", ")} -> ${OUT} (${rows.length} row(s))`);
+}
+
+/* A cell that holds something (not blank). */
+function isFilled(v: string | number | boolean): boolean {
+  return v !== "" && v !== null && v !== undefined;
 }
 
 /* A number format that shows a date / time (quoted text and [..] sections ignored). */

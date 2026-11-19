@@ -261,6 +261,10 @@ class FrdFeed(BaseModel):
     # Key / Natural Key) — a key SIGNAL (codegen.primary_key), never a value
     # written as is. Absent from the JSON when the document has none.
     key_statement: str | None = None
+    # post208: the archive path a Solution Requirement states ("Archive Location") -
+    # compared with the IIG's SRC_ADLS_ARCHVL_PATH shape, never written over it.
+    # Absent from the JSON when unstated.
+    archive_location: str | None = None
 
     @property
     def is_segmented(self) -> bool:

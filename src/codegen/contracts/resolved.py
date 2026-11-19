@@ -108,6 +108,8 @@ class ResolvedFeedSpec(BaseModel):
     file_format: str
     delimiter: str
     landing_location: str | None
+    # post208: the FRD's stated archive path (compared with the IIG's shape, never written)
+    archive_location: str | None = None
 
     # Segments: exactly one entry ("Detail") for flat feeds
     segments: list[SegmentSpec] = Field(min_length=1)

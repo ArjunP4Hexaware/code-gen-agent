@@ -29,6 +29,43 @@ number.
 
 ---
 
+## 0.5.8.post208 — tester report 2026-11-19: the feed named after a Data Quality section; the stated archive path unread
+
+- **Symptom:** her first pair's only feed was named "Data Quality rules" (the run's
+  held-back list, the IIG / DDL names); the FRD's "Archive Location" was never read.
+- **Reproduced:** her staging uploads, mock, post207, /tmp only: the FRD profile's
+  `feeds[0].feed_name#fallback` = the Data Quality section table's Name row.
+- **Root cause:** `frd_docx._discover_f1` took the FIRST F1 section's "Name" row as the
+  feed name's fallback - in an FRD without a Descriptive Metadata table that was the
+  Data Quality section's own title. The archive: no reader existed
+  (`SRC_ADLS_ARCHVL_PATH` is the `path_patterns` template of the landing).
+- **Change:** `config :: extractor.frd.feed_name_sections` (new, [descriptive]) checked in
+  `_discover_f1` (a note instead of the fallback); `config :: requirement_archive_labels`
+  (new); `frd_docx._labelled_path` (a bracketed note after the label = no value;
+  `spaced_ok` for a compared path), `requirement_landings(labels, spaced_ok)`,
+  `_requirement_path_blocks` (the post84 landing blocks, for the landing and the
+  archive); `contracts.frd.FrdFeed.archive_location`,
+  `contracts.resolved.ResolvedFeedSpec.archive_location` (new, default None - absent
+  from the JSON), `resolver` + `metadata_sheet._feed_from_spec` carry it,
+  `layout.resolve.resolve_structured_fields` binds it per feed like the landing;
+  `metadata_template._note_stated_archive` (the review note). Why passes: the feed-name
+  one is a config gate on an existing rule; the archive reuses the landing reader.
+- **Reach:** 12-pair check (framework, mock, post207 vs post208): outcomes unchanged,
+  295 / 295 files, no REAL change on any pair (build stamps only) - no pair has a Name
+  row outside a descriptive section as its feed's name, nor an Archive Location line.
+  On her pair A: the feed named after the STTM stage band; the stated archive agrees
+  with both sheets' shapes (no note).
+- **Side effects:** a test stub feed without the new attribute (getattr default).
+- **Unchanged:** the archive cell's value (always the template shape - option C); a
+  Descriptive section's Name row; the vendor-name fallback for the source system.
+- **Tests:** `tests/test_feed_name_archive_post208.py` (10; with HEAD's `frd_docx.py` +
+  config.yaml 4 failed, with the note a no-op 1 failed).
+- **Verified:** `.venv` 2688 passed; `.venv-d1` 2336 passed; ruff clean; 12-pair check
+  alone.
+- **Revert:** `feed_name_sections` listing every section restores the old fallback;
+  `requirement_archive_labels: []` stops the archive reading; or `git revert`.
+- **Deployed:** dev not yet (STOPPED); staging not yet.
+
 ## 0.5.8.post207 — tester report 2026-11-19 (3, 1): "Landing Location" unread; "Domain -" cell unread
 
 - **Symptom:** ADLS / STGDELTA `SRC_ADLS_PATH` and `SRC_ADLS_ARCHVL_PATH` blank on both
@@ -63,7 +100,7 @@ number.
   alone.
 - **Revert:** drop "Landing Location" from the config list; `git revert` the version for
   the reader changes.
-- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Deployed:** dev not yet (STOPPED); staging bb5ce4a 2026-11-19.
 
 ## 0.5.8.post206 — tester report 2026-11-19 (1): an FRD field no cell states could not be answered in the App
 

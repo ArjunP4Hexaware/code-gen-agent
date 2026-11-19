@@ -1333,6 +1333,7 @@ def _resolve_one(
         file_format=frd_feed.file_format,
         delimiter=delimiter,
         landing_location=frd_feed.landing_location,
+        archive_location=frd_feed.archive_location,
         segments=segments,
         stage_load_strategy=frd_feed.stage_target.load_strategy,
         standard_table=standard_table,

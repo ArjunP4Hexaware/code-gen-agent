@@ -798,6 +798,7 @@ def _feed_from_spec(spec: ResolvedFeedSpec) -> FrdFeed:
         domain=spec.domain,
         sub_domain=spec.sub_domain,
         landing_location=spec.landing_location,
+        archive_location=spec.archive_location,
         stage_target=TargetSpec(
             catalog=spec.segments[0].stage_table.catalog,
             schema=spec.segments[0].stage_table.schema_name,

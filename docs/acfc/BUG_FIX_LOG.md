@@ -29,6 +29,30 @@ number.
 
 ---
 
+## 0.5.8.post213 — second tester: a standard type cell reading a note CRASHED the run
+
+- **Symptom:** the live run on staging ended CRASHED (`TemplateGapError: no SQL type
+  mapping for contract datatype`).
+- **Reproduced:** her staging uploads (pair C, /tmp only), mock, post212: CRASHED with
+  scratch answers; one standard band type cell reads a note.
+- **Root cause:** `extract/generic.py` carried any standard type text into the contract;
+  `emit/context.sql_type` (post158's guard) then raised - by design for the DDL, but no
+  earlier step asked.
+- **Change:** `generic._is_data_type` (the same `sql_type` mapping) + a blocking QUESTION
+  `feeds[i].columns[j].standard_type` (the row left out until answered; a non-type answer
+  keeps it open); `ui/backend/demo.pending_question` (plain title + the reason as hint).
+  Why a pass: none - the post74 blank-stage-type question applied to the standard cell.
+- **Reach:** 12-pair check - pending; pair C: CRASHED -> NEEDS_ANSWERS (one question);
+  answered "String" -> PASS_WITH_OPEN_INPUTS; answered "Derived too" -> still asked.
+- **Side effects:** pending.
+- **Unchanged:** post158's guard and tests; every cell `sql_type` reads; the stage type
+  question (post74 / post95 wording).
+- **Tests:** `tests/test_standard_type_question_post213.py` (5; 4 failed with HEAD's
+  `generic.py` + `demo.py`).
+- **Verified:** pending.
+- **Revert:** drop the `standard_type` block in `generic._build_feed` (the crash returns).
+- **Deployed:** dev not yet (STOPPED); staging not yet.
+
 ## 0.5.8.post212 — tracker #5: SRC_FILE_NAME not the FRD's file pattern
 
 - **Symptom:** the FRD states `*_<A>_*_<B>*`; ADLS SRC_FILE_NAME was `<A>_<B>*` - it no

@@ -211,6 +211,9 @@ def typed_frd_question(question: dict, config) -> dict:
                        "leave_blank": leave_blank_choice(key, config)}
 
 
+_STANDARD_TYPE_KEY_RE = re.compile(r"^feeds\[\d+\]\.columns\[\d+\]\.standard_type$")
+
+
 def pending_question(pending, key: str, config, frd_contract: Path | None = None) -> dict:
     """The question for a held-back key no layout question carries: a band
     layer (source | stage | standard) or a value no document states (text,
@@ -234,6 +237,17 @@ def pending_question(pending, key: str, config, frd_contract: Path | None = None
                                    pending.reason).as_dict()
     title = frd_field_help(key, [], config)[0]
     example = None
+    if _STANDARD_TYPE_KEY_RE.match(key):
+        # post213: one STTM row's standard type cell holding a note ("Derived") - plain
+        # words, the extractor's reason (it names the cell and what it reads), an example
+        return LayoutQuestion(
+            document="frd", sheet=None, layer=None, role=key, kind="text",
+            reason=pending.reason,
+            title="What is the standard data type of this STTM row's column?",
+            hint=(f"{pending.reason[:1].upper()}{pending.reason[1:]}. Type the data type the "
+                  "source team confirms (for example String, Date, Timestamp, "
+                  "Decimal(12,2)); it is used as your answer and flagged for review."),
+            candidates=[]).as_dict() | {"example": "String", "leave_blank": None}
     if AUDIT_KEY_RE.match(key):
         # Chunk B: the STTM lists no audit row — the person's list, in the
         # shape codegen.extract.generic.parse_audit_answers reads.

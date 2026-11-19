@@ -4,6 +4,22 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post213 — 2026-11-19 (a standard type cell holding a note is one question, never a crash)
+
+A tester's live run (pair C) CRASHED: one STTM row's standard data type cell read
+"Derived". post158's guard (pentest CS-1) stops any non-type before the DDL - right, but
+the run crashed.
+- `extract/generic.py` (`_is_data_type`, `_with_value`): a standard type cell the DDL's
+  type mapping cannot read is a blocking QUESTION `feeds[i].columns[j].standard_type`
+  for that one cell, the row left out until answered (as a blank stage type, post74); a
+  type answer is applied (`answered_cell:` flag); an answer that is no type keeps it open.
+- `ui/backend/demo.py :: pending_question`: that question in plain words (the
+  extractor's reason as the hint, an example), never "No document states this value".
+- Unchanged: post158's guard (a non-type never reaches the DDL); every cell that worked
+  before (the same `sql_type` mapping decides).
+
+Tests: `tests/test_standard_type_question_post213.py` (5; 4 failed before the change).
+
 ## 0.5.8.post212 — 2026-11-19 (tracker #5, #7 / #20, #18, #19)
 
 The incident tracker's re-opened and new CodeGen items (triage 2026-11-19, reproduced on

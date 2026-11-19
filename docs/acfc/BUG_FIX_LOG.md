@@ -44,7 +44,8 @@ number.
   that form, so its golden score on this column drops by design); pair_13 = the FRD's
   pattern.
 - **Side effects:** none found (10 DDL test pins updated for the new statements).
-- **Verified:** pending (suites).
+- **Verified:** `.venv` 2715 passed; `.venv-d1` 2363 passed; ruff clean; 12-pair check
+  alone + pair_13.
 - **Deployed:** dev not yet (STOPPED); staging not yet.
 - **Unchanged:** derived patterns (a sample name with date tokens) keep the convention;
   STTM-sourced patterns keep it.
@@ -68,7 +69,8 @@ number.
   cells: the FRD's stated archive); pair_13 = `.../archive/` on both sheets (the tester's
   expected value); FRD contracts gain `archive_location` where stated.
 - **Side effects:** none found (10 DDL test pins updated for the new statements).
-- **Verified:** pending (suites).
+- **Verified:** `.venv` 2715 passed; `.venv-d1` 2363 passed; ruff clean; 12-pair check
+  alone + pair_13.
 - **Deployed:** dev not yet (STOPPED); staging not yet.
 - **Unchanged:** STGDELTA's archive (the stage-to-standard step's, not the raw file's)
   keeps its shape + the post208 note; an archive outside the landing's folder keeps the
@@ -92,7 +94,8 @@ number.
   gains one reject table per standard table; outcomes unchanged; pair_13 = the table the
   tester named.
 - **Side effects:** none found (10 DDL test pins updated for the new statements).
-- **Verified:** pending (suites).
+- **Verified:** `.venv` 2715 passed; `.venv-d1` 2363 passed; ruff clean; 12-pair check
+  alone + pair_13.
 - **Deployed:** dev not yet (STOPPED); staging not yet.
 - **Unchanged:** no stage reject table (not asked); the IIG.
 - **Tests:** #18 block (3); `test_ddl_runsafe` / `test_ddl_parse_gate` /
@@ -110,7 +113,8 @@ number.
 - **Reach:** 12-pair check: the table COMMENTs of the F1 pairs open with the FRD's
   Description; FRD contracts gain `description`; pair_13 = its Descriptive Description.
 - **Side effects:** none found (10 DDL test pins updated for the new statements).
-- **Verified:** pending (suites).
+- **Verified:** `.venv` 2715 passed; `.venv-d1` 2363 passed; ruff clean; 12-pair check
+  alone + pair_13.
 - **Deployed:** dev not yet (STOPPED); staging not yet.
 - **Unchanged:** the STTM's Table Description wins; post140's "description + load
   strategy" join; F2 FRDs (no Descriptive section) still the load strategy alone.

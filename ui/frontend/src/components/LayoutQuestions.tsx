@@ -241,6 +241,12 @@ export function answersPayload(questions: LayoutQuestion[], picks: AnswerPicks):
   return { sttm, frd, vdd, gaps };
 }
 
+/** post210: a typed FRD question no document cell could state - the text box alone
+ *  (no radios, no "None of these": an empty box is the unanswered state). */
+export function typedOnly(q: LayoutQuestion): boolean {
+  return questionMode(q) === "frd" && Boolean(q.typed) && q.candidates.length === 0;
+}
+
 /** post170: the person chose "Leave blank and continue" for this value. */
 export function isLeftBlank(q: LayoutQuestion, picks: AnswerPicks): boolean {
   return Boolean(q.leave_blank) && picks.gaps[q.key]?.value === q.leave_blank;
@@ -325,7 +331,7 @@ export function QuestionItem({
         <strong>{q.title || q.key}</strong> <code style={{ fontSize: 11 }}>{q.key}</code>
       </div>
       {q.hint ? <div className="hint" style={{ marginTop: 2 }}>{q.hint}</div> : null}
-      {q.kind === "text" && !q.candidates.length ? (
+      {(q.kind === "text" && !q.candidates.length) || typedOnly(q) ? (
         // post169: the hint already says where the agent looked and what a blank
         // answer does; the contract's own reason is technical detail, folded
         <details className="hint" style={{ marginTop: 2, fontSize: 11 }}>
@@ -420,7 +426,7 @@ export function QuestionItem({
           </tbody>
         </table>
       ) : null}
-      {q.kind === "files" ? null : (
+      {q.kind === "files" || typedOnly(q) ? null : (
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
         {q.candidates.map((c, i) => {
           const pickable = pickCandidate(q, c, picks) !== null;
@@ -505,7 +511,9 @@ function TypedFrdValue({ q, picks, onChange }: {
   }
   return (
     <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
-      <span className="hint" style={{ fontSize: 12 }}>Not in any cell above? Type it:</span>
+      <span className="hint" style={{ fontSize: 12 }}>
+        {typedOnly(q) ? "No document states it - type it:" : "Not in any cell above? Type it:"}
+      </span>
       <input
         type="text"
         aria-label={`${q.title || q.key} (typed)`}

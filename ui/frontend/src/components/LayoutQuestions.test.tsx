@@ -449,3 +449,38 @@ describe("post206: an FRD field no table cell states can be typed or left blank"
       gaps: { "feeds[0].file_format": { value: "pipe-delimited", source: "user" } } }, 1);
   });
 });
+
+describe("post210: a typed FRD question no cell states is the text box alone", () => {
+  const lobs: LayoutQuestion = {
+    document: "frd", key: "feeds[0].lobs", sheet: null, layer: null, role: "feeds[0].lobs",
+    kind: "role", reason: "no label in the document maps to this field", header: [],
+    candidates: [], title: "Lines of business", typed: true, leave_blank: null, example: "ALL",
+  };
+
+  it("shows no radios and no None of these, the reason folded, and takes a typed value", () => {
+    render(<Dialog questions={[lobs]} initial={emptyPicks()} />);
+    expect(radios()).toHaveLength(0);
+    expect(host.textContent).not.toContain("None of these");
+    expect(host.textContent).toContain("No document states it - type it:");
+    expect(host.querySelector("details")?.textContent).toContain("no label in the document");
+    const input = host.querySelector('input[aria-label="Lines of business (typed)"]') as
+      HTMLInputElement;
+    act(() => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      set.call(input, "ALL");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(latest.gaps["feeds[0].lobs"]).toEqual({ value: "ALL", source: "user" });
+  });
+
+  it("a typed question WITH plausible cells keeps its radios", () => {
+    const strategy = { ...lobs, key: "feeds[0].stage_target.load_strategy",
+                       role: "feeds[0].stage_target.load_strategy", title: "Stage load strategy",
+                       candidates: [{ table: 2, row: 3, col: 0, label: "Functional Requirement",
+                                      inline_label: "Incremental", value_col: 1,
+                                      line: "Incremental: Truncate & load" }] };
+    render(<Dialog questions={[strategy]} initial={emptyPicks()} />);
+    expect(radios()).toHaveLength(2);                    // the line + None of these
+    expect(host.textContent).toContain("Not in any cell above? Type it:");
+  });
+});

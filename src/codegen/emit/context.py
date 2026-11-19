@@ -547,7 +547,16 @@ def build_context(
     def _standard_type(datatype: str) -> str:
         # FRD-driven AS-IS switch: business columns are STRING in BOTH layers
         # (audit columns keep their own types; they are appended separately).
-        return "STRING" if spec.load_as_is else sql_type(datatype)
+        if spec.load_as_is:
+            return "STRING"
+        try:
+            return sql_type(datatype)
+        except TemplateGapError:
+            # post210 (the second tester's live run CRASHED): a standard-band type cell
+            # that is no type ("Derived") - written as stated, never guessed, as the
+            # framework DDL does (emit.framework, flag standard_type_unmapped); the gate
+            # and the review copy show it
+            return datatype.strip()
 
     # post68: the run's environment profile (catalogs, account, paths) for the
     # notebook's feed_spec; empty when no environment is defined

@@ -51,7 +51,8 @@ number.
   comments (history).
 - **Tests:** 10 updated (path whitespace flag, pipeline-name choice, review inventory x2,
   file tie-break, scorecard, framework report, 2 vitest); no new behaviour to pin.
-- **Verified:** pending.
+- **Verified:** `.venv` 2701 passed; `.venv-d1` 2349 passed (on the pushed tree); vitest
+  286; tsc + ruff clean; 12-pair check alone.
 - **Revert:** the owner labels are config (`iig_review.owner_labels`); `git revert` the
   wording.
 - **Deployed:** dev not yet (STOPPED); staging not yet.

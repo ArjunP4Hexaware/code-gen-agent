@@ -159,7 +159,9 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
    `extractor.blank_words`). NEXT value normalisers (mine, no decision needed): file
    format, decimal.
    Pairing is Phase 2 (6 matchers differ on purpose).
-3. **Tracker decisions (Soham), incidents 9-17** (tracker export: Office Script in H26):
+3. **Tracker decisions (Soham), incidents 9-17** (tracker export: Soham runs the Office
+   Script `tools/tracker/export_incident_tracker.ts` (tracked since 2026-11-19) and pastes
+   `_JSON_EXPORT` column A; an update script is written per change, DRY_RUN first):
    #12 rest (STGDELTA `TGT_DATA_TYPE` precision - the tester: drop; the pair-1 golden
    keeps it); #14 (a DataTypeCastRule - reverses post171); #16 (no grand master for a
    Workflow run - changes post166); #9 / #10 (fixed-width -> `SRC_FORMAT = CSV`,

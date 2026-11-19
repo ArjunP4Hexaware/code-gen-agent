@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from .cold_pairs import _f1, _merge, _sheet
 from .common import docx_bytes, new_workbook
+from .common import table as word_table
 
 PROJECT = "Northwind Care Management Data"
 TABLE = "nb_care_mgmt"
@@ -68,12 +69,12 @@ def build_sttm(sheets: dict[str, str] | None = None, *, own_file_rows: bool = Tr
 
 
 def build_frd(files: list[str] | None = None,
-              domain_cell: str = "Member / Care Management", *,
+              domain_cell: str | None = "Member / Care Management", *,
               name: str = PROJECT, table: str = TABLE,
               format_cell: str = "Pipe delimited text, first row is a header",
               frequency: str | None = "Monthly", adls_location: str = "",
               inbound_path: str = LOCATION, archive: str | None = None,
-              requirement_cell: str = "") -> bytes:
+              requirement_cell: str = "", extra_tables: tuple = ()) -> bytes:
     """F1: the project as the feed name, the files in Object Name, ONE table.
     ``domain_cell`` is the "Domain and Subdomain" row (pair_12 CAQH states
     both labels there on two lines); ``format_cell`` the "Object/data Format"
@@ -81,7 +82,9 @@ def build_frd(files: list[str] | None = None,
     lines in one cell). post189: ``adls_location`` / ``inbound_path`` the two landing
     rows, ``archive`` an Archive Schedule row (none by default - the bytes unchanged).
     post192: ``frequency=None`` drops the Frequency row; ``requirement_cell`` is the
-    Structural Metadata "Functional Requirement" text (prose + labelled lines)."""
+    Structural Metadata "Functional Requirement" text (prose + labelled lines).
+    post207: ``domain_cell=None`` drops the Domain row; ``extra_tables`` (rows lists) are
+    appended as plain tables (the defaults keep the bytes unchanged)."""
     files = list(FILES.values()) if files is None else files
     archive_rows = [("SM-12", "Archive Schedule", archive)] if archive is not None else []
     frequency_rows = [("DM-6", "Frequency", frequency)] if frequency is not None else []
@@ -102,7 +105,7 @@ def build_frd(files: list[str] | None = None,
             ("SM-4", "Object/data Format", format_cell),
             ("SM-5", "Target Schema", "stg_nb_cm (stage), nb_cm (standard)"),
             ("SM-6", "Target Table Name", table),
-            ("SM-7", "Domain and Subdomain", domain_cell),
+            *([("SM-7", "Domain and Subdomain", domain_cell)] if domain_cell is not None else []),
             ("SM-8", "Load Strategy STG", "Truncate and Load"),
             ("SM-9", "Load Strategy STD", "Upsert"),
             ("SM-10", "ADLS Location", adls_location),
@@ -121,6 +124,7 @@ def build_frd(files: list[str] | None = None,
             ("VM-1", "Vendor Name", "Northwind Benefits"),
             ("VM-2", "Vendor Abbreviation", "NB"),
         ]),
+        *(word_table(rows) for rows in extra_tables),
     ])
 
 

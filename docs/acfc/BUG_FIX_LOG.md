@@ -29,6 +29,42 @@ number.
 
 ---
 
+## 0.5.8.post207 — tester report 2026-11-19 (3, 1): "Landing Location" unread; "Domain -" cell unread
+
+- **Symptom:** ADLS / STGDELTA `SRC_ADLS_PATH` and `SRC_ADLS_ARCHVL_PATH` blank on both
+  her pairs; the domain asked though the FRD states it.
+- **Reproduced:** her staging uploads, mock, post206, /tmp only: both pairs' FRD
+  contracts had no landing (5 feeds), pair A no domain / sub domain.
+- **Root cause:** (a) `extractor.frd.requirement_landing_labels` knew only "Raw ADLS
+  Location" / "ADLS Location"; (b) `frd_docx._labelled_path` returned a cell's FIRST
+  labelled path - with a label per environment block, a QA path that differs would be
+  ignored silently; (c) `frd_docx._DOMAIN_LABEL_RE` took only ':' / '=' after the label,
+  and the domain was read only from a row of its own (her cell sits in a row with no
+  label cell, column 0).
+- **Change:** `config/config.yaml :: extractor.frd.requirement_landing_labels` +
+  "Landing Location"; `frd_docx._labelled_path` (every labelled path of the cell; one
+  path, spaces ignored -> the first as written; several -> None);
+  `frd_docx._DOMAIN_LABEL_RE` (+ '-', en dash); `frd_docx._place_domain_cell` (new,
+  called from `discover_frd`). Why a pass (READER_GENERALIZATION): the domain is read by
+  its own two-label grammar, not as a post192 `<label>: <value>` line field, so post192's
+  "the ONE cell in any table" rule is applied with that grammar - no new grammar.
+- **Reach:** 12-pair check (framework, mock, post206 vs post207): outcomes unchanged
+  (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), 295 / 295 files, no
+  artefact moved - only the report's version / environment-path line (13, sha-only kind)
+  and the build stamps. On her pairs (mock, /tmp): landing read for 5 / 5 feeds (2 once
+  their file question is answered), pair A's domain + sub domain as written.
+- **Side effects:** none found.
+- **Unchanged:** a stated "Archive Location" is not read (the archive path is still the
+  `path_patterns` template - option C, a flag when they differ, is next); a multi-feed
+  FRD's domain; a domain row of its own wins over any other cell.
+- **Tests:** `tests/test_landing_domain_post207.py` (11; 8 failed with HEAD's
+  `frd_docx.py` + config, the "different paths" one with HEAD's `frd_docx.py` alone).
+- **Verified:** `.venv` 2678 passed; `.venv-d1` 2326 passed; ruff clean; 12-pair check
+  alone.
+- **Revert:** drop "Landing Location" from the config list; `git revert` the version for
+  the reader changes.
+- **Deployed:** dev not yet (STOPPED); staging not yet.
+
 ## 0.5.8.post206 — tester report 2026-11-19 (1): an FRD field no cell states could not be answered in the App
 
 - **Symptom:** every feed held back at the first step; the questions for the file
@@ -66,7 +102,7 @@ number.
   no fastapi); vitest 284 passed; tsc + ruff clean; staging not yet.
 - **Revert:** `typed_frd_question` returning its question unchanged hides the controls;
   or `git revert` the version.
-- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Deployed:** dev not yet (STOPPED); staging 741a62f 2026-11-19.
 
 ## 0.5.8.post205 — generic: one "states nothing" word list (three placeholder lists had drifted)
 

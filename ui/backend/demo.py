@@ -193,6 +193,24 @@ def leave_blank_choice(key: str, config) -> str | None:
     return settings.leave_blank if field_name in settings.blankable_fields else None
 
 
+def typed_frd_question(question: dict, config) -> dict:
+    """post206 (the tester's dead end, 2026-11-19): an FRD field the reader could
+    not place is asked as a choice over FRD table cells - when none of them states
+    it, the person had only "None of these", and "proceed" asked the same question
+    again. A field whose typed value the layout stage applies (``gaps:``,
+    ``layout.resolve.answerable_frd_field``) is marked ``typed`` so the page offers
+    a text box too, plus the deliberate blank where the field allows one (post170)."""
+    from codegen.layout.hints import value_question
+    from codegen.layout.resolve import answerable_frd_field
+
+    key = str(question.get("key"))
+    if ((question.get("kind") or "role") != "role" or question.get("document") != "frd"
+            or not answerable_frd_field(key)):
+        return question
+    return question | {"typed": True, "example": value_question(key, config)[1],
+                       "leave_blank": leave_blank_choice(key, config)}
+
+
 def pending_question(pending, key: str, config, frd_contract: Path | None = None) -> dict:
     """The question for a held-back key no layout question carries: a band
     layer (source | stage | standard) or a value no document states (text,
@@ -2226,7 +2244,8 @@ class DemoRunner:
             if not result.questions:
                 ui_stores.push_layout_cache(config)
                 return result
-            self.layout_questions = [q.as_dict() for q in result.questions]
+            self.layout_questions = [typed_frd_question(q.as_dict(), config)
+                                     for q in result.questions]
             self.layout_advice = None
             self._layout_answers = None
             self._layout_event.clear()
@@ -2254,17 +2273,18 @@ class DemoRunner:
                 self.layout_report = result.report()
                 self.layout_fills = list(result.gap_fills)
                 ui_stores.push_layout_cache(config)
-                self._open_owed = self._owed_open_questions(result)
+                self._open_owed = self._owed_open_questions(result, config)
                 return result
 
-    def _owed_open_questions(self, result) -> list[dict]:
+    def _owed_open_questions(self, result, config) -> list[dict]:
         """The questions "Proceed with unresolved" left open that the run
         cannot complete a feed without (the CLI's QUESTION / UNRESOLVED lines,
         ``codegen.cli._owed_key``) — listed for a re-run whatever the run's
         outcome (done, every feed held back, failed)."""
         from codegen.cli import _owed_key
 
-        return [needs_answer_item(q.as_dict()) for q in result.questions
+        return [needs_answer_item(typed_frd_question(q.as_dict(), config))
+                for q in result.questions
                 if _owed_key(q.document, q.key, q.kind, result.frd_contract)]
 
     def _resolve_specs(self, frd_path, contract_path, config, vdd_contract_path, gaps,
@@ -3047,7 +3067,8 @@ class DemoRunner:
         # The layout contract's feeds (a gaps: answer is keyed by THEIR index)
         # and the questions still open, by key — what a held-back feed needs.
         layout_feeds = list(resolution.frd_contract.feeds) if resolution.frd_contract else []
-        open_questions = {q.key: q.as_dict() for q in resolution.questions}
+        open_questions = {q.key: typed_frd_question(q.as_dict(), config)
+                          for q in resolution.questions}
         if set_aside:
             kept = [f for i, f in enumerate(resolution.frd_contract.feeds)
                     if i not in {i for i, _f in set_aside}]

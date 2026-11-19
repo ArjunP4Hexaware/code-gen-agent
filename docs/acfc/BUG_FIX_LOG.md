@@ -29,6 +29,44 @@ number.
 
 ---
 
+## 0.5.8.post206 — tester report 2026-11-19 (1): an FRD field no cell states could not be answered in the App
+
+- **Symptom:** every feed held back at the first step; the questions for the file
+  format and the LOBs offered only FRD table cells that do not state them + "None of
+  these"; "Proceed with unresolved" held the feed and asked the same questions again.
+- **Reproduced:** the tester's uploads (staging), mock, post205, /tmp only: layout
+  questions for file format / LOBs / domain / load strategies (FRD role questions);
+  with an answers file typing the LOBs and leaving the file format blank, both questions
+  were gone - the backend applied them, only the App had no way to give them.
+- **Root cause:** `ui/frontend :: LayoutQuestions.tsx :: QuestionItem` renders a text box
+  (and post170's blank choice) only for `kind: text`; an FRD role question
+  (`kind: role`) got radios over its candidate cells + "None of these". The backend
+  (`layout.answers`, Chunk B) applies a `gaps:` value for an answerable FRD field, but
+  nothing marked which fields those are for the page.
+- **Change:** `ui/backend/demo.py :: typed_frd_question` (new; used where the layout
+  dialog's questions, the owed questions after "proceed" and the held-back feeds'
+  questions are built) adds `typed`, `example`, `leave_blank` to an FRD role question
+  of an answerable field; `LayoutQuestions.tsx :: TypedFrdValue` + `hasPick` /
+  `pickCandidate` (a typed value counts as an answer; it and a cell pick exclude each
+  other). Why no reader pass: none - a UI gap, not a document shape (the shapes behind
+  this run - the STTM File Details sheet, "Domain -" lines - are separate items).
+- **Reach:** no generated file can move: the run's inputs are the same answers the
+  backend already took; `src/` unchanged; the CLI unchanged. No 12-pair check (UI and
+  App status only); the App status gains three keys on those questions.
+- **Side effects:** none found. Seen in the browser check, not caused by this: at
+  390 px the Settings card's connection-ID table scrolls sideways (438 px).
+- **Unchanged:** the feed's name (an answer cannot rename a feed - no text box); STTM /
+  VDD column questions; LOBs and domain cannot be left blank (`answers.blankable_fields`
+  is still file format / delimiter / frequency).
+- **Tests:** `tests/test_typed_frd_answer_post206.py` (3; 2 failed with the helper
+  returning the question unchanged); `LayoutQuestions.test.tsx` "post206" block (5; 4
+  failed with HEAD's LayoutQuestions.tsx); Playwright on a local mock App (stubbed
+  status: typed + blank choices, "Re-run with 2 answers", no console error).
+- **Verified:** suites (both venvs) - see below; staging not yet.
+- **Revert:** `typed_frd_question` returning its question unchanged hides the controls;
+  or `git revert` the version.
+- **Deployed:** dev not yet (STOPPED); staging not yet.
+
 ## 0.5.8.post205 — generic: one "states nothing" word list (three placeholder lists had drifted)
 
 - **Symptom (class):** the same placeholder read as blank in one place and as a value in

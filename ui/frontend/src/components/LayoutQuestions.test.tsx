@@ -361,3 +361,91 @@ describe("post192: an FRD labelled-line choice", () => {
     expect(host.textContent).toContain("line File Frequency: Weekly");
   });
 });
+
+describe("post206: an FRD field no table cell states can be typed or left blank", () => {
+  // the tester's dead end: only wrong FRD cells + "None of these", and the same
+  // question again after proceeding
+  const fmt: LayoutQuestion = {
+    document: "frd", key: "feeds[0].file_format", sheet: null, layer: null,
+    role: "feeds[0].file_format", kind: "role", reason: "no label in the document maps to this field",
+    header: [], candidates: [{ table: 15, row: 3, col: 0, label: "Functional Requirement" },
+                             { table: 16, row: 1, col: 0, label: "Name" }],
+    title: "File format", typed: true, leave_blank: "(leave blank)", example: "csv, pipe-delimited",
+  };
+  const typedInput = () =>
+    host.querySelector('input[aria-label="File format (typed)"]') as HTMLInputElement | null;
+
+  it("types a value: posted under gaps, the cell pick cleared, and back", () => {
+    render(<Dialog questions={[fmt]} initial={emptyPicks()} />);
+    expect(typedInput()?.placeholder).toBe("e.g. csv, pipe-delimited");
+    expect(host.textContent).toContain("or type the value below if no cell states it");
+    act(() => radios()[0].click());
+    expect(latest.frd["feeds[0].file_format"]?.table).toBe(15);
+    const input = typedInput()!;
+    act(() => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      set.call(input, "pipe-delimited");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(latest.frd["feeds[0].file_format"]).toBeUndefined();
+    expect(answersPayload([fmt], latest)).toEqual({
+      sttm: {}, frd: {}, vdd: {},
+      gaps: { "feeds[0].file_format": { value: "pipe-delimited", source: "user" } } });
+    // a typed answer counts: no radio checked, "None of these" included
+    expect(radios().every((r) => !r.checked)).toBe(true);
+    act(() => radios()[1].click());
+    expect(latest.gaps["feeds[0].file_format"]).toBeUndefined();
+    expect(latest.frd["feeds[0].file_format"]?.table).toBe(16);
+  });
+
+  it("leaves a blankable field blank on purpose, and undoes it", () => {
+    render(<Dialog questions={[fmt]} initial={emptyPicks()} />);
+    const leave = [...host.querySelectorAll("button")]
+      .find((b) => b.textContent === "Leave blank and continue") as HTMLButtonElement;
+    act(() => leave.click());
+    expect(latest.gaps["feeds[0].file_format"]).toEqual({ value: "(leave blank)", source: "user" });
+    expect(host.querySelector("[data-testid=left-blank]")).not.toBeNull();
+    expect(typedInput()).toBeNull();                     // never shows the token
+    const undo = [...host.querySelectorAll("button")]
+      .find((b) => b.textContent === "Type a value instead") as HTMLButtonElement;
+    act(() => undo.click());
+    expect(latest.gaps["feeds[0].file_format"]).toBeUndefined();
+    expect(typedInput()).not.toBeNull();
+  });
+
+  it("a field that cannot be left blank (LOBs) gets the text box only", () => {
+    const lobs = { ...fmt, key: "feeds[0].lobs", role: "feeds[0].lobs", title: "LOBs",
+                   leave_blank: null };
+    render(<Dialog questions={[lobs]} initial={emptyPicks()} />);
+    expect(host.querySelector('input[aria-label="LOBs (typed)"]')).not.toBeNull();
+    expect([...host.querySelectorAll("button")].map((b) => b.textContent))
+      .not.toContain("Leave blank and continue");
+  });
+
+  it("an FRD question the backend did not mark typed stays cells + None (unchanged)", () => {
+    render(<Dialog questions={[others[1]]} initial={emptyPicks()} />);
+    expect(host.querySelector("input[type=text]")).toBeNull();
+    expect(host.textContent).toContain("or proceed without");
+  });
+
+  it("the Answers-needed list re-runs with the typed value", () => {
+    const onRerun = vi.fn();
+    const items: NeedsAnswerItem[] = [
+      { key: fmt.key, label: "UNRESOLVED", section: "answers", answer_as: "frd_cell",
+        feed_name: "feed_a", sheet: "STTM", reason: fmt.reason, question: fmt },
+    ] as NeedsAnswerItem[];
+    render(<NeedsAnswersPanel items={items} state="needs_answers" onRerun={onRerun} />);
+    const input = typedInput()!;
+    act(() => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      set.call(input, "pipe-delimited");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const rerun = [...host.querySelectorAll("button")].find((b) =>
+      b.textContent?.startsWith("Re-run"))!;
+    expect(rerun.textContent).toBe("Re-run with 1 answer…");
+    act(() => rerun.click());
+    expect(onRerun).toHaveBeenCalledWith({ sttm: {}, frd: {}, vdd: {},
+      gaps: { "feeds[0].file_format": { value: "pipe-delimited", source: "user" } } }, 1);
+  });
+});

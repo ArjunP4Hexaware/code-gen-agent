@@ -29,6 +29,75 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 - After a container reset: `~/bootstrap`, then the OAuth login (recipe below).
 
 **Open, in order:**
+-1. **The tester's 2026-11-19 report (staging post205; 5 items, IN PROGRESS this session).**
+   Her pairs are called pair A / pair B here (no client names). Reproduce on HER uploads
+   (mock, /tmp) before any fix; then a BUG_FIX_LOG entry for each fix.
+   - (1) Pair A (FRD + STTM): every feed held back at the first step. Layout asks
+     `feeds[0].file_format`, `feeds[0].lobs` and domain / subdomain; the FRD states none
+     of them; the only choices are wrong FRD table cells (Functional Requirement, Name,
+     Impact Details, IS Owner) + "None of these". **"Proceed with unresolved" does NOT
+     release the feed** - bug (or a dead-end message) to find.
+   - (2) Pair A's STTM has a separate "File Details" sheet: label column A, value
+     column B - File Type `.txt`, File Delimitor (sic) `Pipe`, File Delivery Method,
+     Proposed Frequency, Proposed Time, History, File Naming convention, SFTP. Her
+     question: does the agent read that sheet or only the FRD? (A
+     READER_GENERALIZATION question first - a generic label/value sheet reader.)
+   - (3) Pair B: `SRC_ADLS_PATH` / `SRC_ADLS_ARCHVL_PATH` blank. Its FRD states them as
+     "Landing Location:" (under per-environment "Prod:" / "QA:" blocks, each with a
+     "Container Name:" line) and "Archive Location: (Raw Layer - ADLS Gen 2 container)"
+     with the path on the NEXT line. = old item 4(d) (`requirement_landing_labels` =
+     only "Raw ADLS Location" / "ADLS Location"; `landing_line_labels`) - it now matters.
+   - (4) After she typed the standard column's data type as Date (our advice for the
+     DateConversionRule), `TGT_DATA_TYPE` AND `SRC_DATA_TYPE` in sheet
+     STGDELTA_STDDELTA_INGESTION_DET changed too - check which STTM column feeds each
+     (a source type should come from the source band, not the standard one).
+   - (5) Her suggestion: build a `MandatoryColumnCheckRule` DATA_QUALITY_RULES row from
+     the STTM's source "Required/Optional" column. Transcribed from an input, so the rules
+     allow it - a feature, Soham's call.
+   - **Diagnosis 2026-11-19 (mock, her uploads copied to /tmp/t/ik as pair_91 = A,
+     pair_92 = B; staging state + layout cache in /tmp/t/ik/state; harness: both
+     NEEDS_ANSWERS at layout):**
+     (1) ROOT CAUSE = UI dead end: a layout ROLE question (place an FRD field) offers only
+     FRD cells + "None of these" - no text box, no "(leave blank)" (`LayoutQuestions.tsx`
+     QuestionItem: text input / leave_blank only for `kind: text`). "None of these" leaves
+     the role unplaced, the run holds the feed, and NeedsAnswersPanel re-asks the SAME
+     role question -> a loop she cannot leave. Also the DQ rules item (sheet STTM,
+     `value_unstated`) - not yet traced.
+     What the documents do state: pair A's FRD HAS "Domain -<x>" / "Subdomain-<x>" lines
+     (hyphen, no colon - unread); file format + delimiter are on the STTM "File Details"
+     sheet (unread - the agent never reads that sheet); LOBs: no document states them
+     (only as a key column name) -> must be typed or left blank.
+     (2) NOT read today. (3) both pairs: "Landing Location:" / "Archive Location: (...)"
+     with the path on the NEXT line, under Prod: / QA: blocks (same path in both here).
+     (4) BY DESIGN: STGDELTA `SRC_DATA_TYPE` = stage:standard pairs, `TGT_DATA_TYPE` =
+     the standard types (`metadata_template._stg_std_row`), so a standard type change
+     moves both; the source band's type is not in that row.
+     (5) no `MandatoryColumnCheckRule` in our class list (`dq_rule_classes`); the nearest
+     homes are ADLS `MANDATORY_FIELD_LIST` and `NullCheckRule` - ask her which the
+     framework expects.
+   - **Soham's pick (2026-11-19): my picks, in order - F1 (1A) = post206 (DONE, committed;
+     suites + push + staging below), then F4-landing (config label) + F3 (Domain "-" lines,
+     narrow), then F2 (generic label | value STTM sheet reader; the STTM File Details sheet
+     is ALREADY searched for file names - extend that), archive = option C (template kept,
+     a stated archive path that disagrees is flagged), item 5 waits on the tester's
+     answer. NEW: pair A's feed is NAMED "Data Quality rules" (a wrong FRD cell read as
+     the feed name) - trace it. Pre-existing UI: at 390 px the Settings card's
+     connection-ID table scrolls sideways.
+   - **Proposed fixes:** F1 role questions get "type a value" +
+     "leave blank" (blankable fields), answered under `gaps:`; F2 a generic label/value
+     sheet reader for the STTM (File Details) using the FRD label synonyms, filling only
+     where the FRD is blank (`frd_unstated:` flag); F3 "Domain -x" lines; F4 next-line
+     values for Landing / Archive Location (env block choice when Prod / QA differ).
+   - **Code facts behind the options (checked 2026-11-19):** the backend ALREADY applies a
+     typed `gaps:` answer for an FRD role key of file_format / delimiter / frequency /
+     domain / sub_domain / lobs / landing_location (`layout.resolve._ANSWERABLE_FRD_FIELDS`)
+     -> F1 is UI-only (not run end to end yet). `frd_docx._labelled_path` already reads a
+     path on the NEXT line -> "Landing Location" can be a config line
+     (`landing_line_labels`, today only "Raw Path"); "Archive Location: (Raw Layer ...)"
+     is not (text after the colon, no path). No archive reader exists:
+     `SRC_ADLS_ARCHVL_PATH` is a TEMPLATE of the landing (`path_patterns`:
+     ADLS `{landing}Archive/`, STGDELTA `/Archive{landing}`) - a stated archive path can
+     disagree with it. Pros / cons of each option were given in chat; the pick is Soham's.
 0. **Venu's "run the DDL tests from the App" (Soham + Venu):** options sent - (1) an
    "Open in Databricks" button, no rule change; (2) the App runs them - needs the
    EXPLAIN-only rule widened to read-only test statements, an identity (user

@@ -233,6 +233,9 @@ export interface LayoutQuestion {
   // post170: the answer that leaves this value blank on purpose (the feed is still
   // generated, its cells blank + flagged); null when the value cannot be left blank
   leave_blank?: string | null;
+  // post206: an FRD role question whose value may also be TYPED (posted under gaps:)
+  // - the backend's answerable FRD fields; a cell pick and a typed value exclude each other
+  typed?: boolean;
 }
 
 export type PairRule =

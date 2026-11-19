@@ -7,7 +7,9 @@ import type { LayoutQuestion } from "../api";
    - role, STTM / VDD:  radios over candidate columns {col, header}
    - role, band layer:  radios source / stage / standard ({value, label}, no col
                         — Chunk A's "<sheet>/band[n]/layer"), posted as a string
-   - role, FRD:         radios over candidate table cells {table, row, col, label}
+   - role, FRD:         radios over candidate table cells {table, row, col, label};
+                        post206: a `typed` one also takes a typed value (gaps:)
+                        or, where allowed, the deliberate blank
    - choice:            radios over the documents' values {value, source, cell}
    - layer:             radios "apply <value> to stage / standard / both"
    - text:              a typed value (a file pattern, a target no document states)
@@ -72,7 +74,9 @@ export function questionMode(q: LayoutQuestion): QuestionMode {
 export function hasPick(q: LayoutQuestion, picks: AnswerPicks): boolean {
   const mode = questionMode(q);
   if (mode === "gap") return picks.gaps[q.key] !== undefined;
-  if (mode === "frd") return picks.frd[q.key] !== undefined;
+  if (mode === "frd") {
+    return picks.frd[q.key] !== undefined || (Boolean(q.typed) && picks.gaps[q.key] !== undefined);
+  }
   if (mode === "band") return picks.bands[q.key] !== undefined;
   return picks.columns[q.key] !== undefined;
 }
@@ -144,7 +148,7 @@ export function pickCandidate(q: LayoutQuestion, c: Candidate | undefined,
       return c.value ? { ...picks, bands: { ...picks.bands, [q.key]: c.value } } : null;
     case "frd":
       return c.table !== undefined && c.row !== undefined
-        ? { ...picks, frd: { ...picks.frd, [q.key]: {
+        ? { ...picks, gaps: without(picks.gaps, q.key), frd: { ...picks.frd, [q.key]: {
             table: c.table, row: c.row, col: c.col ?? 0, label: c.label ?? "",
             ...(c.inline_label ? { inline_label: c.inline_label, value_col: c.value_col } : {}),
           } } }
@@ -272,6 +276,10 @@ function whyLine(q: LayoutQuestion): string {
   if (isBandQuestion(q)) {
     return "Nothing in the document says which layer these columns are — pick it, or leave "
       + "it unanswered and the sheet's feed stays held back.";
+  }
+  if (q.typed) {
+    return "No candidate matches the usual labels — pick the one that states it, or type the "
+      + "value below if no cell states it.";
   }
   return "No candidate matches the usual labels — pick the one that states it, or proceed without.";
 }
@@ -467,6 +475,59 @@ export function QuestionItem({
         )}
       </div>
       )}
+      {mode === "frd" && q.typed ? <TypedFrdValue q={q} picks={picks} onChange={onChange} /> : null}
+    </div>
+  );
+}
+
+/** post206: an FRD field no table cell states - the person types it (posted under
+ *  gaps:, source = user) or, where the field allows it, leaves it blank on purpose.
+ *  Typing clears a cell pick and a cell pick clears the typed value. */
+function TypedFrdValue({ q, picks, onChange }: {
+  q: LayoutQuestion;
+  picks: AnswerPicks;
+  onChange: (picks: AnswerPicks) => void;
+}) {
+  const typed = picks.gaps[q.key];
+  if (isLeftBlank(q, picks)) {
+    return (
+      <div className="hint" style={{ marginTop: 4, display: "flex", gap: 8,
+                                     alignItems: "center", flexWrap: "wrap" }}>
+        <span data-testid="left-blank">
+          Left blank — the feed will be generated with this value&apos;s cells blank and
+          flagged.
+        </span>
+        <button type="button" className="btn" onClick={() => onChange(clearPick(q, picks))}>
+          Type a value instead
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
+      <span className="hint" style={{ fontSize: 12 }}>Not in any cell above? Type it:</span>
+      <input
+        type="text"
+        aria-label={`${q.title || q.key} (typed)`}
+        style={{ flex: "1 1 200px", minWidth: 0 }}
+        placeholder={textPlaceholder(q)}
+        value={typed?.value ?? ""}
+        onChange={(e) => {
+          const value = e.target.value;
+          onChange(value.trim()
+            ? { ...picks, frd: without(picks.frd, q.key),
+                gaps: { ...picks.gaps, [q.key]: { value, source: "user" } } }
+            : { ...picks, gaps: without(picks.gaps, q.key) });
+        }}
+      />
+      {q.leave_blank ? (
+        <button type="button" className="btn" onClick={() => onChange({
+          ...picks, frd: without(picks.frd, q.key),
+          gaps: { ...picks.gaps, [q.key]: { value: q.leave_blank as string, source: "user" } },
+        })}>
+          Leave blank and continue
+        </button>
+      ) : null}
     </div>
   );
 }

@@ -48,14 +48,19 @@ number.
   called from `discover_frd`). Why a pass (READER_GENERALIZATION): the domain is read by
   its own two-label grammar, not as a post192 `<label>: <value>` line field, so post192's
   "the ONE cell in any table" rule is applied with that grammar - no new grammar.
-- **Reach:** 12-pair check - see below (pending).
-- **Side effects:** see the check.
+- **Reach:** 12-pair check (framework, mock, post206 vs post207): outcomes unchanged
+  (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), 295 / 295 files, no
+  artefact moved - only the report's version / environment-path line (13, sha-only kind)
+  and the build stamps. On her pairs (mock, /tmp): landing read for 5 / 5 feeds (2 once
+  their file question is answered), pair A's domain + sub domain as written.
+- **Side effects:** none found.
 - **Unchanged:** a stated "Archive Location" is not read (the archive path is still the
   `path_patterns` template - option C, a flag when they differ, is next); a multi-feed
   FRD's domain; a domain row of its own wins over any other cell.
 - **Tests:** `tests/test_landing_domain_post207.py` (11; 8 failed with HEAD's
   `frd_docx.py` + config, the "different paths" one with HEAD's `frd_docx.py` alone).
-- **Verified:** pending.
+- **Verified:** `.venv` 2678 passed; `.venv-d1` 2326 passed; ruff clean; 12-pair check
+  alone.
 - **Revert:** drop "Landing Location" from the config list; `git revert` the version for
   the reader changes.
 - **Deployed:** dev not yet (STOPPED); staging not yet.

@@ -75,8 +75,10 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
      (5) no `MandatoryColumnCheckRule` in our class list (`dq_rule_classes`); the nearest
      homes are ADLS `MANDATORY_FIELD_LIST` and `NullCheckRule` - ask her which the
      framework expects.
-   - **Soham's pick (2026-11-19): my picks, in order - F1 (1A) = post206 (DONE, committed;
-     suites + push + staging below), then F4-landing (config label) + F3 (Domain "-" lines,
+   - **DONE 2026-11-19:** post206 = F1 (1A), staging 741a62f; post207 = F4-landing +
+     F3 (pushed, NOT on staging yet - Soham's word). Her pair A then GATE_FAILs on
+     `ddl_identifiers` (4 STTM column names; the STTM's to fix) - tell her.
+   - **Soham's pick (2026-11-19): my picks, in order - F1 (1A) = post206, then F4-landing (config label) + F3 (Domain "-" lines,
      narrow), then F2 (generic label | value STTM sheet reader; the STTM File Details sheet
      is ALREADY searched for file names - extend that), archive = option C (template kept,
      a stated archive path that disagrees is flagged), item 5 waits on the tester's

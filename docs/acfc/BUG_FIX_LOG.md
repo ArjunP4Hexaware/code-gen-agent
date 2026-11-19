@@ -52,7 +52,9 @@ number.
   `metadata_template.frequency_token` (public, the frequency's reader);
   `layout/answers.py` (a typed feed-name answer still refused with its reason);
   `LayoutQuestions.tsx :: typedOnly`. No reader pass, no new vocabulary: the field readers that exist.
-- **Reach:** 12-pair check - pending. Questions on the tester pairs (mock): pair C 5 x 16
+- **Reach:** 12-pair check (framework, mock, post209 vs post210): outcomes unchanged,
+  295 / 295 files, no artefact moved; 3 reports (pairs 08 / 09 / 10) lose candidate lines
+  of their open questions (removals only). Questions on the tester pairs (mock): pair C 5 x 16
   -> 4 (LOBs 0, domain 0, the strategies 4 each); pair A 4 (LOBs 0, strategies 2 each);
   pair B 2 questions with no cell list.
 - **Side effects:** the first suite run caught 5: the feed-name answer's refusal note
@@ -65,7 +67,8 @@ number.
   before the model-claim case was added), `LayoutQuestions.test.tsx` post210 block (1 of 2
   failed with HEAD's component - the other pins the unchanged case); Playwright on a local
   mock App (her question shapes: 3 radios, no console error).
-- **Verified:** pending.
+- **Verified:** `.venv` 2701 passed; `.venv-d1` 2349 passed (second run, after the 5
+  fixes); vitest 286; tsc + ruff clean; 12-pair check alone.
 - **Revert:** `git revert` the version; `_plausible_candidates` returning `candidates`
   restores the old lists.
 - **Deployed:** dev not yet (STOPPED); staging not yet.

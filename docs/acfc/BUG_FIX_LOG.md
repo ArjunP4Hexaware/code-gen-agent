@@ -62,7 +62,8 @@ number.
   returning the question unchanged); `LayoutQuestions.test.tsx` "post206" block (5; 4
   failed with HEAD's LayoutQuestions.tsx); Playwright on a local mock App (stubbed
   status: typed + blank choices, "Re-run with 2 answers", no console error).
-- **Verified:** suites (both venvs) - see below; staging not yet.
+- **Verified:** `.venv` 2667 passed; `.venv-d1` 2315 passed (the App tests skip there:
+  no fastapi); vitest 284 passed; tsc + ruff clean; staging not yet.
 - **Revert:** `typed_frd_question` returning its question unchanged hides the controls;
   or `git revert` the version.
 - **Deployed:** dev not yet (STOPPED); staging not yet.

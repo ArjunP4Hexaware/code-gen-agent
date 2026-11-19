@@ -83,6 +83,17 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
      answer. NEW: pair A's feed is NAMED "Data Quality rules" (a wrong FRD cell read as
      the feed name) - trace it. Pre-existing UI: at 390 px the Settings card's
      connection-ID table scrolls sideways.
+   - **Item 5, the tester's answer (2026-11-19):** the class is `MandatoryColumnCheckRule`
+     (framework notebook `/Workspace/subcon_version/DataQuality_StandardEnhancement`, read
+     in place): `SOURCE_COLUMN` = comma list, `INPUT_PARAM` = an ERROR CODE, rejects
+     null / blank / "NULL". She asks for it as a STANDARD rule on every ingestion (the
+     framework checks mandatory fields on all). Today: the STTM Required column IS read
+     (pair A: 37 / 60 mandatory -> `not_null_columns`) -> ADLS `MANDATORY_FIELD_LIST`;
+     NullCheckRule only when a DQ sheet / the FRD states it, else an
+     `iig_dq_not_generated:` suggestion (post171). Open before building: the error-code
+     value, RULE_TYPE + TARGET_COLUMN, overlap with MANDATORY_FIELD_LIST / NullCheckRule,
+     the FRD "No Rejection" case. Soham's call (it is a client standard = a cited
+     constant, a change to post171's stated-only rule for this one class).
    - **Proposed fixes:** F1 role questions get "type a value" +
      "leave blank" (blankable fields), answered under `gaps:`; F2 a generic label/value
      sheet reader for the STTM (File Details) using the FRD label synonyms, filling only

@@ -5111,9 +5111,9 @@ filled with the feed's own values (target table, real location):
 - Every version: both suites green, the framework 12-pair check outcomes unchanged
   (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL).
 
-## §[H28] Session 2026-11-18: post200-post204 (FRD labels, the tester's Comments column, the health review, delimiters)
+## §[H28] Session 2026-11-18/19: post200-post205 (FRD labels, the tester's Comments column, the health review, delimiters, blank words)
 
-**Versions (all on staging by the end; dev STOPPED on post194):**
+**Versions (all on staging by the end - post205, `main` e2b967b; dev STOPPED on post194):**
 - **post200** FRD labels match synonyms with spaces ignored (`frd_docx.label_key`,
   `LabelTable` / `LabelSet`; exact first, a space-free collision matches neither). 12-pair:
   pair_08's Data Quality section (its title spaced differently around a "/") read for the

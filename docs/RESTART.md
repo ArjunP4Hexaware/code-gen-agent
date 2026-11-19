@@ -4,7 +4,7 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (session ended 2026-11-18 - staging = post205; dev STOPPED on post194; feature = post205, pushed)
+## Start here (session ended 2026-11-19 - staging = post205; dev STOPPED on post194; feature = post205, pushed)
 
 **First check:** `git fetch && git status -sb` = up to date with
 `origin/feature/multi-table` (head = docs on top of post205).
@@ -14,7 +14,8 @@ being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
   (Soham's call); then `/ship-dev` deploys post205.
 - **This session: post200-post205**, every one with both suites green, CI green, the
   framework 12-pair outcomes unchanged (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS,
-  2 GATE_FAIL, 2 FAIL) and its BUG_FIX_LOG entry (reach, revert). What each did:
+  2 GATE_FAIL, 2 FAIL), no artefact cell moved outside the fix's own reach, and its
+  BUG_FIX_LOG entry (reach, revert); all on staging. What each did:
   CHANGELOG_ACFC; why: CLAUDE_HISTORY §[H28].
 - **The tester (staging)** re-ran on post199 - working. Her Comments column (the standard
   band's last column) is read since post201; for her date-format note to become a

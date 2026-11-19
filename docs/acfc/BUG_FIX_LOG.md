@@ -29,7 +29,7 @@ number.
 
 ---
 
-## 0.5.8.post210 — second tester 2026-11-19: unreadable FRD questions; a feed-name dead end; a live CRASH
+## 0.5.8.post210 — second tester 2026-11-19: unreadable FRD questions; a feed-name dead end
 
 - **Symptom:** the layout dialog asked 6 questions, each listing the same 16 FRD cells
   (labels such as Name / IS Owner / requirement lines) - none stating any of them; the
@@ -43,19 +43,25 @@ number.
   checked against the field; (b) post208 made an unplaced feed name an FRD question with
   no text box (`answerable_frd_field` is false for it); (c) `_model_label_reason` accepts
   a "Name" row in any section for the feed name (post208 covered the synonyms only);
-  (d) `emit/context.py :: _standard_type` raised where `emit/framework.py` flags.
+  (d) the CRASH: `emit/context.py :: sql_type` stops on a standard-band type cell that is
+  no type ("Derived") - post158's deliberate guard (pentest CS-1), NOT changed here (a
+  first version wrote it as stated; `test_ddl_types_gate` failed - withdrawn). Next: ask
+  for that cell's type, like a blank stage type.
 - **Change:** `_frd_questions` (skip `feeds[i].feed_name`), `_plausible_candidates`,
   `_value_reads_as`, `_candidate_value` (new); `_model_label_reason` (the section rule);
-  `context._standard_type` (as stated on TemplateGapError); `LayoutQuestions.tsx ::
-  typedOnly`. No reader pass, no new vocabulary: the field readers that exist.
+  `metadata_template.frequency_token` (public, the frequency's reader);
+  `layout/answers.py` (a typed feed-name answer still refused with its reason);
+  `LayoutQuestions.tsx :: typedOnly`. No reader pass, no new vocabulary: the field readers that exist.
 - **Reach:** 12-pair check - pending. Questions on the tester pairs (mock): pair C 5 x 16
   -> 4 (LOBs 0, domain 0, the strategies 4 each); pair A 4 (LOBs 0, strategies 2 each);
   pair B 2 questions with no cell list.
-- **Side effects:** pending.
+- **Side effects:** the first suite run caught 5: the feed-name answer's refusal note
+  (restored), post158's type guard (the context change withdrawn), and post192's
+  frequency lines (a frequency reader added; its dialog test now pins the filter).
 - **Unchanged:** STTM / VDD column questions; FRD fields a person may not type (every
   cell, as before); the never-guess rule (no value is filled); a model proposal stays a
   pre-selection.
-- **Tests:** `tests/test_frd_questions_post210.py` (6; 4 failed with HEAD's resolve.py
+- **Tests:** `tests/test_frd_questions_post210.py` (7; 4 failed with HEAD's resolve.py
   before the model-claim case was added), `LayoutQuestions.test.tsx` post210 block (1 of 2
   failed with HEAD's component - the other pins the unchanged case); Playwright on a local
   mock App (her question shapes: 3 radios, no console error).

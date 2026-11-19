@@ -90,3 +90,13 @@ def test_a_model_claim_of_a_non_descriptive_name_row_is_a_proposal():
     assert "names the section, not the feed" in reason("data_quality")
     assert "kept as a proposal" in reason("vendor")
     assert reason("descriptive") is None
+
+
+def test_a_frequency_is_offered_only_the_lines_naming_one():
+    content = DocxContent(tables=[_sr("Cadence: Weekly\nLoad Type: History\nOwner: Syn")],
+                          paragraphs=[])
+    profile = FrdLayoutProfile(
+        fingerprint="f" * 64, family="F2", source="synonyms", fields={}, confidence={},
+        unresolved=[FrdUnresolved(field="feeds[0].frequency", reason="unplaced")])
+    (q,) = _frd_questions(profile, content, CONFIG)
+    assert [c["line"] for c in q.candidates] == ["Cadence: Weekly"]

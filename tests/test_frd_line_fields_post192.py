@@ -88,13 +88,14 @@ def test_the_fields_own_row_wins_over_a_line(tmp_path, config):
 
 
 def test_the_dialog_offers_each_labelled_line(tmp_path, config):
-    """A line no label places ("Cadence:") is asked, with the document's lines as choices."""
+    """A line no label places ("Cadence:") is asked, with the document's lines as choices -
+    post210: only the lines that read as a frequency ("Load Type: History" is none)."""
     cell = PROSE.replace("File Frequency", "Cadence")
     doc, _content = _resolve(_frd(tmp_path, frequency=None, requirement_cell=cell), config,
                              tmp_path)
     question = next(q for q in doc.questions if q.role == "feeds[0].frequency")
     lines = [c for c in question.candidates if c.get("inline_label")]
-    assert {c["inline_label"] for c in lines} >= {"Cadence", "Load Type"}
+    assert {c["inline_label"] for c in lines} == {"Cadence"}
     line = next(c for c in lines if c["inline_label"] == "Cadence")
     assert line["label"] == "Functional Requirement" and line["value_col"] == line["col"] + 1
     assert "Cadence: Weekly" in line["line"]

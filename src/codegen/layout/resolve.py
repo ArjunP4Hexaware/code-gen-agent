@@ -1159,6 +1159,10 @@ def _value_reads_as(field: str, value: str, config: Config) -> bool | None:
         return delimiter_reading(value, config.extractor.delimiter_words) is not None
     if field in ("stage_target.load_strategy", "standard_target.load_strategy"):
         return strategy_reading(value, frd.load_strategy_synonyms, leading=True)[0] is not None
+    if field == "frequency":
+        from codegen.metadata_template import frequency_token
+
+        return bool(value) and frequency_token(value) is not None
     return None
 
 

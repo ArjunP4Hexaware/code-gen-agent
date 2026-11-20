@@ -32,8 +32,8 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 - After a container reset: `~/bootstrap`, then the OAuth login (recipe below).
 
 **Open, in order:**
--4. **post215 (Feedback on the App) + the selection-flake fix - committed, NOT pushed**
-   until both suites are green on the final tree; staging only on Soham's word, and
+-4. **post215 (Feedback on the App) + the selection-flake fix - PUSHED (81db067; both
+   suites green side by side), NOT on staging:** staging only on Soham's word, and
    the state root needs `feedback_admins.txt` (one address per line) for admins.
 -3. **post213 + post214 ON STAGING (4f2f082, 2026-11-20; health + smoke green):** post213
    = a standard type cell holding a note -> one question; post214 = the

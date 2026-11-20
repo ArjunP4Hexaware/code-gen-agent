@@ -4,13 +4,13 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-20 - staging = post212 (049c6e8); feature = post213 committed, NOT pushed; dev STOPPED on post194)
+## Start here (2026-11-20 - staging = post212 (049c6e8); feature = post214 PUSHED (ad7c9c5); dev STOPPED on post194)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 
-**First check:** `git fetch && git status -sb` = `feature/multi-table` AHEAD of origin by
-the post213 commits + docs (post212 is the last pushed version).
+**First check:** `git fetch && git status -sb` = `feature/multi-table` level with origin
+(post214 pushed 2026-11-20; staging still post212 - post213 + post214 wait on Soham's word).
 - **staging `codegen-agent-staging` = post212** (`main` = 049c6e8, identical-tree merge;
   health + smoke green). **dev `codegen-agent`:** STOPPED on post194 (starting it bills
   compute - Soham's call).
@@ -32,12 +32,11 @@ the post213 commits + docs (post212 is the last pushed version).
 - After a container reset: `~/bootstrap`, then the OAuth login (recipe below).
 
 **Open, in order:**
--3. **post213 (a standard type cell holding a note -> one question; "BIG INT" a type) -
-   committed, NOT pushed:** 12-pair check clean (no REAL change); `.venv-d1` 2367 passed;
-   `.venv` 1 failed = `test_demo_ui.py::test_choosing_an_sttm_auto_pairs_its_frd`
-   (passes alone 3/3 and as a file 33/33 - a load flake in the selection job, not touched
-   by post213). Re-run the `.venv` suite, then push; staging only on Soham's word. If the
-   flake recurs, make the test wait on the job's event (AGENTS: never a wall clock).
+-3. **post213 + post214 PUSHED, NOT on staging** (`/ship-staging` on Soham's word): post213
+   = a standard type cell holding a note -> one question; post214 = the
+   MandatoryColumnCheckRule (below). Both suites green on ad7c9c5; 12-pair check: outcomes
+   unchanged (BUG_FIX_LOG post214 for the reach). After staging: send the first tester
+   the reply drafted 2026-11-20 (in chat - it asks her to confirm the 'STDDelta' spelling).
 -2. **The question UX, P2 / P3 / P4 (plan agreed 2026-11-19; P1 = post210):** P2 FRD
    questions as VALUE questions (the values found, deduped, capped, cited; coordinates
    folded; the text box always); P3 the dialog in plain words, one card per feed, what
@@ -45,10 +44,11 @@ the post213 commits + docs (post212 is the last pushed version).
    per pair x choices per question, before / after, on the 12 pairs + pairs A / B / C.
    Show Soham a screenshot before shipping P2 / P3. Pre-existing: at 390 px the Settings
    card's connection-ID table scrolls sideways.
--1. **MandatoryColumnCheckRule (the first tester's ask; Soham: OK as a standard rule):**
-   waits on her 4 answers (INPUT_PARAM error code; RULE_TYPE + TARGET_COLUMN; replace or
-   sit beside MANDATORY_FIELD_LIST / NullCheckRule; skip on the FRD's "No Rejection").
-   The STTM Required column is read already (`not_null_columns`).
+-1. **MandatoryColumnCheckRule = post214 (DONE):** her answers (STDDelta; SOURCE = TARGET =
+   the required fields' standard columns; INPUT_PARAM = the FRD error table's code) +
+   Soham's calls (MANDATORY_FIELD_LIST a decided blank when the row is written; no error
+   table = INPUT_PARAM open, non-blocking). Open: her spelling 'STDdelta' vs our
+   'STDDelta'; the NullCheckRule overlap she did not answer (left as is).
 0. **Venu's "run the DDL tests from the App" (Soham + Venu):** options sent - (1) an
    "Open in Databricks" button, no rule change; (2) the App runs them - needs the
    EXPLAIN-only rule widened to read-only test statements, an identity (user

@@ -1117,6 +1117,9 @@ def _frd_questions(profile: FrdLayoutProfile, content, config: Config) -> list[L
             # stage band) and no answer can rename a feed (unanswerable_frd_reason)
             continue
         offered = _plausible_candidates(item.field, candidates, item.candidates, content, config)
+        if answerable_frd_field(item.field):
+            offered = _value_choices(offered, item.candidates, content,
+                                     config.layout.frd_question_max_values)
         title, hint, suggested = frd_field_help(item.field, offered, config)
         suggested_reason = ""
         proposed = next((i for i, c in enumerate(offered)
@@ -1183,6 +1186,41 @@ def _plausible_candidates(path: str, candidates: list[dict], proposed: list[str]
                 _value_reads_as(field, _candidate_value(c, content), config):
             out.append(c)
     return out
+
+
+def _value_choices(offered: list[dict], proposed: list[str], content, cap: int) -> list[dict]:
+    """P2 of the question UX (2026-11-20; the second tester: ~16 cells per question, shown
+    by table / row): a question a person may TYPE offers VALUES - each candidate carries
+    ``shown`` (the text its cell / line would give the field, what the reader copies), one
+    choice per distinct value (spaces / case ignored; the first place it is stated, the
+    layout model's proposal preferred) with ``also`` = how many other places state it, at
+    most ``cap`` of them (the proposal always kept). The pick is still a cell, so the
+    answer and everything after it are unchanged; a value never reaches a report (the
+    answers template / reports name labels only - ``shown`` is not ``value``)."""
+    def key(c: dict) -> str:
+        return " ".join(_candidate_value(c, content).lower().split())
+
+    def is_proposed(c: dict) -> bool:
+        return f"{c['table']}:{c['row']}:{c['col']}" in proposed
+
+    kept: dict[str, dict] = {}
+    for c in offered:
+        k = key(c)
+        if not k:
+            continue
+        if k not in kept:
+            kept[k] = {**c, "shown": _candidate_value(c, content), "also": 0}
+        else:
+            first = kept[k]
+            if is_proposed(c) and not is_proposed(first):
+                kept[k] = {**c, "shown": _candidate_value(c, content), "also": first["also"]}
+            kept[k]["also"] += 1
+    choices = list(kept.values())
+    if len(choices) > cap:
+        head = choices[:cap]
+        extra = [c for c in choices[cap:] if is_proposed(c)]
+        choices = head[:cap - len(extra)] + extra if extra else head
+    return choices
 
 
 def _frd_line_candidates(profile: FrdLayoutProfile, content, used: set) -> list[dict]:

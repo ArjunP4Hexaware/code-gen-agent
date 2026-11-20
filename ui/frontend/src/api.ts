@@ -210,6 +210,10 @@ export interface LayoutQuestion {
     inline_label?: string;
     value_col?: number;
     line?: string;
+    // P2 (2026-11-20): an FRD question a person may type - the value this cell / line
+    // would give the field, and how many OTHER places state the same value
+    shown?: string;
+    also?: number;
     // kind "choice" / "layer" candidates
     value?: string;
     source?: string;

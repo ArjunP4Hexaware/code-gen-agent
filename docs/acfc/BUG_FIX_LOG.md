@@ -79,7 +79,7 @@ number.
 - **Verified:** both suites on the pushed tree; the 12-pair check above.
 - **Revert:** drop `std_mandatory_check` from the ACFC overlay's `dq_rules` (the row and the
   blank list go; the reader stays inert), or revert the post214 commits.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging 4f2f082 2026-11-20.
 
 ## 0.5.8.post213 — second tester: a standard type cell reading a note CRASHED the run
 
@@ -110,7 +110,7 @@ number.
   (`test_demo_ui.py::test_choosing_an_sttm_auto_pairs_its_frd` - passes alone 3/3 and as
   a file 33/33: a load flake, not in this change) - RE-RUN `.venv` before the push.
 - **Revert:** drop the `standard_type` block in `generic._build_feed` (the crash returns).
-- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Deployed:** dev not yet (STOPPED); staging 4f2f082 2026-11-20 (with post214).
 
 ## 0.5.8.post212 — tracker #5: SRC_FILE_NAME not the FRD's file pattern
 

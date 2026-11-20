@@ -153,7 +153,10 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
 - **Check gotchas (2026-11-17):** the 12-pair check runs ALONE (beside the suites it timed
   a pair out - post195), old side `HEAD~<n>`, never `HEAD~0`. A test of App timing
   waits on an event, never a wall-clock bound (the two `test_m93_chooser` timing tests
-  flaked under load until 2026-11-18).
+  flaked under load until 2026-11-18). The two venvs' suites run at once share the
+  checkout's `inputs/` and `ui/backend/state/` (xdist groups only separate one suite's
+  workers): a test that writes there never leaves a twin of a document another test
+  pairs (2026-11-20: an uploaded CV-golden copy made the pairing ambiguous).
 - **Proving a fix:** its test must fail with ONLY the fix reverted (`git show HEAD:<file>`
   over the fixed file, run, restore) — a failure from a missing import proves nothing.
   A fix that can change generated output also gets the real-pair check: the container

@@ -570,9 +570,14 @@ def test_upload_frd_docx_lands_and_selects(client):
 
 
 def test_upload_frd_contract_lands_and_selects(client):
-    src = REPO / "fixtures" / "contracts" / "FRD_demo_cv_golden.contract.json"
+    # 2026-11-20: a contract that pairs with NO STTM in the App's folders - never a
+    # copy of the CV golden FRD. The upload lands in the checkout's inputs/uploads/,
+    # which BOTH venvs' suites share when they run at once (AGENTS.md); a twin of
+    # the CV golden FRD there made the other suite's
+    # test_choosing_an_sttm_auto_pairs_its_frd ambiguous (best 8, next 7 - no pair).
+    src = REPO / "fixtures" / "acfc_shapes" / "pair_4" / "frd_nb_cob_report.contract.json"
     if not src.is_file():
-        pytest.skip("demo fixture pair not restored (removed 2026-08-22)")
+        pytest.skip("synthetic pair 4 FRD contract missing")
     # A plain .json name is normalized to .contract.json so the local scan
     # (glob *.contract.json) can see it.
     name = "uploaded_test_frd.json"

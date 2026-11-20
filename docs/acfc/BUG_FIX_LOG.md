@@ -29,6 +29,32 @@ number.
 
 ---
 
+## post215 tree (tests only, no version) — the selection flake: a cross-suite twin FRD
+
+- **Symptom:** `tests/test_demo_ui.py::test_choosing_an_sttm_auto_pairs_its_frd` failed
+  now and then in the full suite (`frd_chosen` False after the job was done and paired);
+  always passed alone; seen with both venvs' suites running at once.
+- **Reproduced:** on demand - a copy of `FRD_demo_cv_golden.contract.json` placed in
+  `inputs/uploads/` makes the test fail the same way; the pairing outcome: "no candidate
+  wins by the margin: best 8, next 7". Not reproduced by: the App-state group serially,
+  the group under 6 busy loops, the `.venv` suite alone.
+- **Root cause:** `test_demo_ui.py::test_upload_frd_contract_lands_and_selects` uploaded
+  a byte copy of the CV golden FRD into the checkout's real `inputs/uploads/`. The two
+  suites (AGENTS.md: run both at once) share that folder; the xdist grouping only
+  serialises tests within ONE suite. When the other suite's pairing test ran while the
+  copy existed, two near-identical FRDs competed - correctly ambiguous, nothing paired.
+  The App's behaviour is right; the test data was the bug.
+- **Change:** that upload test sends `fixtures/acfc_shapes/pair_4/frd_nb_cob_report
+  .contract.json` (a synthetic contract no STTM in the App's folders pairs with); AGENTS.md
+  "Check gotchas" names the shared folders.
+- **Reach:** tests only - no `src/`, no generated output (no 12-pair check needed).
+- **Unchanged:** the pairing rules (min score / margin); the other upload test's pair-1
+  FRD .docx (no test pairs a pair-1 STTM from the App's folders - left as is).
+- **Tests:** with the old twin placed in `inputs/uploads/` the pairing test fails; with
+  the new upload's file placed there it passes; both tests pass together.
+- **Revert:** restore the CV golden path in that upload test.
+- **Deployed:** n/a (tests).
+
 ## 0.5.8.post214 — first tester: the MandatoryColumnCheckRule as a standard DQ rule (a feature)
 
 - **Symptom:** no DATA_QUALITY_RULES row checked the STTM's required fields the way the
@@ -79,7 +105,7 @@ number.
 - **Verified:** both suites on the pushed tree; the 12-pair check above.
 - **Revert:** drop `std_mandatory_check` from the ACFC overlay's `dq_rules` (the row and the
   blank list go; the reader stays inert), or revert the post214 commits.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging 4f2f082 2026-11-20.
 
 ## 0.5.8.post213 — second tester: a standard type cell reading a note CRASHED the run
 
@@ -110,7 +136,7 @@ number.
   (`test_demo_ui.py::test_choosing_an_sttm_auto_pairs_its_frd` - passes alone 3/3 and as
   a file 33/33: a load flake, not in this change) - RE-RUN `.venv` before the push.
 - **Revert:** drop the `standard_type` block in `generic._build_feed` (the crash returns).
-- **Deployed:** dev not yet (STOPPED); staging not yet.
+- **Deployed:** dev not yet (STOPPED); staging 4f2f082 2026-11-20 (with post214).
 
 ## 0.5.8.post212 — tracker #5: SRC_FILE_NAME not the FRD's file pattern
 

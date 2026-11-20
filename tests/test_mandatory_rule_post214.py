@@ -211,3 +211,14 @@ def test_a_run_rebuilds_the_feed_from_the_spec_with_the_code(pair4_spec):
                                          "frd_mandatory_error_source": "table 9, row 2"})
     feed = _feed_from_spec(spec)
     assert (feed.mandatory_error_code, feed.mandatory_error_source) == ("9001", "table 9, row 2")
+
+
+def test_the_review_copy_does_not_ask_for_the_blanked_list(acfc, pair4_spec):  # noqa: F811
+    """As post193's decided blank: the empty MANDATORY_FIELD_LIST is no open cell."""
+    from codegen.iig_review import _reason
+
+    config, _tpl, _feed = acfc
+    for row in _rows(acfc, ADLS, _with(pair4_spec, rules=[])):
+        entry = row["MANDATORY_FIELD_LIST"]["badge_entry"]
+        assert entry.get("deliberate_blank") is True
+        assert _reason("MANDATORY_FIELD_LIST", "", entry, set(), config.iig_review) is None

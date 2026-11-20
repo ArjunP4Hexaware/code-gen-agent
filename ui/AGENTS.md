@@ -45,3 +45,8 @@ App", moved there from AGENTS.md on 2026-11-10).
   the questions a stopped run left (needs_answers, a done run with blocking lines); the
   page goes back to idle with no error card (`RunCancelled`), nothing recorded, the run's
   folder kept. "Clear past runs" resets the run card in EVERY finished state too.
+- **Feedback** (post215, `/feedback`, `ui/backend/feedback.py`): bug reports / suggestions
+  with screenshots, stored in the outputs role's `app_feedback/`; the signed-in user is the
+  proxy's `x-forwarded-email` (the ONLY place the App knows who is signed in); the admins
+  are the STATE root's `feedback_admins.txt` - never in git (the addresses carry the
+  client's domain). Nothing there reaches a model or a run; nothing deletes a submission.

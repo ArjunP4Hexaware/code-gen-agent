@@ -4,14 +4,14 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-20 - staging = post212 (049c6e8); feature = post214 PUSHED (ad7c9c5); dev STOPPED on post194)
+## Start here (2026-11-20 - staging = post214 (main 4f2f082); feature = post214; dev STOPPED on post194)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 
 **First check:** `git fetch && git status -sb` = `feature/multi-table` level with origin
-(post214 pushed 2026-11-20; staging still post212 - post213 + post214 wait on Soham's word).
-- **staging `codegen-agent-staging` = post212** (`main` = 049c6e8, identical-tree merge;
+(post214 pushed and on staging 2026-11-20).
+- **staging `codegen-agent-staging` = post214** (`main` = 4f2f082, identical-tree merge, 2026-11-20;
   health + smoke green). **dev `codegen-agent`:** STOPPED on post194 (starting it bills
   compute - Soham's call).
 - **The last session (2026-11-19/20): post206-post213** - what each did: CHANGELOG_ACFC;
@@ -32,10 +32,13 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 - After a container reset: `~/bootstrap`, then the OAuth login (recipe below).
 
 **Open, in order:**
--3. **post213 + post214 PUSHED, NOT on staging** (`/ship-staging` on Soham's word): post213
+-4. **post215 (Feedback on the App) + the selection-flake fix - PUSHED (81db067; both
+   suites green side by side), NOT on staging:** staging only on Soham's word, and
+   the state root needs `feedback_admins.txt` (one address per line) for admins.
+-3. **post213 + post214 ON STAGING (4f2f082, 2026-11-20; health + smoke green):** post213
    = a standard type cell holding a note -> one question; post214 = the
    MandatoryColumnCheckRule (below). Both suites green on ad7c9c5; 12-pair check: outcomes
-   unchanged (BUG_FIX_LOG post214 for the reach). After staging: send the first tester
+   unchanged (BUG_FIX_LOG post214 for the reach). Next: send the first tester
    the reply drafted 2026-11-20 (in chat - it asks her to confirm the 'STDDelta' spelling).
 -2. **The question UX, P2 / P3 / P4 (plan agreed 2026-11-19; P1 = post210):** P2 FRD
    questions as VALUE questions (the values found, deduped, capped, cited; coordinates
@@ -96,6 +99,9 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 12. **`codingapp` deploy** (bootstrap patch imported) - on Soham's word, last in a session.
 13. The STTM cell locator step 3; BSA questions (pairs 05 / 11 DQ sheet, pair_12 recycle);
     the Apps stop / start schedule (CLAUDE_HISTORY, blocks retired 2026-11-10).
+15. **Model comparisons** (other vendors vs Opus 5.5): `docs/MODEL_COMPARISON.md` -
+    Gemini 4 Neon (2026-11-20) and the GPT-6.2 Astra summary (2026-11-19); verdict both
+    times: stay on Opus (the vendor rule). Add every new one there.
 14. **AGENTS.md is 270 lines** (target ~200, /handoff): move procedures to skills /
     `.claude/rules/` in a quiet session.
 

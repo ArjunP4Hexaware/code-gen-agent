@@ -37,7 +37,8 @@ on top of a53ec77: 3eb1d95 + b8cedf8) - not merged, not checked (item -5).
    2026-11-20, synthetic text); (2) rebase the branch onto `feature/multi-table` (expect a
    small conflict in this file's item list - keep this version); (3) both suites - the
    first run failed `test_layout_frd_model_label` (a real P2 bug, fixed in b8cedf8); the
-   re-run after the fix was still running when the environment closed: UNREAD; (4) the
+   re-run on b8cedf8 is GREEN in both venvs (2761 / 2395 passed, 2026-11-20) - re-run
+   only if the rebase changes code; (4) the
    12-pair check (old side = the feature tip); (5) BUG_FIX_LOG reach line; push; staging
    on his word. Then P3 (plain words, one card per feed, what each answer sets in the
    IIG) and P4 (questions per pair x choices per question, before / after, on the 12 pairs

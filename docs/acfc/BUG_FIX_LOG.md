@@ -46,7 +46,7 @@ number.
 - **Tests:** `tests/test_frd_value_choices_p2.py::test_a_proposal_with_no_value_text_is_still_offered`
   - fails with only `resolve.py` reverted to 3eb1d95, passes with b8cedf8; the model-label
   test passes.
-- **Verified:** the suites' re-run was UNREAD at the session's end; 12-pair check pending.
+- **Verified:** both suites green on b8cedf8 (2761 / 2395 passed); 12-pair check pending.
 - **Revert:** drop b8cedf8 (the bug comes back) or the whole branch.
 - **Deployed:** not yet.
 

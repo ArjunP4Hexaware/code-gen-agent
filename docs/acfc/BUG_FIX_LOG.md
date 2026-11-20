@@ -29,6 +29,58 @@ number.
 
 ---
 
+## 0.5.8.post214 — first tester: the MandatoryColumnCheckRule as a standard DQ rule (a feature)
+
+- **Symptom:** no DATA_QUALITY_RULES row checked the STTM's required fields the way the
+  client framework does (MandatoryColumnCheckRule with the FRD's error code); the agent
+  wrote the list into ADLS MANDATORY_FIELD_LIST instead, which the tester keeps blank.
+- **Reproduced:** her staging uploads (pairs A / B / C, /tmp only, mock, post213): no such
+  row; each of her FRDs has an error table (inside a requirement cell) with one
+  "mandatory field missing" row and a numeric code; none of the 12 pairs has one.
+- **Root cause:** not a defect - the rule class was not in `dq_rule_classes`, and post171
+  writes DQ rows only where a document states the rule. Soham (2026-11-19 / 20): a
+  standard rule; blank the list when the row is written; no error table = the row with
+  INPUT_PARAM open, non-blocking.
+- **Change:** `extract/frd_docx.py :: mandatory_error_codes` (+ `read_frd`) with
+  `extractor.frd.error_code_headers / error_description_headers /
+  mandatory_error_descriptions` (config.yaml) -> `FrdFeed.mandatory_error_code / _source`
+  -> `ResolvedFeedSpec.frd_mandatory_error_*` (`resolve/resolver.py`) ->
+  `metadata_sheet._feed_from_spec` (the run path rebuilds the FRD feed from the spec -
+  the first harness run left INPUT_PARAM open until this). `metadata_template.py ::
+  _mandatory_columns / mandatory_rule_written / _mandatory_error_cell / _std_dq_rules`:
+  the `std_mandatory_check` kind (ACFC overlay `dq_rules`, class, type STDDelta,
+  citation), one row per standard table holding a required field; the ADLS
+  MANDATORY_FIELD_LIST cell a `deliberate_blank` then; `dq_not_generated_flags` drops
+  the NullCheckRule "required columns" suggestion then. `emit/notebook_v2.RULES`: the
+  class runs as the null check. Why a new reader (READER_GENERALIZATION): the error
+  table is a header-keyed table no existing reader covers; its headers and row words are
+  config lists, no field-specific code path.
+- **Reach:** 12-pair check (post213 da6783a vs post214 81ed4f0, mock, framework): outcomes
+  unchanged (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), 295 / 295
+  files. REAL in pairs 01 02 03 04 05 06 09 11 12: DATA_QUALITY_RULES 140 cells per IIG /
+  review copy (the new rows), ADLS_DELTA MANDATORY_FIELD_LIST 17 cells blanked, 9 feeds
+  with `iig_dq_open:` (INPUT_PARAM open - no 12-pair FRD states an error table) and a new
+  `iig_blank:DATA_QUALITY_RULES` line (the sheet's usual blanks + INPUT_PARAM; those feeds
+  had no DQ row before), 5 LOG lines of the NullCheckRule suggestion gone, the review
+  summary / provenance sheets accordingly. The contracts' one changed line = the cached
+  old side's run date (2026-11-19). Tester pairs: A and C get the row with the FRD's code
+  (37 / 32 columns) and the list blank; B stays held at layout under mock (as before).
+- **Side effects:** a feed with required fields but no error table is PASS_WITH_FLAGS
+  with one more flag; no verdict / outcome moved.
+- **Unchanged:** NullCheckRule / DeDuplicationRule (post171 / post193); the FRD's "No
+  Rejection" row (no rule row, post193's reason on the list); an overlay without
+  `std_mandatory_check` keeps the list (pinned); the notebook does not write the error
+  code (the client framework's own).
+- **Tests:** `tests/test_mandatory_rule_post214.py` (17);
+  `test_tracker_incidents_post193.py` (the list test pins both cases);
+  `test_iig_corpus_cells.py::test_dq_key_rules_only_where_a_document_states_them` (the
+  row, no suggestion). `test_a_run_rebuilds_the_feed_from_the_spec_with_the_code` failed
+  with only `metadata_sheet.py` reverted; the rest are new behaviour.
+- **Verified:** both suites on the pushed tree; the 12-pair check above.
+- **Revert:** drop `std_mandatory_check` from the ACFC overlay's `dq_rules` (the row and the
+  blank list go; the reader stays inert), or revert the post214 commits.
+- **Deployed:** not yet.
+
 ## 0.5.8.post213 — second tester: a standard type cell reading a note CRASHED the run
 
 - **Symptom:** the live run on staging ended CRASHED (`TemplateGapError: no SQL type

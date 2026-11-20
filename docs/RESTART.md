@@ -4,55 +4,50 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-20 - staging = post215 (main 092c733); feature = post215; dev STOPPED on post194)
+## Start here (2026-11-20 night - staging = post215 (main 092c733); feature = post215 + docs; post216 on `wip/post216-p2`; dev STOPPED on post194)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 
-**First check:** `git fetch && git status -sb` = `feature/multi-table` level with origin
-(post214 pushed and on staging 2026-11-20).
-- **staging `codegen-agent-staging` = post215** (`main` = 092c733, identical-tree merge, 2026-11-20;
-  health + smoke green). **dev `codegen-agent`:** STOPPED on post194 (starting it bills
-  compute - Soham's call).
-- **The last session (2026-11-19/20): post206-post213** - what each did: CHANGELOG_ACFC;
-  why / the testers' reports / Soham's decisions: CLAUDE_HISTORY §[H29]. Every shipped
-  version: both suites green on the pushed tree, the 12-pair check alone (outcomes always
-  5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), a BUG_FIX_LOG entry.
+**First check:** after the weekend's reset: `~/bootstrap` (clones `feature/multi-table`),
+then the OAuth login (recipe below). `git fetch` - `origin/feature/multi-table` = post215
++ docs; **post216 (the question UX P2) lives ONLY on `origin/wip/post216-p2`** (two commits
+on top of a53ec77: 3eb1d95 + b8cedf8) - not merged, not checked (item -5).
+- **staging `codegen-agent-staging` = post215** (`main` = 092c733, identical-tree merge,
+  2026-11-20; health + smoke green; the proxy's `x-forwarded-email` reaches the App).
+  **dev `codegen-agent`:** STOPPED on post194 (starting it bills compute - Soham's call).
+- **The last session (2026-11-20): post213 pushed, post214 - post216** - what each did:
+  CHANGELOG_ACFC; why / decisions / the flake: CLAUDE_HISTORY §[H30]. Every shipped
+  version: both suites green on the pushed tree, the 12-pair check alone where output can
+  move (outcomes always 5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL).
 - **Testers' documents** (staging uploads, `/Workspace/Users/<me>/codegen/inputs/
   codegen-agent-staging/uploads`): pair A / B = the first tester's (two vendors of one
-  program), pair C = the second tester's (a third vendor) - the /tmp copies were deleted
-  2026-11-20; re-export them when needed (mock only, /tmp, delete after). pair_13 (the Accumulators pair)
-  = Workspace `frd_sttm_pairs/pair_13` (`--pairs 13`, outside the 12-pair default).
+  program), pair C = the second tester's (a third vendor) - no /tmp copies left (deleted
+  2026-11-20); re-export when needed (mock only, /tmp, delete after). pair_13 (the
+  Accumulators pair) = Workspace `frd_sttm_pairs/pair_13` (`--pairs 13`).
 - **Tracker:** `tools/tracker/` (export script tracked; per-change update scripts quote
   client text - chat + /tmp only). Office Scripts compile stricter than tsc
   (`tools/tracker/README.md`, `check_office_script.py`).
 - **Docs out:** the user manual = Workspace `code-gen-agent-documentation.docx`; the WSR
-  deck `AI_in_Engineering_ WSR_Nov 20.pptx` (CodeGen parts of slides 4 / 6 updated
-  2026-11-19).
-- After a container reset: `~/bootstrap`, then the OAuth login (recipe below).
+  deck `AI_in_Engineering_ WSR_Nov 20.pptx`; model comparisons = `docs/MODEL_COMPARISON.md`.
 
 **Open, in order:**
--4. **post215 (Feedback on the App) ON STAGING (092c733, 2026-11-20; health + smoke green;
-   the proxy's x-forwarded-email reaches the App - checked by GET /api/feedback):** no
-   admins yet - the staging state root needs `feedback_admins.txt` (one address per line;
-   Soham to give the addresses).
--3. **post213 + post214 ON STAGING (4f2f082, 2026-11-20; health + smoke green):** post213
-   = a standard type cell holding a note -> one question; post214 = the
-   MandatoryColumnCheckRule (below). Both suites green on ad7c9c5; 12-pair check: outcomes
-   unchanged (BUG_FIX_LOG post214 for the reach). Next: send the first tester
-   the reply drafted 2026-11-20 (in chat - it asks her to confirm the 'STDDelta' spelling).
--2. **The question UX, P2 / P3 / P4 (plan agreed 2026-11-19; P1 = post210):** P2 FRD
-   questions as VALUE questions (the values found, deduped, capped, cited; coordinates
-   folded; the text box always); P3 the dialog in plain words, one card per feed, what
-   each answer sets in the IIG (sheet / column), keys folded; P4 the measure - questions
-   per pair x choices per question, before / after, on the 12 pairs + pairs A / B / C.
-   Show Soham a screenshot before shipping P2 / P3. Pre-existing: at 390 px the Settings
-   card's connection-ID table scrolls sideways.
--1. **MandatoryColumnCheckRule = post214 (DONE):** her answers (STDDelta; SOURCE = TARGET =
-   the required fields' standard columns; INPUT_PARAM = the FRD error table's code) +
-   Soham's calls (MANDATORY_FIELD_LIST a decided blank when the row is written; no error
-   table = INPUT_PARAM open, non-blocking). Open: her spelling 'STDdelta' vs our
-   'STDDelta'; the NullCheckRule overlap she did not answer (left as is).
+-5. **post216 = the question UX P2 (FRD questions offer VALUES) - on `wip/post216-p2`
+   only.** To land it: (1) Soham OKs the look (before / after screenshots shown
+   2026-11-20, synthetic text); (2) rebase the branch onto `feature/multi-table` (expect a
+   small conflict in this file's item list - keep this version); (3) both suites - the
+   first run failed `test_layout_frd_model_label` (a real P2 bug, fixed in b8cedf8); the
+   re-run after the fix was still running when the environment closed: UNREAD; (4) the
+   12-pair check (old side = the feature tip); (5) BUG_FIX_LOG reach line; push; staging
+   on his word. Then P3 (plain words, one card per feed, what each answer sets in the
+   IIG) and P4 (questions per pair x choices per question, before / after, on the 12 pairs
+   + pairs A / B / C). Pre-existing: at 390 px the Settings card's connection-ID table
+   scrolls sideways.
+-4. **post215 (Feedback on the App) ON STAGING:** no admins yet - the staging state root
+   needs `feedback_admins.txt` (one address per line; Soham to give the addresses).
+-3. **The first tester (MandatoryColumnCheckRule, post214, on staging):** the reply and a
+   second message on the Feedback page were sent 2026-11-20. Open: her spelling 'STDdelta'
+   vs our 'STDDelta'; the NullCheckRule overlap she did not answer (left as is).
 0. **Venu's "run the DDL tests from the App" (Soham + Venu):** options sent - (1) an
    "Open in Databricks" button, no rule change; (2) the App runs them - needs the
    EXPLAIN-only rule widened to read-only test statements, an identity (user
@@ -100,11 +95,11 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 12. **`codingapp` deploy** (bootstrap patch imported) - on Soham's word, last in a session.
 13. The STTM cell locator step 3; BSA questions (pairs 05 / 11 DQ sheet, pair_12 recycle);
     the Apps stop / start schedule (CLAUDE_HISTORY, blocks retired 2026-11-10).
+14. **AGENTS.md is 270 lines** (target ~200, /handoff): move procedures to skills /
+    `.claude/rules/` in a quiet session.
 15. **Model comparisons** (other vendors vs Opus 5.5): `docs/MODEL_COMPARISON.md` -
     Gemini 4 Neon (2026-11-20) and the GPT-6.2 Astra summary (2026-11-19); verdict both
     times: stay on Opus (the vendor rule). Add every new one there.
-14. **AGENTS.md is 270 lines** (target ~200, /handoff): move procedures to skills /
-    `.claude/rules/` in a quiet session.
 
 ## Recipes (tracked since 2026-11-10 - `tools/check/`, `/tmp` holds only copies)
 

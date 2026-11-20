@@ -203,7 +203,9 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   clone, the gh login, /tmp): what must survive goes into this repo, committed and pushed.
   After a restart: `gh auth login` (Soham), then `~/bootstrap` (written by the App's
   `setup_bootstrap.sh`: git login via gh, clones this repo on `feature/multi-table`, runs
-  `scripts/dev_bootstrap.sh`).
+  `scripts/dev_bootstrap.sh`). Work not ready for `feature/multi-table` (unchecked,
+  unreviewed) is pushed to its own `wip/<x>` branch before a close / reset, never left
+  local (2026-11-20: post216 on `wip/post216-p2`).
 - **Multi-agent workflows / fan-outs:** never without a hard token budget and effort
   caps — an uncapped audit burned 1.7M tokens on 7 of 18 finders (2026-10-26).
   Deterministic tools first (coverage with test contexts, static graph), agents only on

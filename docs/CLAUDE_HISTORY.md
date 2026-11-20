@@ -5448,3 +5448,15 @@ cross-module imports; 4 modules over 2.8k lines; dead code kept by rule.
   Feedback page).
 - **Cleaned at the end:** the 12-pair copies (`pair_check.sh cleanup`), the testers'
   copies (/tmp/t/ik), every other /tmp/t file.
+- **Later the same evening: post216 = the question UX P2** (Soham: "Do P2", 45 minutes
+  left). An FRD question a person may type offers VALUES (one per distinct value, the
+  model's proposal preferred, capped by `layout.frd_question_max_values`, cited by its
+  labels, table / row in a tooltip); the pick stays a cell, so the answer path is
+  unchanged. Screenshots shown (before / after, synthetic text). The first suites (both
+  venvs) failed `test_layout_frd_model_label`: the dedupe dropped a proposed label row
+  with an empty value (and its pre-selection) - fixed (b8cedf8) with a test that fails
+  without it. The re-run was still running when the environment closed. Not merged:
+  pushed to `wip/post216-p2` so the weekend's reset does not lose it (RESTART item -5).
+- **Teams text may name people** (Soham, 2026-11-20: "this is a TEAMS UPDATE, you can use
+  names"): the no-names rule is for the App, artefacts and the shared spreadsheet only
+  (auto-memory `teams-updates-may-name-people`).

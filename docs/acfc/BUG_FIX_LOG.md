@@ -29,6 +29,27 @@ number.
 
 ---
 
+## 0.5.8.post216 (on `wip/post216-p2`, NOT merged) — P2's dedupe dropped the layout model's proposal
+
+- **Symptom:** the first post216 suites (both venvs) failed
+  `tests/test_layout_frd_model_label.py::test_a_model_claim_on_a_label_that_is_not_the_fields_is_not_applied`
+  (the question lost its pre-selection). Caught before any push to feature / staging.
+- **Reproduced:** that test, alone, on 3eb1d95.
+- **Root cause:** `layout/resolve.py :: _value_choices` (new in post216) skipped every
+  candidate whose value text is empty - including the layout model's proposed label row,
+  which P1 always keeps.
+- **Change:** `_value_choices` keeps a proposed candidate with no value text (keyed by
+  its place, no `shown`; the dialog shows it the old way, by cell).
+- **Reach:** not measured yet - the 12-pair check runs when post216 lands (RESTART -5).
+- **Side effects:** none known.
+- **Unchanged:** the dedupe / cap of every other candidate; the answer format.
+- **Tests:** `tests/test_frd_value_choices_p2.py::test_a_proposal_with_no_value_text_is_still_offered`
+  - fails with only `resolve.py` reverted to 3eb1d95, passes with b8cedf8; the model-label
+  test passes.
+- **Verified:** the suites' re-run was UNREAD at the session's end; 12-pair check pending.
+- **Revert:** drop b8cedf8 (the bug comes back) or the whole branch.
+- **Deployed:** not yet.
+
 ## post215 tree (tests only, no version) — the selection flake: a cross-suite twin FRD
 
 - **Symptom:** `tests/test_demo_ui.py::test_choosing_an_sttm_auto_pairs_its_frd` failed

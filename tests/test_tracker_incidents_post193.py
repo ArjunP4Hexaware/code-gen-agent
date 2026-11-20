@@ -100,9 +100,27 @@ def test_the_review_copy_does_not_ask_for_the_decided_blank(acfc, pair4_spec):
 @pytest.mark.parametrize("rules", [[], [f"{NULLS}: NA"],
                                    [f"{NULLS}: Incomplete records will be rejected"]])
 def test_otherwise_the_mandatory_list_is_the_sttms_required_columns(acfc, pair4_spec, rules):
+    """Without post214's MandatoryColumnCheckRule (an overlay that does not configure it)."""
+    config, tpl, feed = acfc
+    tpl = tpl.model_copy(update={"dq_rules": [k for k in tpl.dq_rules
+                                              if k != "std_mandatory_check"]})
+    spec = _with(pair4_spec, rules=rules)
+    for row in template_tab_rows(ADLS, feed, config, spec, None, tpl):
+        assert _v(row, "MANDATORY_FIELD_LIST") == ",".join(pair4_spec.not_null_columns)
+
+
+@pytest.mark.parametrize("rules", [[], [f"{NULLS}: NA"],
+                                   [f"{NULLS}: Incomplete records will be rejected"]])
+def test_post214_the_dq_rule_checks_them_and_the_list_is_a_decided_blank(acfc, pair4_spec,
+                                                                         rules):
     spec = _with(pair4_spec, rules=rules)
     for row in _rows(acfc, ADLS, spec):
-        assert _v(row, "MANDATORY_FIELD_LIST") == ",".join(pair4_spec.not_null_columns)
+        cell = row["MANDATORY_FIELD_LIST"]
+        assert cell["value"] in ("", None)
+        assert cell["badge_entry"].get("deliberate_blank") is True
+        assert "MandatoryColumnCheckRule" in cell["badge_entry"]["tooltip"]
+    assert any(_v(r, "RULE_CLASS") == "MandatoryColumnCheckRule"
+               for r in _rows(acfc, DQ, spec))
 
 
 # ------------------------------------------------------------- 13: true duplicates

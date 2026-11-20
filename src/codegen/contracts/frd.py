@@ -269,6 +269,11 @@ class FrdFeed(BaseModel):
     # business description of the feed) - the DDL table COMMENT when the STTM states no
     # Table Description. Absent from the JSON when unstated.
     description: str | None = None
+    # post214 (the first tester's MandatoryColumnCheckRule): the FRD error table's code for
+    # a missing mandatory field (the rule's INPUT_PARAM) and where it is stated (the
+    # description cell as written). Absent from the JSON when unstated.
+    mandatory_error_code: str | None = None
+    mandatory_error_source: str | None = None
 
     @property
     def is_segmented(self) -> bool:

@@ -487,6 +487,12 @@ extractor:
     # post212 (tracker #7 / #20, the Accumulators FRD): its "Archive Path:" lines (main,
     # daily, monthly) - the first is the feed's archive (Soham: "use the main one")
     archive_line_labels: ["Archive Path"]
+    # post214 (the first tester's FRDs, the headers as they write them): the error table
+    # (inside a requirement cell) - ERROR CODE | ERROR DESCRIPTION | ...; the code of its
+    # "Mandatory field missing ..." row is the MandatoryColumnCheckRule's INPUT_PARAM
+    error_code_headers: ["Error Code"]
+    error_description_headers: ["Error Description"]
+    mandatory_error_descriptions: ["Mandatory field missing"]
     landing_file_segment_pattern: '^<[^>]*>$|[*?]|\.[A-Za-z0-9]{2,4}$'
     file_pattern_line_labels: ["file pattern"]
     # 2026-10-14 (D1 pair_12): a LOB cell holding a Region / LOB table (nested,

@@ -613,7 +613,10 @@ metadata:
       # LoadHeaderAndTrailerToSeparateTablesRule only for header / trailer feeds;
       # ReferentialCheckRule (Custom) only on a named lookup. Parameter formats: the
       # CAQH golden (split / AddCustomColumns / Referential) and the SFMC reference IIG.
-      dq_rules: [header_trailer_split, add_custom_columns, null_check, dedup, referential_check, lr_trim, std_date_conversion, std_data_type_cast]
+      # post214 (Soham, 2026-11-20: a standard rule): MandatoryColumnCheckRule (STDDelta) on
+      # the standard columns of the STTM's required fields, INPUT_PARAM = the FRD error
+      # table's code (open when none) - ADLS MANDATORY_FIELD_LIST is then a decided blank
+      dq_rules: [header_trailer_split, add_custom_columns, null_check, dedup, referential_check, lr_trim, std_date_conversion, std_data_type_cast, std_mandatory_check]
       # post171 (Soham, 2026-11-05, "DQ option 1"): a DQ row only where a document states the
       # rule (config.py MetadataTemplateConfig.dq_stated_only). The FRD template's DQ-section
       # labels and the "no check" answers, and the STTM DQ rules sheet's null-check value, as
@@ -633,8 +636,8 @@ metadata:
       dq_sheet_null_values: ["Don't allow nulls"]
       dq_sheet_field_headers: ["FieldName"]
       dq_sheet_rule_headers: ["DQ Rules"]
-      dq_rule_classes: {header_trailer_split: LoadHeaderAndTrailerToSeparateTablesRule, add_custom_columns: AddCustomColumnsRule, null_check: NullCheckRule, dedup: DeDuplicationRule, referential_check: ReferentialCheckRule, lr_trim: LRTrimRule, std_date_conversion: DateConversionRule, std_data_type_cast: DataTypeCastRule}
-      dq_rule_types: {header_trailer_split: Predefined, add_custom_columns: Predefined, null_check: Predefined, dedup: Predefined, referential_check: Custom, lr_trim: STDDelta, std_date_conversion: STDDelta, std_data_type_cast: STDDelta}
+      dq_rule_classes: {header_trailer_split: LoadHeaderAndTrailerToSeparateTablesRule, add_custom_columns: AddCustomColumnsRule, null_check: NullCheckRule, dedup: DeDuplicationRule, referential_check: ReferentialCheckRule, lr_trim: LRTrimRule, std_date_conversion: DateConversionRule, std_data_type_cast: DataTypeCastRule, std_mandatory_check: MandatoryColumnCheckRule}
+      dq_rule_types: {header_trailer_split: Predefined, add_custom_columns: Predefined, null_check: Predefined, dedup: Predefined, referential_check: Custom, lr_trim: STDDelta, std_date_conversion: STDDelta, std_data_type_cast: STDDelta, std_mandatory_check: STDDelta}
       dq_params:
         header_trailer_split: {INPUT_PARAM: SRC_FILE_NAME}
         add_custom_columns: {INPUT_PARAM: literal}
@@ -649,6 +652,7 @@ metadata:
         lr_trim: &dqsfmc "fixtures/reference/SFMC_IIG.xlsx DATA_QUALITY_RULES STDDelta rows (SOURCE_COLUMN = TARGET_COLUMN the standard columns); the corpus LRTrimRule 180 rows / 104 workbooks"
         std_date_conversion: *dqsfmc
         std_data_type_cast: *dqsfmc
+        std_mandatory_check: "the client framework's DQ notebook (MandatoryColumnCheckRule: SOURCE_COLUMN a comma list, INPUT_PARAM an error code; rejects null / blank / 'NULL'), read in place 2026-11-19; the tester's answers 2026-11-20 (RULE_TYPE STDDelta, TARGET_COLUMN = SOURCE_COLUMN the required fields' standard columns, the code from the feed's FRD)"
       dq_split_style: header_and_trailer
       # {container} = the environment's stage container, {storage_account} its storage
       # account (environments: above; D1's is still a placeholder).

@@ -197,6 +197,11 @@ class ResolvedFeedSpec(BaseModel):
     # post212 (tracker #19): the FRD's Descriptive Metadata Description (FrdFeed.description)
     # - the table COMMENT's description when the STTM states none.
     frd_description: str | None = None
+    # post214: the FRD error table's code for a missing mandatory field and where it is
+    # stated (FrdFeed.mandatory_error_code / _source) - the MandatoryColumnCheckRule's
+    # INPUT_PARAM; None = the FRD states none.
+    frd_mandatory_error_code: str | None = None
+    frd_mandatory_error_source: str | None = None
     # post70: the FRD's key statement (FrdFeed.key_statement) — one of the
     # explicit key signals codegen.primary_key reads; None = the FRD states none.
     frd_key_statement: str | None = None

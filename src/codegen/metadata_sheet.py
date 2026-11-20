@@ -799,6 +799,9 @@ def _feed_from_spec(spec: ResolvedFeedSpec) -> FrdFeed:
         sub_domain=spec.sub_domain,
         landing_location=spec.landing_location,
         archive_location=spec.archive_location,
+        # post214: the MandatoryColumnCheckRule's error code (the FRD's error table)
+        mandatory_error_code=spec.frd_mandatory_error_code,
+        mandatory_error_source=spec.frd_mandatory_error_source,
         stage_target=TargetSpec(
             catalog=spec.segments[0].stage_table.catalog,
             schema=spec.segments[0].stage_table.schema_name,

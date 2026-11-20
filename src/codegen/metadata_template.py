@@ -1793,6 +1793,17 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
             # decided blank by the FRD: no open cell in the review copy, NULL in the inserts
             cell["badge_entry"]["deliberate_blank"] = True
             cells["MANDATORY_FIELD_LIST"] = cell
+        elif spec.not_null_columns and mandatory_rule_written(spec, tpl):
+            # post214 (the first tester, Soham 2026-11-20): the client framework checks the
+            # mandatory fields through the DQ rule (MandatoryColumnCheckRule, with the
+            # FRD's error code) - a stage-load list would reject them first, uncoded
+            cell = _cell(
+                "", "from_sttm",
+                f"left empty: the STTM's {len(spec.not_null_columns)} required column(s) are "
+                "checked by the DATA_QUALITY_RULES MandatoryColumnCheckRule row (the client "
+                "framework keeps this list blank)")
+            cell["badge_entry"]["deliberate_blank"] = True
+            cells["MANDATORY_FIELD_LIST"] = cell
         elif spec.not_null_columns:
             cells["MANDATORY_FIELD_LIST"] = _cell(",".join(spec.not_null_columns), "from_sttm")
         key = _key_cell(tab, config, spec, faq, tpl, stage.table, fields, "stage", True,
@@ -2846,7 +2857,9 @@ def dq_not_generated_flags(spec: ResolvedFeedSpec, tpl: MetadataTemplateConfig) 
         flags.append(f"iig_dq_not_generated:NullCheckRule — the STTM's DQ rules sheet names "
                      f"{unmatched} null-check field(s) this feed does not have")
     if not columns and set(spec.not_null_columns) and \
-            frd_dq_check(spec.validation_rules, tpl, "null_check") is None:
+            frd_dq_check(spec.validation_rules, tpl, "null_check") is None and \
+            not mandatory_rule_written(spec, tpl):
+        # post214: a MandatoryColumnCheckRule row already checks the required columns
         flags.append(f"iig_dq_not_generated:NullCheckRule — the STTM marks "
                      f"{len(set(spec.not_null_columns))} required column(s), but no document "
                      "states a null-check rule; add it if the data engineer confirms one")
@@ -2859,16 +2872,68 @@ def dq_not_generated_flags(spec: ResolvedFeedSpec, tpl: MetadataTemplateConfig) 
     return flags
 
 
-_STD_KINDS = ("lr_trim", "std_date_conversion", "std_data_type_cast")
+_STD_KINDS = ("lr_trim", "std_date_conversion", "std_data_type_cast", "std_mandatory_check")
 
 
-def _std_dq_rules(kind: str, tpl: MetadataTemplateConfig, group: _TableGroup) -> list[dict]:
+def _mandatory_columns(spec: ResolvedFeedSpec, tpl: MetadataTemplateConfig,
+                       group: _TableGroup) -> list[str]:
+    """post214: the standard columns of the STTM's required fields in ``group`` (STTM
+    order) - the MandatoryColumnCheckRule's SOURCE_COLUMN = TARGET_COLUMN (the first
+    tester, 2026-11-20) - or [] when the rule is not configured, the STTM marks no
+    required field, or the FRD states that no record is rejected (post193's row)."""
+    if "std_mandatory_check" not in tpl.dq_rules or not spec.not_null_columns or \
+            group.standard is None or \
+            frd_states_no_rejection(spec.validation_rules, tpl) is not None:
+        return []
+    required = set(spec.not_null_columns)
+    return list(dict.fromkeys(f.standard_column for f in group.standard_fields
+                              if f.standard_column and f.stage_column in required))
+
+
+def mandatory_rule_written(spec: ResolvedFeedSpec | None,
+                           tpl: MetadataTemplateConfig | None) -> bool:
+    """post214: a MandatoryColumnCheckRule row is written for the feed (ADLS
+    MANDATORY_FIELD_LIST is then a decided blank - the client framework checks the
+    mandatory fields through the DQ rule; Soham, 2026-11-20)."""
+    if spec is None or tpl is None or spec.standard_table is None:
+        return False
+    return any(_mandatory_columns(spec, tpl, group) for group in _table_groups(spec))
+
+
+def _mandatory_error_cell(feed: FrdFeed | None) -> dict:
+    """post214: INPUT_PARAM = the FRD error table's code for a missing mandatory field
+    (the tester: "it comes from the feed's FRD, not a fixed code"); none stated = open,
+    a review note asking the data engineer (non-blocking - Soham, 2026-11-20)."""
+    code = getattr(feed, "mandatory_error_code", None) if feed is not None else None
+    if code:
+        return _cell(code, "from_frd", f"the FRD's error code for a missing mandatory field "
+                                       f"({feed.mandatory_error_source})")
+    cell = _cell("", "needs_template", "open — the FRD states no error code for a missing "
+                                       "mandatory field (no error table row)")
+    cell["badge_entry"]["note"] = (
+        "iig_dq_open:DATA_QUALITY_RULES.INPUT_PARAM — the MandatoryColumnCheckRule's error "
+        "code: the FRD's error table states none for a missing mandatory field; the data "
+        "engineer fills it in")
+    return cell
+
+
+def _std_dq_rules(kind: str, tpl: MetadataTemplateConfig, group: _TableGroup,
+                  feed: FrdFeed | None = None, spec: ResolvedFeedSpec | None = None
+                  ) -> list[dict]:
     """A STDDelta rule kind's rows for one standard table (D1 post44: the SFMC
     reference rows' shapes — SOURCE_COLUMN = TARGET_COLUMN the columns)."""
     standard = group.standard
     fields = [f for f in group.standard_fields if f.standard_column]
     if standard is None or not fields:
         return []
+    if kind == "std_mandatory_check":
+        columns = _mandatory_columns(spec, tpl, group) if spec is not None else []
+        if not columns:
+            return []
+        return [_columns_rule(tpl, kind, columns,
+                              "the standard columns of the fields the STTM marks Required "
+                              f"(standard table {standard.table})",
+                              INPUT_PARAM=_mandatory_error_cell(feed))]
     if kind == "lr_trim":
         # post165: only the columns whose STTM load rule states a trim
         trim = re.compile(tpl.dq_trim_rule_regex)
@@ -2959,7 +3024,8 @@ def _dq_rules(tab, feed, config, spec, faq, tpl) -> list[dict]:  # noqa: C901
     if std_kinds and spec.standard_table is not None:
         all_files = _feed_files(spec, config)
         for group in groups:
-            std_rules = [rule for kind in std_kinds for rule in _std_dq_rules(kind, tpl, group)]
+            std_rules = [rule for kind in std_kinds
+                         for rule in _std_dq_rules(kind, tpl, group, feed, spec)]
             object_id = (_stg_object_id_cell(tpl, group, all_files)
                          if tpl.family_conventions.stgdelta_object_id == "from_file" else None)
             for index, rule in enumerate(std_rules, start=1):

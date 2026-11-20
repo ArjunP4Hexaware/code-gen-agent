@@ -497,6 +497,51 @@ def requirement_landings(content: DocxContent, config: FrdExtractorConfig,
             for name, path, index, row_index, idents in out]
 
 
+def _starts_with_words(text: str, phrases: list[str]) -> bool:
+    words = " ".join(re.sub(r"[^a-z0-9]+", " ", text.lower()).split())
+    for phrase in phrases:
+        want = " ".join(re.sub(r"[^a-z0-9]+", " ", phrase.lower()).split())
+        if want and (words == want or words.startswith(want + " ")):
+            return True
+    return False
+
+
+def mandatory_error_codes(content: DocxContent, config: FrdExtractorConfig
+                          ) -> list[tuple[str, str, str]]:
+    """post214 (the first tester's MandatoryColumnCheckRule): ``(code, description, where)``
+    for every row of an FRD error table - a table, top level or inside a cell, whose header
+    row names an :attr:`FrdExtractorConfig.error_code_headers` column and an
+    ``error_description_headers`` one - whose description opens with a
+    ``mandatory_error_descriptions`` phrase and whose code cell is one line. Document
+    order; the caller decides (one distinct code = the code, several = none)."""
+    codes, descriptions = LabelSet(config.error_code_headers), LabelSet(
+        config.error_description_headers)
+    phrases = config.mandatory_error_descriptions
+    if not (codes and descriptions and phrases):
+        return []
+    blank = {normalize_label(b) for b in config.blank_values}
+    grids = [(f"table {t + 1}", rows) for t, rows in enumerate(content.tables)]
+    grids += [(f"the table inside table {t + 1} row {r + 1} column {c + 1}", rows)
+              for (t, r, c), rows in sorted(content.nested.items())]
+    found = []
+    for where, rows in grids:
+        if not rows:
+            continue
+        header = [normalize_label(cell) for cell in rows[0]]
+        code_col = next((i for i, h in enumerate(header) if h in codes), None)
+        text_col = next((i for i, h in enumerate(header) if h in descriptions), None)
+        if code_col is None or text_col is None:
+            continue
+        for index, row in enumerate(rows[1:], start=2):
+            if max(code_col, text_col) >= len(row):
+                continue
+            code, text = row[code_col].strip(), row[text_col].strip()
+            if (code and "\n" not in code and normalize_label(code) not in blank
+                    and _starts_with_words(text, phrases)):
+                found.append((code, text, f"{where}, row {index}"))
+    return found
+
+
 def _first_cell(row: list[str]) -> tuple[int, str] | None:
     return next(((col, cell) for col, cell in enumerate(row) if cell.strip()), None)
 
@@ -1841,6 +1886,15 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         return ""
 
     flags: list[str] = []
+    # post214: the error table's "mandatory field missing" code - one per document (every
+    # feed's MandatoryColumnCheckRule); several different codes = none, never a pick
+    error_rows = mandatory_error_codes(content, frd_config)
+    error_code = error_rows[0] if len({c for c, _t, _w in error_rows}) == 1 else None
+    if error_rows and error_code is None:
+        flags.append(f"frd_mandatory_error_code:feeds[*].mandatory_error_code — the FRD's "
+                     f"error table states {len({c for c, _t, _w in error_rows})} different "
+                     "codes for a missing mandatory field "
+                     f"({'; '.join(w for _c, _t, w in error_rows)}); none is used")
     feeds: list[FrdFeed] = []
     for feed_index in range(max(profile.feed_count, 1)):
         prefix = f"feeds[{feed_index}]"
@@ -2045,6 +2099,11 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             archive_location=_archive(prefix),
             # post212 (tracker #19): the Descriptive section's Description row
             description=get(f"{prefix}.description#descriptive") or None,
+            # post214: the error table's code for a missing mandatory field, with the
+            # description cell as written and where it is (the IIG cell cites both)
+            mandatory_error_code=error_code[0] if error_code else None,
+            mandatory_error_source=(f"{error_code[2]}: {error_code[1]!r}"
+                                    if error_code else None),
             stage_target=TargetSpec(catalog=stage_catalog, schema=stage_schema, tables=tables,
                                     load_strategy=stage_strategy),
             standard_target=TargetSpec(catalog=std_catalog, schema=std_schema,

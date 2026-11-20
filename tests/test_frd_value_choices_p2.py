@@ -86,3 +86,19 @@ def test_the_answers_template_never_carries_a_value():
     q = _question(content, "feeds[0].delimiter")
     (item,) = _question_items([q])
     assert "Pipe" not in " ".join(item.candidates)
+
+
+def test_a_proposal_with_no_value_text_is_still_offered():
+    """The first post216 suites: the layout model proposed a label row whose cell holds no
+    value text (tests/test_layout_frd_model_label.py) - the dedupe dropped it, and the
+    proposal's pre-selection with it. The proposal is always offered."""
+    from codegen.layout.resolve import _value_choices
+
+    content = DocxContent(tables=[[["Structural Metadata", ""], ["Target Schema", ""],
+                                   ["Delimiter", "Pipe"]]], paragraphs=[])
+    offered = [{"table": 0, "row": 1, "col": 0, "label": "Target Schema"},
+               {"table": 0, "row": 2, "col": 0, "label": "Delimiter"}]
+    choices = _value_choices(offered, ["0:1:0"], content, 5)
+    assert [(c["row"], c.get("shown")) for c in choices] == [(1, None), (2, "Pipe")]
+    assert _value_choices(offered, [], content, 5) == [{**offered[1], "shown": "Pipe",
+                                                         "also": 0}]

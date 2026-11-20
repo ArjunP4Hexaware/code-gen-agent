@@ -96,6 +96,9 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 12. **`codingapp` deploy** (bootstrap patch imported) - on Soham's word, last in a session.
 13. The STTM cell locator step 3; BSA questions (pairs 05 / 11 DQ sheet, pair_12 recycle);
     the Apps stop / start schedule (CLAUDE_HISTORY, blocks retired 2026-11-10).
+15. **Model comparisons** (other vendors vs Opus 5.5): `docs/MODEL_COMPARISON.md` -
+    Gemini 4 Neon (2026-11-20) and the GPT-6.2 Astra summary (2026-11-19); verdict both
+    times: stay on Opus (the vendor rule). Add every new one there.
 14. **AGENTS.md is 270 lines** (target ~200, /handoff): move procedures to skills /
     `.claude/rules/` in a quiet session.
 

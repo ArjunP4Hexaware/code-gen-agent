@@ -34,7 +34,7 @@ from codegen.demo_sources import scan_reference_documents
 from codegen.governance_checks import RunFacts, governance_checks_payload
 from codegen.input_requirements import input_requirements_payload
 from codegen.storage import StorageError
-from ui.backend import databricks_routes, sharepoint_routes
+from ui.backend import databricks_routes, feedback, sharepoint_routes
 from ui.backend import errors as ui_errors
 from ui.backend.demo import (
     DemoRunner,
@@ -259,6 +259,9 @@ app.include_router(sharepoint_routes.router)
 # Databricks volumes: same posture — 503 when unconfigured, panel hidden.
 databricks_routes.bind_store(store)
 app.include_router(databricks_routes.router)
+# post215: feedback on the App (bug reports / suggestions, screenshots) - the outputs
+# role's app_feedback/, the state root's feedback_admins.txt (ui/backend/feedback.py)
+app.include_router(feedback.router)
 
 # CORS is only needed when the frontend is served from a different origin —
 # i.e. the two-process dev workflow's Vite server. Single-port mode is

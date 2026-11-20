@@ -800,6 +800,31 @@ live" (primary) / "Cancel". Confirm → `POST /api/demo/run-live
 
 > **Removed 2026-09-18 (ACFC trim).** Demo mode (the guided tour) is gone; `/demo` no longer routes. No longer in the frontend; the backend routes it used remain for API compatibility only.
 
+### 2.5a Feedback (`/feedback`) — bug reports and suggestions (post215)
+
+Ported from the STTM agent's App (its Feedback section). Sidebar item "Feedback" (speech
+bubble icon) under Results. One `h1` "Feedback on the agent", the lead "Tell us what went
+wrong or what would make the agent better. Add screenshots if they help. Feedback goes to
+the people who run the agent; the agent itself never reads it."
+
+- **The form card:** Type = two pressed-state buttons "Bug report" (default) /
+  "Suggestion"; Title (one line, 200 max); Details (textarea, 10,000 max); Related run
+  (optional select: "None" + this App's run folders, each shown as "Run started <date,
+  time>" - never the folder name); Screenshots (optional, up to 5 images, 5 MB each: a
+  drop zone that also takes a paste anywhere in the card, thumbnails with a 24 px "×"
+  remove); a PHI warning line ("Don't include member data or other PHI ..."); "Send
+  feedback" (primary) with a status line ("Add a title and some details first." /
+  "Sending…" / "Thanks - your feedback was sent." / the server's message). The type of a
+  screenshot is checked in the browser AND from its bytes on the server.
+- **The list card:** "Your feedback" - each submission: a kind pill, the title, a status
+  pill (New / In progress / Done / Declined - accent tints only, never the verdict
+  colours), the time (and for an admin viewing everyone's: the user, the run), the text,
+  thumbnails (open full size). A loading row until the first answer; "No feedback sent
+  yet." when empty. **Feedback admins** (the state root's `feedback_admins.txt`, one
+  address per line - never in git) get a "Mine" / "Everyone's" switch and a Status select
+  per submission.
+- Who is signed in: the Apps proxy's `x-forwarded-email`; without the proxy, `local`.
+
 ### 2.6 Shared component — "Publish to Unity Catalog volume" panel
 
 Rendered on the Dashboard whenever `GET /api/databricks/publish-target`
@@ -988,6 +1013,18 @@ ticket number → ≥3-token stem heuristic **as a suggestion only**.
 | `POST /api/databricks/fetch` `{volume, name}` | Download one document to `inputs/databricks/` → `{fetched, dest}` | 502 |
 | `GET /api/databricks/publish-target` | Always answers `{available, reason, catalog?, schema?, volume?, writable_prefix}` | — |
 | `POST /api/databricks/publish` `{confirm: true, feed_slug, catalog, schema_name, volume, force?}` | Upload report + notebook + framework artefacts under `<volume>/<feed>/` | 400 no confirm / outside `WRITABLE_PREFIX`; 404 no feed / nothing to publish; 502 transport; 503 unconfigured |
+
+### 3.6a Feedback (post215, `ui/backend/feedback.py`)
+
+| Route | Purpose | Codes |
+|---|---|---|
+| `GET /api/feedback[?all=true]` | `{user, is_admin, all, items[]}`; your own, or everyone's for an admin | 403 `all` for a non-admin |
+| `GET /api/feedback/runs` | `{runs: [demo_<ts>, ...]}` newest first | 502 listing |
+| `POST /api/feedback` `{kind: bug|suggestion, title, text, run?, images: [{data}]}` | Saves under the outputs role's `app_feedback/<sub_id>/` → the item (201) | 400 bad image / base64 / blank; 404 no such run; 422 shape |
+| `GET /api/feedback/{sub_id}/images/{name}` | The screenshot (nosniff, `default-src 'none'`) to its owner or an admin | 400 bad id / name; 403; 404 |
+| `POST /api/feedback/{sub_id}/status` `{status}` | Admins only; appends to `status_history` | 403; 404; 422 |
+
+Nothing deletes a submission ("Clear past runs" removes `demo_*` folders only).
 
 ### 3.7 SharePoint seam (backend only — no panel in the current frontend)
 

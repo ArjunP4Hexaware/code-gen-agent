@@ -9,6 +9,7 @@ import { Icon } from "./components/Icons";
 import { usageSummary } from "./components/ModelUsage";
 import { VerdictDot } from "./components/VerdictChip";
 import { Dashboard } from "./pages/Dashboard";
+import { FeedbackPage } from "./pages/FeedbackPage";
 import { FeedDetailPage } from "./pages/FeedDetailPage";
 import { ModesPage } from "./pages/ModesPage";
 import { modeCopy, providerBadge, servedBanner, servedWords } from "./runLabels";
@@ -113,6 +114,11 @@ export function App() {
             <Icon name="results" />
             Results
           </NavLink>
+          {/* post215: feedback on the App (bug reports / suggestions) */}
+          <NavLink to="/feedback" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
+            <Icon name="feedback" />
+            Feedback
+          </NavLink>
         </nav>
         {data?.feeds.length ? <div className="sidebar-section">Feeds in these results</div> : null}
         <nav aria-label="Feeds">
@@ -194,6 +200,7 @@ export function App() {
                 />
               }
             />
+            <Route path="/feedback" element={<FeedbackPage />} />
             <Route
               path="/feeds/:slug"
               element={<FeedDetailPage onFeedsChanged={refresh} />}

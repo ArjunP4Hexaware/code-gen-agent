@@ -4,6 +4,27 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post215 — 2026-11-20 (Feedback on the App: bug reports and suggestions)
+
+Ported from the STTM agent's App (its Feedback section; Soham's picks: admins in a state
+root file, Bug report / Suggestion, a run picked from this App's runs). No generated
+output changes.
+- `ui/backend/feedback.py` (new, router in `ui/backend/main.py`): `POST /api/feedback`
+  (title, details, optional run, up to 5 screenshots - type from the BYTES, 5 MB each),
+  `GET /api/feedback[?all=true]`, `GET /api/feedback/runs`, `GET
+  /api/feedback/{id}/images/{name}` (owner / admin; nosniff, `default-src 'none'`), `POST
+  /api/feedback/{id}/status` (admins). Stored in the OUTPUTS role, `app_feedback/<id>/`
+  (submission.json + images; any backend; never deleted - "Clear past runs" removes only
+  `demo_*`). The user = the Apps proxy's `x-forwarded-email` (`local` without it); the
+  admins = the STATE root's `feedback_admins.txt` (one address per line, never in git).
+- `ui/frontend`: the Feedback page (`/feedback`, a sidebar item), both themes, 390 px;
+  `dist` rebuilt. UX skill §2.5a / §3.6a.
+- Nothing sent there reaches a model or a run.
+
+Tests: `tests/test_feedback_app.py` (13), `ui/frontend/src/pages/FeedbackPage.test.tsx`
+(5); Playwright on a local mock App (both themes, 1366 / 390 px: one h1, no sideways
+scroll, no target under 24 px, no console error, a screenshot sent and served).
+
 ## 0.5.8.post214 — 2026-11-20 (the MandatoryColumnCheckRule - a standard DQ rule)
 
 The first tester's ask (Soham: a standard rule on every ingestion). Her answers: RULE_TYPE

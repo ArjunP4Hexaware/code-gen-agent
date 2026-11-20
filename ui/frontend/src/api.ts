@@ -1181,4 +1181,52 @@ export const api = {
       body: JSON.stringify({ run }),
     }),
   resetDecisions: () => request<FeedsResponse>("/api/decisions/reset", { method: "POST" }),
+  // post215: feedback on the App (ui/backend/feedback.py)
+  feedbackList: (all: boolean) =>
+    request<FeedbackList>(`/api/feedback${all ? "?all=true" : ""}`),
+  feedbackRuns: () => request<{ runs: string[] }>("/api/feedback/runs"),
+  sendFeedback: (body: FeedbackDraft) =>
+    request<FeedbackItem>("/api/feedback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  setFeedbackStatus: (subId: string, status: FeedbackStatus) =>
+    request<FeedbackItem>(`/api/feedback/${encodeURIComponent(subId)}/status`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status }),
+    }),
 };
+
+// post215: feedback on the App - the shapes of ui/backend/feedback.py
+export type FeedbackKind = "bug" | "suggestion";
+export type FeedbackStatus = "new" | "in_progress" | "done" | "declined";
+
+export interface FeedbackItem {
+  sub_id: string;
+  created_at: string;
+  user: string;
+  kind: FeedbackKind;
+  title: string;
+  text: string;
+  run: string | null;
+  images: string[];
+  status: FeedbackStatus;
+  status_history: { status: FeedbackStatus; by: string; at: string }[];
+}
+
+export interface FeedbackList {
+  user: string;
+  is_admin: boolean;
+  all: boolean;
+  items: FeedbackItem[];
+}
+
+export interface FeedbackDraft {
+  kind: FeedbackKind;
+  title: string;
+  text: string;
+  run: string | null;
+  images: { data: string }[];
+}

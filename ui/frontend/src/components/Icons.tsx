@@ -58,6 +58,13 @@ const PATHS = {
     </>
   ),
   menu: <path d="M4 6h16M4 12h16M4 18h16" />,
+  // post215: the Feedback section (a speech bubble)
+  feedback: (
+    <>
+      <path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4 4v-4H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+      <path d="M8 9h8M8 12h5" />
+    </>
+  ),
 } as const;
 
 export type IconName = keyof typeof PATHS;

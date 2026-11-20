@@ -277,6 +277,12 @@ bend, working rules, tests) stay in the root `AGENTS.md`. Moved here verbatim fr
   (`dq_no_rejection_words`, post193) leaves ADLS `MANDATORY_FIELD_LIST` empty, a decided
   blank (`deliberate_blank`) - never "NA". A cell left empty on purpose always carries
   `deliberate_blank`, or the review copy / notebook read it as missing.
+  **The one standard rule** (Soham, 2026-11-20, post214): MandatoryColumnCheckRule
+  (STDDelta, `std_mandatory_check`) on the standard columns of the STTM's required
+  fields, per standard table, INPUT_PARAM = the FRD error table's code (open + an
+  `iig_dq_open:` note when none, never a constant) - and ADLS `MANDATORY_FIELD_LIST` is
+  then a decided blank (the client framework checks them through the rule); an FRD "No
+  Rejection" row = no rule row.
   **`metadata_inserts.sql` and the DML runner notebooks are RETIRED** (post194, Soham
   2026-11-16): never re-add them; the IIG workbook is the framework hand-over. The
   `dml:` config section and `emit_dml` stay ACCEPTED (an overlay may set them) but

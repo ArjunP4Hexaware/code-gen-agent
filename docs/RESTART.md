@@ -20,8 +20,8 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
   5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), a BUG_FIX_LOG entry.
 - **Testers' documents** (staging uploads, `/Workspace/Users/<me>/codegen/inputs/
   codegen-agent-staging/uploads`): pair A / B = the first tester's (two vendors of one
-  program), pair C = the second tester's (a third vendor) - copies in /tmp/t/ik (gone after
-  a reset; re-export them, mock only, /tmp, delete after). pair_13 (the Accumulators pair)
+  program), pair C = the second tester's (a third vendor) - the /tmp copies were deleted
+  2026-11-20; re-export them when needed (mock only, /tmp, delete after). pair_13 (the Accumulators pair)
   = Workspace `frd_sttm_pairs/pair_13` (`--pairs 13`, outside the 12-pair default).
 - **Tracker:** `tools/tracker/` (export script tracked; per-change update scripts quote
   client text - chat + /tmp only). Office Scripts compile stricter than tsc

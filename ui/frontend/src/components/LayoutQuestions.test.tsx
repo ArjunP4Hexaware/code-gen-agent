@@ -484,3 +484,35 @@ describe("post210: a typed FRD question no cell states is the text box alone", (
     expect(host.textContent).toContain("Not in any cell above? Type it:");
   });
 });
+
+describe("P2: an FRD question a person may type offers values (2026-11-20)", () => {
+  const delimiter: LayoutQuestion = {
+    document: "frd", key: "feeds[0].delimiter", sheet: null, layer: null,
+    role: "feeds[0].delimiter", kind: "role", reason: "unplaced", header: [],
+    candidates: [
+      { table: 0, row: 3, col: 0, value_col: 1, label: "Functional Requirement",
+        inline_label: "Delimiter", line: "Delimiter: Pipe", shown: "Pipe", also: 2 },
+      { table: 3, row: 3, col: 0, value_col: 1, label: "Functional Requirement",
+        inline_label: "Delimiter", line: "Delimiter: Comma", shown: "Comma", also: 0 },
+    ],
+    title: "Delimiter",
+  };
+
+  it("shows each value first, cites where it is stated and folds the table / row", () => {
+    render(<Dialog questions={[delimiter]} initial={emptyPicks()} />);
+    const text = host.textContent ?? "";
+    expect(text).toContain("Pipe from “Delimiter” in “Functional Requirement”");
+    expect(text).toContain("also stated in 2 other places");
+    expect(text).not.toContain("table 0 row 3");             // folded into the tooltip
+    expect(host.querySelector('[title="table 0 row 3"]')).not.toBeNull();
+    expect(text).not.toContain("other place ·");
+  });
+
+  it("still answers with the cell, as before", () => {
+    render(<Dialog questions={[delimiter]} initial={emptyPicks()} />);
+    act(() => radios().find((r) => r.parentElement?.textContent?.includes("Comma"))!.click());
+    expect(answersPayload([delimiter], latest).frd).toEqual({
+      "feeds[0].delimiter": expect.objectContaining({ table: 3, row: 3, col: 0 }),
+    });
+  });
+});

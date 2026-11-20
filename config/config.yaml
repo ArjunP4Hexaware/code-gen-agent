@@ -1102,6 +1102,8 @@ layout:
   endpoint: null
   max_tokens: 8192
   max_attempts: 2
+  # P2 (2026-11-20): an FRD question shows at most this many distinct values
+  frd_question_max_values: 5
   model_confidence: 0.8
   crosscheck_bonus: 0.1
   # P1-7 (2026-10-30): caps on a layout MODEL request (never the fingerprint /

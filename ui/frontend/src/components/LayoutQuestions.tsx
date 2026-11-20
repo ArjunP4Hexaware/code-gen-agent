@@ -454,6 +454,17 @@ export function QuestionItem({
                 )
               ) : mode === "band" ? (
                 <strong>{c.label ?? c.value}</strong>
+              ) : mode === "frd" && c.shown !== undefined ? (
+                // P2 (2026-11-20): the VALUE first, where it is stated as a small citation,
+                // the table / row folded into the tooltip
+                <span title={c.table !== undefined ? `table ${c.table} row ${c.row}` : undefined}>
+                  <strong>{c.shown}</strong>{" "}
+                  <span className="hint">
+                    from &ldquo;{c.inline_label ?? c.label}&rdquo;
+                    {c.inline_label && c.label ? <> in &ldquo;{c.label}&rdquo;</> : null}
+                    {c.also ? ` · also stated in ${c.also} other place${c.also === 1 ? "" : "s"}` : ""}
+                  </span>
+                </span>
               ) : mode === "frd" ? (
                 <>
                   {c.table !== undefined ? `table ${c.table} row ${c.row}: ` : ""}

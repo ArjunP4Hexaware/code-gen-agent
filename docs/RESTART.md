@@ -32,6 +32,11 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 - After a container reset: `~/bootstrap`, then the OAuth login (recipe below).
 
 **Open, in order:**
+-5. **post216 = the question UX P2 (FRD questions offer values) - COMMITTED, NOT pushed:**
+   Soham to OK the look (before / after screenshots shown 2026-11-20, synthetic), then
+   both suites (started at the end of the 2026-11-20 session - re-run if unread), the
+   12-pair check, push; staging on his word. P3 (plain words, one card per feed) and P4
+   (the measure) next.
 -4. **post215 (Feedback on the App) ON STAGING (092c733, 2026-11-20; health + smoke green;
    the proxy's x-forwarded-email reaches the App - checked by GET /api/feedback):** no
    admins yet - the staging state root needs `feedback_admins.txt` (one address per line;

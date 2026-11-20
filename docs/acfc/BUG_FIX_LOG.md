@@ -42,8 +42,10 @@ number.
   `feeds[i].columns[j].standard_type` (the row left out until answered; a non-type answer
   keeps it open); `ui/backend/demo.pending_question` (plain title + the reason as hint).
   Why a pass: none - the post74 blank-stage-type question applied to the standard cell.
-- **Reach:** 12-pair check - pending; pair C: CRASHED -> NEEDS_ANSWERS (one question);
-  answered "String" -> PASS_WITH_OPEN_INPUTS; answered "Derived too" -> still asked.
+- **Reach:** 12-pair check (post212 vs post213, framework, mock): outcomes unchanged, no
+  REAL change on any pair (after the "BIG INT" fix below); pair C: CRASHED ->
+  NEEDS_ANSWERS (one question); answered "String" -> PASS_WITH_OPEN_INPUTS; answered
+  "Derived too" -> still asked.
 - **Side effects:** the first 12-pair run caught one: pair_09's 8 "BIG INT" cells (a real
   type spelled with a space) were asked - `_is_data_type` now also tries the spelling
   without spaces (no question; pair_09 as before). Known, not new: such a cell still
@@ -52,7 +54,9 @@ number.
   question (post74 / post95 wording).
 - **Tests:** `tests/test_standard_type_question_post213.py` (5; 4 failed with HEAD's
   `generic.py` + `demo.py`).
-- **Verified:** pending.
+- **Verified:** `.venv-d1` 2367 passed; `.venv` 2719 passed + 1 failed
+  (`test_demo_ui.py::test_choosing_an_sttm_auto_pairs_its_frd` - passes alone 3/3 and as
+  a file 33/33: a load flake, not in this change) - RE-RUN `.venv` before the push.
 - **Revert:** drop the `standard_type` block in `generic._build_feed` (the crash returns).
 - **Deployed:** dev not yet (STOPPED); staging not yet.
 

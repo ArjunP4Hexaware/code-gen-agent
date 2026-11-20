@@ -169,6 +169,9 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   Reproduce a tester's bug on THEIR documents first (mock, /tmp); a pair worth keeping
   for re-tests goes to the Workspace `frd_sttm_pairs/pair_<n>` with a README (pair_13 =
   2026-11-16), never the repo.
+- **Never loosen a guard to make a run pass** (2026-11-19: a "no crash" change let a
+  non-type cell past post158's pentest guard; the suite caught it): catch the input
+  earlier - a question for that cell - and leave the guard and its tests as they are.
 - **A new document shape is first a READER_GENERALIZATION question** (Soham, 2026-11-17:
   "patchworking ... isn't sustainable"): before writing another field-specific reader
   pass, check `docs/acfc/READER_GENERALIZATION.md` - prefer a generic grammar or a

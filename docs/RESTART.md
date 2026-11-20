@@ -4,161 +4,51 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-19 night - staging = post212 (049c6e8); dev STOPPED on post194; feature = post212, pushed)
+## Start here (2026-11-20 - staging = post212 (049c6e8); feature = post213 committed, NOT pushed; dev STOPPED on post194)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 
-**First check:** `git fetch && git status -sb` = up to date with
-`origin/feature/multi-table` (head = docs on top of post205).
-- **staging `codegen-agent-staging` = post205** (`main` = e2b967b, identical-tree merge;
-  health + smoke green).
-- **dev `codegen-agent`:** STOPPED, last deployment post194 - starting it bills compute
-  (Soham's call); then `/ship-dev` deploys post205.
-- **This session: post200-post205**, every one with both suites green, CI green, the
-  framework 12-pair outcomes unchanged (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS,
-  2 GATE_FAIL, 2 FAIL), no artefact cell moved outside the fix's own reach, and its
-  BUG_FIX_LOG entry (reach, revert); all on staging. What each did:
-  CHANGELOG_ACFC; why: CLAUDE_HISTORY §[H28].
-- **The tester (staging)** re-ran on post199 - working. Her Comments column (the standard
-  band's last column) is read since post201; for her date-format note to become a
-  DateConversionRule she writes "Convert <source> to <target>" and types the standard
-  column Date (Soham chose this, no code; reply sent via Soham).
-- **pair_13** (the Accumulators pair) is in `/Workspace/Users/<me>/frd_sttm_pairs/pair_13`,
-  not in the 12-pair default (`--pairs 13`); the tester's pairs are NOT stored (her uploads:
-  staging `codegen/inputs/codegen-agent-staging/uploads`) - see Open 1.
-- **The codebase deck:** `/Workspace/Users/<me>/CodeGen_Agent_Codebase_Walkthrough.pptx`
-  (slide 42 says post192 - update if reused).
+**First check:** `git fetch && git status -sb` = `feature/multi-table` AHEAD of origin by
+the post213 commits + docs (post212 is the last pushed version).
+- **staging `codegen-agent-staging` = post212** (`main` = 049c6e8, identical-tree merge;
+  health + smoke green). **dev `codegen-agent`:** STOPPED on post194 (starting it bills
+  compute - Soham's call).
+- **The last session (2026-11-19/20): post206-post213** - what each did: CHANGELOG_ACFC;
+  why / the testers' reports / Soham's decisions: CLAUDE_HISTORY §[H29]. Every shipped
+  version: both suites green on the pushed tree, the 12-pair check alone (outcomes always
+  5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL), a BUG_FIX_LOG entry.
+- **Testers' documents** (staging uploads, `/Workspace/Users/<me>/codegen/inputs/
+  codegen-agent-staging/uploads`): pair A / B = the first tester's (two vendors of one
+  program), pair C = the second tester's (a third vendor) - copies in /tmp/t/ik (gone after
+  a reset; re-export them, mock only, /tmp, delete after). pair_13 (the Accumulators pair)
+  = Workspace `frd_sttm_pairs/pair_13` (`--pairs 13`, outside the 12-pair default).
+- **Tracker:** `tools/tracker/` (export script tracked; per-change update scripts quote
+  client text - chat + /tmp only). Office Scripts compile stricter than tsc
+  (`tools/tracker/README.md`, `check_office_script.py`).
+- **Docs out:** the user manual = Workspace `code-gen-agent-documentation.docx`; the WSR
+  deck `AI_in_Engineering_ WSR_Nov 20.pptx` (CodeGen parts of slides 4 / 6 updated
+  2026-11-19).
 - After a container reset: `~/bootstrap`, then the OAuth login (recipe below).
 
 **Open, in order:**
--5. **post213 (the "Derived" standard-type question) - committed, NOT pushed / shipped:**
-   suites `.venv-d1` 2367 passed; `.venv` 1 failed = `test_demo_ui.py::
-   test_choosing_an_sttm_auto_pairs_its_frd` (`frd_chosen`/`frd_paired` False) - passes
-   alone 3/3 and as a file (33/33): a load flake in the selection job (not touched by
-   post213); re-run the `.venv` suite (or that file under `-n 4`) before the push. If it
-   recurs, make the test wait on the job's own event (AGENTS: App timing tests wait on
-   an event, never a wall clock).
--4. **Tracker triage 2026-11-19 - #5, #7, #18, #19, #20 FIXED in post212 (staging); the
-   update Office Script given in the chat (/tmp only, client text); (export of sheet CodeGen, 22 incidents; reproduced on
-   pair_13, mock):** NEW / re-opened: #5 SRC_FILE_NAME = family `prefix_star` turns the
-   FRD's `*_X_*_Y*` into `X_Y*` (no longer matches the files; the App's
-   src_file_name_style "pattern" is the workaround); #7 + #20 archive paths are the
-   template shapes (capital "Archive", "/Archive{landing}" on FIXED_WIDTH) - this FRD
-   states three "Archive Path:" lines (main / daily / monthly), unread (label unknown,
-   three paths); #18 no reject table DDL (stage or standard); #19 table COMMENT = the
-   load strategy (no FRD description field); #3 comment: stage + stage-reject
-   TBLPROPERTIES not ACFC's (template needed). Ready to mark resolved on staging: #11,
-   #13 (post193), #21 (post195-199 + 206-210), #22 (post201). Decisions: #9/#10, #12
-   rest, #14, #16 (item 3 below).
--3. **Done 2026-11-19 (post206-211, all on staging):** typed / blank FRD answers (206),
-   Landing Location + "Domain -" (207), feed name never from a non-descriptive section +
-   Archive Location compared (208), the STTM File Details tab (209), FRD questions offer
-   only plausible cells + no feed-name question (210, P1 of the question-UX plan), the
-   data engineer (not the BSA) everywhere (211). Next: "Derived"-type cells asked as a
-   question (post158's guard keeps the stop); P2 / P3 of the question UX; tester pairs
-   A / B / C stored as pair_14-16; MandatoryColumnCheckRule (waits on the tester's 4
-   answers). The user manual: Workspace `code-gen-agent-documentation.docx` (builder
-   was /tmp/t/doc/build_cg_manual.py - gone after a reset; the doc is the source now).
--2. **A second tester's run (staging post208, 2026-11-19; pair C = the same program's third
-   vendor, copied to /tmp/t/ik/pairs/pair_93; her run is PAUSED on staging - do not touch):**
-   she found the question block impenetrable, and the File format question listed ~16-20
-   choices that are FRD labels (Name, IS Owner, "Container Name", "History" lines ...) -
-   the SAME 16 for all 6 questions (feed name, format, LOBs, domain, both strategies);
-   none states any of them. Root causes: (a) an FRD role question offers EVERY labelled
-   cell / line of the document, never filtered by what the field's value looks like;
-   (b) the person is asked WHERE a value is (a location question - the layout's job),
-   not WHAT it is; (c) keys / table-row coordinates up front, plain words folded.
-   REGRESSION from post208: with no Descriptive section `feeds[0].feed_name` is now asked
-   (16 cells, no text box) though it blocks nothing (the stage band names the feed) - on
-   pairs A and C. On post209 pair C still asks 5 (feed name, LOBs, domain, 2 strategies).
-   Game plan given to Soham (chat 2026-11-19): P1 stop the feed-name question + a value
-   validator on FRD candidates (none valid -> a plain value question); P2 FRD questions
-   become VALUE questions (values, deduped, cited; coordinates folded); P3 the dialog
-   rewritten in plain words per feed (what each answer sets in the IIG); P4 the question
-   count per pair as the measure. Waiting on his pick.
--1. **The tester's 2026-11-19 report (staging post205; 5 items, IN PROGRESS this session).**
-   Her pairs are called pair A / pair B here (no client names). Reproduce on HER uploads
-   (mock, /tmp) before any fix; then a BUG_FIX_LOG entry for each fix.
-   - (1) Pair A (FRD + STTM): every feed held back at the first step. Layout asks
-     `feeds[0].file_format`, `feeds[0].lobs` and domain / subdomain; the FRD states none
-     of them; the only choices are wrong FRD table cells (Functional Requirement, Name,
-     Impact Details, IS Owner) + "None of these". **"Proceed with unresolved" does NOT
-     release the feed** - bug (or a dead-end message) to find.
-   - (2) Pair A's STTM has a separate "File Details" sheet: label column A, value
-     column B - File Type `.txt`, File Delimitor (sic) `Pipe`, File Delivery Method,
-     Proposed Frequency, Proposed Time, History, File Naming convention, SFTP. Her
-     question: does the agent read that sheet or only the FRD? (A
-     READER_GENERALIZATION question first - a generic label/value sheet reader.)
-   - (3) Pair B: `SRC_ADLS_PATH` / `SRC_ADLS_ARCHVL_PATH` blank. Its FRD states them as
-     "Landing Location:" (under per-environment "Prod:" / "QA:" blocks, each with a
-     "Container Name:" line) and "Archive Location: (Raw Layer - ADLS Gen 2 container)"
-     with the path on the NEXT line. = old item 4(d) (`requirement_landing_labels` =
-     only "Raw ADLS Location" / "ADLS Location"; `landing_line_labels`) - it now matters.
-   - (4) After she typed the standard column's data type as Date (our advice for the
-     DateConversionRule), `TGT_DATA_TYPE` AND `SRC_DATA_TYPE` in sheet
-     STGDELTA_STDDELTA_INGESTION_DET changed too - check which STTM column feeds each
-     (a source type should come from the source band, not the standard one).
-   - (5) Her suggestion: build a `MandatoryColumnCheckRule` DATA_QUALITY_RULES row from
-     the STTM's source "Required/Optional" column. Transcribed from an input, so the rules
-     allow it - a feature, Soham's call.
-   - **Diagnosis 2026-11-19 (mock, her uploads copied to /tmp/t/ik as pair_91 = A,
-     pair_92 = B; staging state + layout cache in /tmp/t/ik/state; harness: both
-     NEEDS_ANSWERS at layout):**
-     (1) ROOT CAUSE = UI dead end: a layout ROLE question (place an FRD field) offers only
-     FRD cells + "None of these" - no text box, no "(leave blank)" (`LayoutQuestions.tsx`
-     QuestionItem: text input / leave_blank only for `kind: text`). "None of these" leaves
-     the role unplaced, the run holds the feed, and NeedsAnswersPanel re-asks the SAME
-     role question -> a loop she cannot leave. Also the DQ rules item (sheet STTM,
-     `value_unstated`) - not yet traced.
-     What the documents do state: pair A's FRD HAS "Domain -<x>" / "Subdomain-<x>" lines
-     (hyphen, no colon - unread); file format + delimiter are on the STTM "File Details"
-     sheet (unread - the agent never reads that sheet); LOBs: no document states them
-     (only as a key column name) -> must be typed or left blank.
-     (2) NOT read today. (3) both pairs: "Landing Location:" / "Archive Location: (...)"
-     with the path on the NEXT line, under Prod: / QA: blocks (same path in both here).
-     (4) BY DESIGN: STGDELTA `SRC_DATA_TYPE` = stage:standard pairs, `TGT_DATA_TYPE` =
-     the standard types (`metadata_template._stg_std_row`), so a standard type change
-     moves both; the source band's type is not in that row.
-     (5) no `MandatoryColumnCheckRule` in our class list (`dq_rule_classes`); the nearest
-     homes are ADLS `MANDATORY_FIELD_LIST` and `NullCheckRule` - ask her which the
-     framework expects.
-   - **DONE 2026-11-19:** post206 = F1 (1A), staging 741a62f; post207 = F4-landing +
-     F3 (pushed, NOT on staging yet - Soham's word). Her pair A then GATE_FAILs on
-     `ddl_identifiers` (4 STTM column names; the STTM's to fix) - tell her.
-   - **Soham's pick (2026-11-19): my picks, in order - F1 (1A) = post206, then F4-landing (config label) + F3 (Domain "-" lines,
-     narrow), then F2 (generic label | value STTM sheet reader; the STTM File Details sheet
-     is ALREADY searched for file names - extend that), archive = option C (template kept,
-     a stated archive path that disagrees is flagged), item 5 waits on the tester's
-     answer. NEW: pair A's feed is NAMED "Data Quality rules" (a wrong FRD cell read as
-     the feed name) - trace it. Pre-existing UI: at 390 px the Settings card's
-     connection-ID table scrolls sideways.
-   - **Item 5, the tester's answer (2026-11-19):** the class is `MandatoryColumnCheckRule`
-     (framework notebook `/Workspace/subcon_version/DataQuality_StandardEnhancement`, read
-     in place): `SOURCE_COLUMN` = comma list, `INPUT_PARAM` = an ERROR CODE, rejects
-     null / blank / "NULL". She asks for it as a STANDARD rule on every ingestion (the
-     framework checks mandatory fields on all). Today: the STTM Required column IS read
-     (pair A: 37 / 60 mandatory -> `not_null_columns`) -> ADLS `MANDATORY_FIELD_LIST`;
-     NullCheckRule only when a DQ sheet / the FRD states it, else an
-     `iig_dq_not_generated:` suggestion (post171). Open before building: the error-code
-     value, RULE_TYPE + TARGET_COLUMN, overlap with MANDATORY_FIELD_LIST / NullCheckRule,
-     the FRD "No Rejection" case. Soham's call (it is a client standard = a cited
-     constant, a change to post171's stated-only rule for this one class).
-   - **Proposed fixes:** F1 role questions get "type a value" +
-     "leave blank" (blankable fields), answered under `gaps:`; F2 a generic label/value
-     sheet reader for the STTM (File Details) using the FRD label synonyms, filling only
-     where the FRD is blank (`frd_unstated:` flag); F3 "Domain -x" lines; F4 next-line
-     values for Landing / Archive Location (env block choice when Prod / QA differ).
-   - **Code facts behind the options (checked 2026-11-19):** the backend ALREADY applies a
-     typed `gaps:` answer for an FRD role key of file_format / delimiter / frequency /
-     domain / sub_domain / lobs / landing_location (`layout.resolve._ANSWERABLE_FRD_FIELDS`)
-     -> F1 is UI-only (not run end to end yet). `frd_docx._labelled_path` already reads a
-     path on the NEXT line -> "Landing Location" can be a config line
-     (`landing_line_labels`, today only "Raw Path"); "Archive Location: (Raw Layer ...)"
-     is not (text after the colon, no path). No archive reader exists:
-     `SRC_ADLS_ARCHVL_PATH` is a TEMPLATE of the landing (`path_patterns`:
-     ADLS `{landing}Archive/`, STGDELTA `/Archive{landing}`) - a stated archive path can
-     disagree with it. Pros / cons of each option were given in chat; the pick is Soham's.
+-3. **post213 (a standard type cell holding a note -> one question; "BIG INT" a type) -
+   committed, NOT pushed:** 12-pair check clean (no REAL change); `.venv-d1` 2367 passed;
+   `.venv` 1 failed = `test_demo_ui.py::test_choosing_an_sttm_auto_pairs_its_frd`
+   (passes alone 3/3 and as a file 33/33 - a load flake in the selection job, not touched
+   by post213). Re-run the `.venv` suite, then push; staging only on Soham's word. If the
+   flake recurs, make the test wait on the job's event (AGENTS: never a wall clock).
+-2. **The question UX, P2 / P3 / P4 (plan agreed 2026-11-19; P1 = post210):** P2 FRD
+   questions as VALUE questions (the values found, deduped, capped, cited; coordinates
+   folded; the text box always); P3 the dialog in plain words, one card per feed, what
+   each answer sets in the IIG (sheet / column), keys folded; P4 the measure - questions
+   per pair x choices per question, before / after, on the 12 pairs + pairs A / B / C.
+   Show Soham a screenshot before shipping P2 / P3. Pre-existing: at 390 px the Settings
+   card's connection-ID table scrolls sideways.
+-1. **MandatoryColumnCheckRule (the first tester's ask; Soham: OK as a standard rule):**
+   waits on her 4 answers (INPUT_PARAM error code; RULE_TYPE + TARGET_COLUMN; replace or
+   sit beside MANDATORY_FIELD_LIST / NullCheckRule; skip on the FRD's "No Rejection").
+   The STTM Required column is read already (`not_null_columns`).
 0. **Venu's "run the DDL tests from the App" (Soham + Venu):** options sent - (1) an
    "Open in Databricks" button, no rule change; (2) the App runs them - needs the
    EXPLAIN-only rule widened to read-only test statements, an identity (user
@@ -178,17 +68,17 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
    `extractor.blank_words`). NEXT value normalisers (mine, no decision needed): file
    format, decimal.
    Pairing is Phase 2 (6 matchers differ on purpose).
-3. **Tracker decisions (Soham), incidents 9-17** (tracker export: Soham runs the Office
-   Script `tools/tracker/export_incident_tracker.ts` (tracked since 2026-11-19) and pastes
-   `_JSON_EXPORT` column A; an update script is written per change, DRY_RUN first):
-   #12 rest (STGDELTA `TGT_DATA_TYPE` precision - the tester: drop; the pair-1 golden
-   keeps it); #14 (a DataTypeCastRule - reverses post171); #16 (no grand master for a
-   Workflow run - changes post166); #9 / #10 (fixed-width -> `SRC_FORMAT = CSV`,
-   delimiter `|` - confirm for EVERY fixed-width feed, then a cited constant); #11 / #13
-   set Resolved.
+3. **Tracker decisions (Soham)** (export: `tools/tracker/export_incident_tracker.ts`; the
+   2026-11-19 update script set #5 #7 #11 #13 #18-#22 Resolved, #3 Open - confirm Soham
+   ran it): #12 rest (STGDELTA `TGT_DATA_TYPE` precision - the tester: drop; the pair-1
+   golden keeps it); #14 (a DataTypeCastRule - reverses post171); #16 (no grand master for
+   a Workflow run - changes post166); #9 / #10 (fixed-width -> `SRC_FORMAT = CSV`,
+   delimiter `|` - the tester's own solution says so; a cited constant once Soham agrees);
+   #3 (stage + stage-reject TBLPROPERTIES - needs ACFC's stage template, Lokesh); #2
+   external tables (item 7).
 4. **Small, mine:** (c) a source header written only `Field` stays a question (a synonym
-   only with more evidence); (d) "Landing Location:" lines unread
-   (`requirement_landing_labels`) - no effect on any run today.
+   only with more evidence); (e) store pairs A / B / C (+ pair_13) as Workspace
+   `frd_sttm_pairs/pair_14-17` with READMEs and add them to the check (item 1a).
 5. **The Standard Abbreviation List v28 - ASKED (Lokesh, via Soham, 2026-11-13)** + Data
    Domains SOR SOT.xlsx, the Data Modelling Guidelines, an IIG Framework sample (land in
    the Workspace `standards_docs` folder). Waiting on it: NM-001, NM-004, NM-006.

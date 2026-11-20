@@ -100,6 +100,12 @@ bend, working rules, tests) stay in the root `AGENTS.md`. Moved here verbatim fr
   never into `dq_no_check_words` (starts-with matching) or `unmapped_markers`.
 - **A new optional field on a profile / contract model** is serialised only when set (or
   every cached profile and tracked fixture moves - post196's `block_layer`).
+- **A value a document states wins over a template shape or a learned convention**
+  (Soham, 2026-11-19, post212): the FRD's archive path over the `path_patterns` shape
+  (several stated = the first, the main one), an FRD-stated file pattern (a glob) over
+  the family's `src_file_name` convention. A convention / shape fills only what no
+  document states - and where a stated value differs from a shape the cell must keep,
+  the review copy notes it.
 - **Agreement between documents** goes through `gapfill.same_value(a, b, words)`: a
   punctuation-only value normalizes to '' — compare delimiters as characters (pass
   `extractor.delimiter_words`), never by `normalize` substring tests.

@@ -228,7 +228,12 @@ def test_dq_key_rules_only_where_a_document_states_them(tmp_path):
     assert not {"AddCustomColumnsRule", "LoadHeaderAndTrailerToSeparateTablesRule"} & set(
         classes)
     flags = _notes(gate)
-    assert any(f.startswith("iig_dq_not_generated:NullCheckRule") for f in flags), flags
+    # post214: the STTM's required columns are checked by the MandatoryColumnCheckRule row
+    # (its INPUT_PARAM open: this FRD has no error table), so no NullCheckRule suggestion
+    assert "MandatoryColumnCheckRule" in classes
+    assert not any(f.startswith("iig_dq_not_generated:NullCheckRule") and "required column"
+                   in f for f in flags), flags
+    assert any(f.startswith("iig_dq_open:DATA_QUALITY_RULES.INPUT_PARAM") for f in flags), flags
 
 
 def test_an_application_name_answer_is_the_application_everywhere(tmp_path):

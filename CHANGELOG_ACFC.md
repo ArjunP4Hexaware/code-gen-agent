@@ -4,6 +4,50 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post214 — 2026-11-20 (the MandatoryColumnCheckRule - a standard DQ rule)
+
+The first tester's ask (Soham: a standard rule on every ingestion). Her answers: RULE_TYPE
+STDDelta; SOURCE_COLUMN = TARGET_COLUMN = the standard columns of the fields the STTM marks
+Required; INPUT_PARAM = the error code the feed's FRD states for a missing mandatory field;
+her framework keeps ADLS MANDATORY_FIELD_LIST blank. Soham's calls: blank the list when
+the row is written; no error table = the row with INPUT_PARAM open (non-blocking).
+- `extract/frd_docx.mandatory_error_codes` + `extractor.frd.error_code_headers /
+  error_description_headers / mandatory_error_descriptions` (new, config.yaml): an FRD
+  error table (top level or inside a cell) - the code of its "Mandatory field missing"
+  row -> `FrdFeed.mandatory_error_code` / `_source` (absent from the JSON when unstated)
+  -> `ResolvedFeedSpec.frd_mandatory_error_*` -> `metadata_sheet._feed_from_spec`.
+  Several different codes = none + `frd_mandatory_error_code:`.
+- `metadata_template` dq kind `std_mandatory_check` (ACFC overlay: `dq_rules`, class
+  MandatoryColumnCheckRule, type STDDelta, a citation): one row per standard table holding
+  a required field; INPUT_PARAM = the FRD's code (`from_frd`, cited) or open with
+  `iig_dq_open:DATA_QUALITY_RULES.INPUT_PARAM`. No row when the STTM marks no required
+  field or the FRD states "No Rejection" (post193).
+- ADLS `MANDATORY_FIELD_LIST`: a decided blank (`deliberate_blank`, the reason in the
+  tooltip) whenever that row is written; the NullCheckRule "required columns" suggestion
+  (`iig_dq_not_generated:`) is no longer made then.
+- Notebook mode: `notebook_v2.RULES` runs MandatoryColumnCheckRule as the null check.
+- Unchanged: NullCheckRule / DeDuplicationRule (post171 / post193); an overlay without
+  `std_mandatory_check` keeps the list (tests pin both).
+
+Tests: `tests/test_mandatory_rule_post214.py` (17), `test_tracker_incidents_post193.py`
+(the list test now pins both cases).
+
+## 0.5.8.post213 — 2026-11-19 (a standard type cell holding a note is one question, never a crash)
+
+A tester's live run (pair C) CRASHED: one STTM row's standard data type cell read
+"Derived". post158's guard (pentest CS-1) stops any non-type before the DDL - right, but
+the run crashed.
+- `extract/generic.py` (`_is_data_type`, `_with_value`): a standard type cell the DDL's
+  type mapping cannot read is a blocking QUESTION `feeds[i].columns[j].standard_type`
+  for that one cell, the row left out until answered (as a blank stage type, post74); a
+  type answer is applied (`answered_cell:` flag); an answer that is no type keeps it open.
+- `ui/backend/demo.py :: pending_question`: that question in plain words (the
+  extractor's reason as the hint, an example), never "No document states this value".
+- Unchanged: post158's guard (a non-type never reaches the DDL); every cell that worked
+  before (the same `sql_type` mapping decides).
+
+Tests: `tests/test_standard_type_question_post213.py` (5; 4 failed before the change).
+
 ## 0.5.8.post212 — 2026-11-19 (tracker #5, #7 / #20, #18, #19)
 
 The incident tracker's re-opened and new CodeGen items (triage 2026-11-19, reproduced on

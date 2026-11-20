@@ -487,6 +487,14 @@ class FrdExtractorConfig(BaseModel):
     # post212 (tracker #7 / #20): the ADLS Location cell's archive line labels ("Archive
     # Path:", next to the landing's "Raw Path:"). Empty = not read.
     archive_line_labels: list[str] = Field(default_factory=list)
+    # post214 (the first tester's MandatoryColumnCheckRule): the FRD's error table - a table
+    # (top level or inside a cell) whose header row names a code column and a description
+    # column (header labels, ``label_key``-matched) - and the description words (first
+    # words) of the "mandatory field missing" row; its code is the rule's INPUT_PARAM.
+    # Any list empty = not read.
+    error_code_headers: list[str] = Field(default_factory=list)
+    error_description_headers: list[str] = Field(default_factory=list)
+    mandatory_error_descriptions: list[str] = Field(default_factory=list)
     inline_pair_separators: list[str] = Field(default_factory=lambda: [";"])
     # post196 (a staging FRD, 2026-11-17): a Solution Requirement cell's "<label>:" line
     # (no value) followed by layer headings ("STG:-" / "STD:-", target_schema_markers)
@@ -2077,7 +2085,8 @@ class MetadataTemplateConfig(BaseModel):
     # std_data_type_cast (standard columns typed other than String).
     dq_rules: list[Literal["header_trailer_split", "date_format", "data_type_cast",
                            "add_custom_columns", "null_check", "dedup", "referential_check",
-                           "lr_trim", "std_date_conversion", "std_data_type_cast"]] = Field(
+                           "lr_trim", "std_date_conversion", "std_data_type_cast",
+                           "std_mandatory_check"]] = Field(
         default_factory=list)
     dq_rule_classes: dict[str, str] = Field(default_factory=dict)
     # post171 (Soham, 2026-11-05, "DQ option 1"): a rule row only where a document states

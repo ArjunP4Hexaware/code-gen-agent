@@ -649,6 +649,27 @@ def _skip_marker(row: FieldRow, markers: set[str]) -> tuple[str, str] | None:
     return None
 
 
+def _is_data_type(text: str) -> bool:
+    """post213: ``text`` is a data type the DDL can write - the DDL's own mapping
+    (``emit.context.sql_type``, a parenthesised format allowed); a note ("Derived") is
+    none."""
+    from codegen.emit.context import TemplateGapError, sql_type
+
+    # a type spelled with spaces ("BIG INT", a real STTM's) is a type, never a question
+    for spelling in (text, re.sub(r"\s+", "", text)):
+        try:
+            sql_type(spelling)
+        except (TemplateGapError, ValueError):
+            continue
+        return True
+    return False
+
+
+def _with_value(row: FieldRow, key: str, value: str) -> FieldRow:
+    """``row`` with one role's value replaced (an answered cell)."""
+    return replace(row, values={**row.values, key: value})
+
+
 def _role_col(sp: SheetProfile, key: str) -> int | None:
     layer, _dot, role = key.partition(".")
     band = sp.band(layer)  # type: ignore[arg-type]
@@ -1414,6 +1435,27 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             stage_type = answer
             flags.append(f"answered_cell:{key} — {where} is empty; the person answered "
                          f"{answer!r}")
+        standard_type = _first(row, "standard.target_type") if has_standard else None
+        if standard_type is not None and not _is_data_type(standard_type):
+            # post213 (a tester's live run CRASHED on a standard type cell reading a note,
+            # "Derived"): ONE such cell never stops the run - a blocking QUESTION for that
+            # cell, the row left out until answered (post158's guard still keeps any
+            # non-type away from the DDL, an answer included)
+            key = f"{prefix}columns[{row_index[row.row]}].standard_type"
+            where = _at(ir, name, row.row, _role_col(sp, "standard.target_type"))
+            answer = (cell_answers or {}).get(key)
+            if not answer or not _is_data_type(answer):
+                again = (f"; the answer {answer!r} is no data type either" if answer else "")
+                questions.append(PendingAnswer(
+                    feed_name=feed.feed_name, sheet=name, key=key,
+                    reason=f"the standard data type cell at {where} reads "
+                           f"{standard_type!r}, which is no data type; answer the standard "
+                           "column's data type (the column is left out of the contract until "
+                           f"then){again}"))
+                continue
+            flags.append(f"answered_cell:{key} — {where} reads {standard_type!r} (no data "
+                         f"type); the person answered {answer!r}")
+            row = _with_value(row, "standard.target_type", answer)
         # A NULLABLE column says "NULL"/"nullable"/"yes" for nullable and
         # "NOT NULL"/"no" for required — the null-ish spellings of no_values
         # (meant for yes/no columns) do not apply to it.

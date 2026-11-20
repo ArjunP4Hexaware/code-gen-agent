@@ -51,6 +51,9 @@ RULES = {
     "LRTrimRule": "lr_trim",
     "DateConversionRule": "date_conversion",
     "NullCheckRule": "null_check",
+    # post214: the client framework's mandatory check - a null / blank required field
+    # rejects the record, as NullCheckRule (the error code is the framework's own)
+    "MandatoryColumnCheckRule": "null_check",
     "DeDuplicationRule": "dedup",
     "AddCustomColumnsRule": "add_custom_columns",
     "LoadHeaderAndTrailerToSeparateTablesRule": "header_trailer_split",

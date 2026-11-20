@@ -1207,6 +1207,10 @@ def _value_choices(offered: list[dict], proposed: list[str], content, cap: int) 
     for c in offered:
         k = key(c)
         if not k:
+            if is_proposed(c):
+                # the layout model's proposal is always offered, even when its cell holds
+                # no value text yet (the label row it placed) - keyed by its place
+                kept[f"@{c['table']}:{c['row']}:{c['col']}"] = {**c, "also": 0}
             continue
         if k not in kept:
             kept[k] = {**c, "shown": _candidate_value(c, content), "also": 0}

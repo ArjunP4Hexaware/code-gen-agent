@@ -4,6 +4,15 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post219 — 2026-11-23 (a dead synonym removed)
+
+From the review of the week's fixes: post195's `"fieldname"` in
+`extractor.discovery.roles.source.field_name` is dead since post198 (headers match with
+spaces ignored, so `"field name"` covers it; `test_header_key_post198` proves the one-word
+header resolves without it). Removed. The other one-word duplicates (`columnname`,
+`tablename`, `datatype`, `schemaname`) stay: code looks some of them up by that spelling
+(`extract/segmented.py`, `layout/discover.py`). No output change expected.
+
 ## 0.5.8.post218 — 2026-11-23 (the question UX P3: one card per feed, plain words, what each answer fills in the IIG)
 
 P3 of the plan agreed 2026-11-19 (P1 = post210, P2 = post216). The layout dialog only -

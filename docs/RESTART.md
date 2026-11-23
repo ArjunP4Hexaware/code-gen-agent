@@ -4,7 +4,7 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-23 night - staging = post218 (main 05f9139); feature = post218 + docs; dev STOPPED on post194)
+## Start here (2026-11-23 night - staging = post218 (main 05f9139); feature = post219 (pushed, NOT on staging); dev STOPPED on post194)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
@@ -13,15 +13,17 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 OAuth login (recipe below; a login code expires in minutes - paste the `localhost:8020`
 URL back at once). A restored checkout comes back on `main` (the staging copy of this
 file): read RESTART AFTER the bootstrap. `git fetch` - `origin/feature/multi-table` =
-post218 + docs (no wip branches).
+post219 + docs (no wip branches).
 - **staging `codegen-agent-staging` = post218** (`main` = 05f9139; post217 = 3fb28aa first, one change per deploy; identical-tree merges,
   2026-11-23; health + smoke green; the proxy's `x-forwarded-email` reaches the App).
   **dev `codegen-agent`:** STOPPED on post194 (starting it bills compute - Soham's call).
 - **The last session (2026-11-23): post216 shipped, post217 pushed, post218 on wip, the
   review of the week's fixes** - what each did: CHANGELOG_ACFC; why / decisions:
   CLAUDE_HISTORY §[H31]. Every shipped version: both suites green on the pushed tree, the
-  12-pair check alone where output can move (outcomes always 5 PASS_WITH_OPEN_INPUTS,
-  3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL).
+  pair check alone where output can move. SINCE 2026-11-23 it runs pairs 1-17 by default
+  (1-12 + the tester pairs 13-17, Workspace `frd_sttm_pairs`): outcomes 7
+  PASS_WITH_OPEN_INPUTS, 6 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL (1-12 as always 5 / 3 / 2 / 2;
+  13 + 15 PASS_WITH_OPEN_INPUTS, 14 / 16 / 17 NEEDS_ANSWERS - no answers stored).
 - **Testers' documents** (staging uploads, `/Workspace/Users/<me>/codegen/inputs/
   codegen-agent-staging/uploads`, 14 STTMs on 2026-11-23): pair A / B = the first
   tester's (two vendors of one program), pair C = the second tester's; the first tester's
@@ -42,6 +44,13 @@ post218 + docs (no wip branches).
    Her audit-column COMMENT question = a REQUEST: only on a yes. Next: P4 (questions per
    pair x choices per question, before / after, 12 pairs + pairs A / B / C). The P3
    screenshots: Workspace `codegen/p3_screenshots/` (synthetic).
+-6. **post219 (the review's dead `fieldname` synonym) - PUSHED, NOT on staging:** both suites
+   green (2777 / 2410); pair check 1-17 vs post218: same outcomes, no artefact change (17
+   report .md lines = the "Produced by" code path). Staging on Soham's word (no hurry:
+   no behaviour change). pairs 14-17 = the 4 staging uploads (of 14) the agent's own
+   content pairing pairs with one FRD (READMEs: shas + rule; NOT necessarily pairs A / B / C,
+   which were never recorded); 9 more uploads match several FRDs - pair them only on
+   Soham's / the testers' word.
 -5. **The review of the week's fixes (2026-11-23; an independent agent on BUG_FIX_LOG,
    claims verified):** most fixed real problems; Soham's calls: (a) post214's
    MandatoryColumnCheckRule as a default (432 lines, 9 of 12 pairs moved, its error-code

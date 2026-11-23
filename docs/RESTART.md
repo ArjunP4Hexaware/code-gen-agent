@@ -12,7 +12,14 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 **First check:** after the weekend's reset: `~/bootstrap` (clones `feature/multi-table`),
 then the OAuth login (recipe below). `git fetch` - `origin/feature/multi-table` = post215
 + docs; **post216 (the question UX P2) lives ONLY on `origin/wip/post216-p2`** (two commits
-on top of a53ec77: 3eb1d95 + b8cedf8) - not merged, not checked (item -5).
+on top of a53ec77: 3eb1d95 + b8cedf8) - not merged; suites green, 12-pair check not run (item -5).
+- **Reset of 2026-11-23 DONE:** `~/bootstrap` all ok (venvs, Chromium, hooks, switched
+  main -> `feature/multi-table`); gh was still logged in. /tmp SURVIVED this reset
+  (`/tmp/t`, `/tmp/cgs`, `/tmp/pw`): the P2 screenshots Soham saw are
+  `/tmp/t/p2/p2_{light,dark}.png` (+ `before/after.html`). The OAuth token was gone -
+  logged in again (`codegen-oaut`; staging `/api/health` 200 = post215). A login code
+  expires in minutes: paste the `localhost:8020` URL back at once. Note: a restored checkout comes back on `main`, so read
+  this file AFTER the bootstrap (on `main` it is the post215 copy).
 - **staging `codegen-agent-staging` = post215** (`main` = 092c733, identical-tree merge,
   2026-11-20; health + smoke green; the proxy's `x-forwarded-email` reaches the App).
   **dev `codegen-agent`:** STOPPED on post194 (starting it bills compute - Soham's call).

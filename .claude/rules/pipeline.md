@@ -100,6 +100,11 @@ bend, working rules, tests) stay in the root `AGENTS.md`. Moved here verbatim fr
   never into `dq_no_check_words` (starts-with matching) or `unmapped_markers`.
 - **A new optional field on a profile / contract model** is serialised only when set (or
   every cached profile and tracked fixture moves - post196's `block_layer`).
+- **A new FrdFeed field the IIG reads must also travel through `ResolvedFeedSpec`**
+  (the resolver copies it, `metadata_sheet._feed_from_spec` rebuilds the feed from the
+  spec on the real run path - post214: unit tests on `template_tab_rows` passed while
+  the harness left the cell open). Check a new field on a harness run, not only in
+  unit tests.
 - **A value a document states wins over a template shape or a learned convention**
   (Soham, 2026-11-19, post212): the FRD's archive path over the `path_patterns` shape
   (several stated = the first, the main one), an FRD-stated file pattern (a glob) over

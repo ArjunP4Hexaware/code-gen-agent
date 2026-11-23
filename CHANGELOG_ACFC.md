@@ -4,6 +4,24 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post216 — 2026-11-20 (the question UX P2: FRD questions offer values)
+
+The second tester's run (P2 of the plan agreed 2026-11-19; P1 = post210). An FRD question a
+person may type now offers VALUES, not cells:
+- `layout/resolve._value_choices` (in `_frd_questions`): each choice carries `shown` (the
+  text its cell / line would give the field) and `also` (how many other places state the
+  same value); one choice per distinct value (spaces / case ignored; the first place, the
+  layout model's proposal preferred); at most `layout.frd_question_max_values` (5, new) -
+  the proposal always kept. The pick is still a cell: the answer path is unchanged.
+  `shown` is not `value`, so the answers template never carries a document value.
+- `ui/frontend` `LayoutQuestions`: the value first, "from <line label> in <cell label>"
+  and "also stated in N other places" as a small citation, the table / row in a tooltip;
+  `dist` rebuilt.
+- Unchanged: STTM / VDD questions, the choice / layer / text kinds, a field a person may
+  not type (every cell, as before), the text box of a typeable field.
+
+Tests: `tests/test_frd_value_choices_p2.py` (6), `LayoutQuestions.test.tsx` (+2).
+
 ## 0.5.8.post215 — 2026-11-20 (Feedback on the App: bug reports and suggestions)
 
 Ported from the STTM agent's App (its Feedback section; Soham's picks: admins in a state

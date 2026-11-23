@@ -1242,6 +1242,10 @@ class LayoutConfig(BaseModel):
     endpoint: str | None = None
     max_tokens: int = Field(default=8192, gt=0)
     max_attempts: int = Field(default=2, gt=0)
+    # P2 of the question UX (2026-11-20): an FRD question a person may type shows at most
+    # this many VALUES (the cells / lines that read as the field, one per distinct value,
+    # document order) - the text box is always there for anything else.
+    frd_question_max_values: int = Field(default=5, gt=0)
     # Confidence a model-placed role starts with (validated, not trusted).
     # YAML key ``model_confidence`` (alias; see the class docstring).
     placed_confidence: float = Field(default=0.8, ge=0, le=1, alias="model_confidence")

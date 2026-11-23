@@ -5393,3 +5393,70 @@ cross-module imports; 4 modules over 2.8k lines; dead code kept by rule.
        `SRC_ADLS_ARCHVL_PATH` is a TEMPLATE of the landing (`path_patterns`:
        ADLS `{landing}Archive/`, STGDELTA `/Archive{landing}`) - a stated archive path can
        disagree with it. Pros / cons of each option were given in chat; the pick is Soham's.
+
+## §[H30] Session 2026-11-20: post213 pushed, post214 (MandatoryColumnCheckRule), post215 (Feedback on the App), the selection flake found
+
+- **Staging** went post212 -> post214 (4f2f082, with post213) -> post215 (092c733).
+  Every shipped version: both suites green on the pushed tree, a BUG_FIX_LOG entry
+  (post214; post215 is a feature, its record is CHANGELOG_ACFC). The dev App stayed
+  STOPPED (post194) - staging shipped without the dev step, as in H29. Before the post214
+  deploy the staging App reported state "failed" (deploy and health fine; cause unknown).
+- **post214 = the first tester's MandatoryColumnCheckRule.** Her answers: RULE_TYPE
+  "STDdelta" (written STDDelta like the other standard-layer rules - asked her to
+  confirm), SOURCE_COLUMN = TARGET_COLUMN = the required fields' standard columns,
+  INPUT_PARAM = the error code the feed's FRD states (not a fixed code), her framework
+  keeps ADLS MANDATORY_FIELD_LIST blank. Soham's calls (2026-11-20): blank the list
+  whenever the row is written; an FRD with no error table = the row with INPUT_PARAM open
+  (non-blocking review note `iig_dq_open:`); an FRD "No Rejection" = no row. New reader:
+  the FRD error table (top level or inside a cell; config header / row words), one code
+  per document, several = none + flag. Her NullCheckRule-overlap question: unanswered
+  (left as is). 12-pair check (framework AND notebook mode): outcomes unchanged; the new
+  rows on 9 feeds, all with INPUT_PARAM open (no 12-pair FRD has an error table); her
+  pairs A / C get the FRD's code.
+  - **Slip caught by the harness, not the unit tests:** the real run rebuilds the FRD feed
+    from the resolved spec (`metadata_sheet._feed_from_spec`), so a new FrdFeed field must
+    also travel through `ResolvedFeedSpec` + the resolver - unit tests on `template_tab_rows`
+    passed while the harness left INPUT_PARAM open. Run the harness on a tester's pair
+    before claiming a new FrdFeed field works.
+  - The first full suites caught a test pinning the removed NullCheckRule suggestion
+    (`test_iig_corpus_cells`) - updated to pin the row instead.
+- **post215 = Feedback on the App**, ported from the STTM agent's App (its feedback.py /
+  feedback.js / tests, read from its Workspace folder into /tmp, never vendored).
+  Soham's picks: admins in the STATE root's `feedback_admins.txt` (the addresses carry the
+  client's domain - never in git), kinds Bug report / Suggestion, a related run picked
+  from this App's run folders. The App had no notion of the signed-in user before: it now
+  reads `x-forwarded-email` (checked on staging - the proxy passes it). Storage = the
+  outputs role's `app_feedback/` (never deleted; "Clear past runs" removes only demo_*).
+  OPEN: the admins file (Soham to give the addresses).
+- **The selection flake (test_choosing_an_sttm_auto_pairs_its_frd), root cause found.**
+  Soham: "fix the flake first". Three targeted repros failed (the App-state group
+  serially, the group under busy loops, the `.venv` suite alone); the failures had always
+  come with BOTH venvs' suites running at once. Cause: the FRD upload test put a byte copy
+  of the CV golden FRD into the checkout's real `inputs/uploads/`, which the two suites
+  share; the other suite's pairing test then saw two near-identical FRDs (best 8, next 7
+  - correctly ambiguous). Proven on demand (copy placed by hand -> the same failure).
+  Fix: the upload test sends a synthetic contract that pairs with nothing; AGENTS.md
+  gotcha. Lesson: when a flake only appears under one run setup, list what that setup
+  SHARES (folders, state files) before testing load or timing.
+- **Model comparison:** the GPT-6.2 Astra assessment of H29 had been lost (chat only);
+  Gemini 4 Neon vs Opus 5.5 done from public benchmarks and saved with the Astra summary in
+  `docs/MODEL_COMPARISON.md` (verdict both times: stay on Opus - the vendor rule; Neon is
+  a coding tie, ~half the cost per task, much lower AA-Omniscience hallucination).
+- **Process notes:** `pkill -f` matched its own shell again (a load test ended "failed",
+  exit 144) - kill by PID. Text for the tester: written to avoid repeating what Soham
+  had already sent (he pasted it); the reply went in two messages (the rule, then the
+  Feedback page).
+- **Cleaned at the end:** the 12-pair copies (`pair_check.sh cleanup`), the testers'
+  copies (/tmp/t/ik), every other /tmp/t file.
+- **Later the same evening: post216 = the question UX P2** (Soham: "Do P2", 45 minutes
+  left). An FRD question a person may type offers VALUES (one per distinct value, the
+  model's proposal preferred, capped by `layout.frd_question_max_values`, cited by its
+  labels, table / row in a tooltip); the pick stays a cell, so the answer path is
+  unchanged. Screenshots shown (before / after, synthetic text). The first suites (both
+  venvs) failed `test_layout_frd_model_label`: the dedupe dropped a proposed label row
+  with an empty value (and its pre-selection) - fixed (b8cedf8) with a test that fails
+  without it. The re-run was still running when the environment closed. Not merged:
+  pushed to `wip/post216-p2` so the weekend's reset does not lose it (RESTART item -5).
+- **Teams text may name people** (Soham, 2026-11-20: "this is a TEAMS UPDATE, you can use
+  names"): the no-names rule is for the App, artefacts and the shared spreadsheet only
+  (auto-memory `teams-updates-may-name-people`).

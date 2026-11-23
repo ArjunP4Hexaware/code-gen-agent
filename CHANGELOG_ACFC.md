@@ -4,6 +4,17 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post217 — 2026-11-23 (the STTM's FieldDescription becomes each DDL column's COMMENT)
+
+A staging tester's request: her STTM template states each field's description in the
+Source FileLayout band under "FieldDescription"; the DDL wrote no column COMMENT. The
+source band's `description` role now also knows "field description"
+(`extractor.discovery.roles.source.description`; headers match with spaces ignored), so
+the existing path writes it as the COMMENT on the stage and standard columns. Config only.
+BUG_FIX_LOG post217 for the cause and the reach.
+
+Tests: `tests/test_field_description_source_band.py` (2).
+
 ## 0.5.8.post216 — 2026-11-20 (the question UX P2: FRD questions offer values)
 
 The second tester's run (P2 of the plan agreed 2026-11-19; P1 = post210). An FRD question a

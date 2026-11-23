@@ -29,6 +29,39 @@ number.
 
 ---
 
+## 0.5.8.post217 — a staging tester's request: the STTM's Field Description as each DDL column's COMMENT
+
+- **Symptom:** a tester's STTM template states each field's description, yet the DDL's
+  columns carry no COMMENT; the run flags `ddl_comment_blank:stage` and
+  `ddl_comment_blank:standard` ("the STTM states no Field Description / … / Description").
+- **Reproduced:** on her staging uploads, mock, post216 (/tmp only, deleted after): the
+  layout places no description role on any of her template's 14 mapping sheets (3
+  workbooks); her morning pair (harness, her own answers) wrote 0 column COMMENTs on
+  stage and standard, 65 columns flagged per table.
+- **Root cause:** her template writes the description in the SOURCE band under the one-word
+  header "FieldDescription"; `extractor.discovery.roles.source.description` knew only
+  "description" / "column description", and "field description" was a synonym only of
+  the TARGET band's `field_description`. The column was never read, so
+  `generic` set no `ddl_description` and `framework._column_comment` had nothing to write.
+- **Change:** `config/config.yaml` `extractor.discovery.roles.source.description` +
+  `"field description"` (header keys ignore spaces, post198, so "FieldDescription"
+  matches). No code change - the existing path writes the text as the COMMENT.
+- **Reach:** PENDING - the 12-pair check runs before the push.
+- **Side effects:** none known; her pair's IIG / review copy to be read in the check.
+- **Unchanged:** the reject table's columns still carry no COMMENT (post212); the audit
+  columns the agent adds still have none (no STTM row describes them, flagged as before);
+  her template's other description-like headers ("Description/Business Logic") are not
+  read - not asked for.
+- **Tests:** `tests/test_field_description_source_band.py` (2: the synonym's key; a
+  synthetic template-shaped STTM -> each field's COMMENT on stage + standard, `\'`
+  escaping, no field flagged) - both fail with ONLY the config line reverted (no
+  COMMENT on the column lines). `test_header_key_post198` (no two roles share a key in a
+  band) passes.
+- **Verified:** her pair (mock): stage 0 -> 60 COMMENTs, standard 0 -> 60, 65 -> 5 blank
+  per table (the audit columns); suites + 12-pair check: PENDING.
+- **Revert:** drop `"field description"` from that synonym list.
+- **Deployed:** not yet.
+
 ## 0.5.8.post216 — P2's dedupe dropped the layout model's proposal
 
 - **Symptom:** the first post216 suites (both venvs) failed

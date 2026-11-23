@@ -234,7 +234,9 @@ extractor:
         pii: ["pii", "phi field", "phi pii field", "pii phi"]
         key: ["key y n", "key", "primary key"]
         load_rule: ["load rules", "load rule"]
-        description: ["description", "column description"]
+        # post217 (a staging STTM template: "FieldDescription" in its Source FileLayout
+        # band; headers match with spaces ignored) - the column COMMENT's text
+        description: ["description", "column description", "field description"]
         comments: ["comments", "comment"]
         sample_value: ["sample value", "example values"]
         example_value: ["example value"]

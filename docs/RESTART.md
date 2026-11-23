@@ -4,7 +4,7 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-23 evening - staging = post216 (main 0b7d306); feature = post217 + docs (pushed, NOT on staging); post218 (P3) on `wip/post218-p3`; dev STOPPED on post194)
+## Start here (2026-11-23 night - staging = post218 (main 05f9139); feature = post218 + docs; dev STOPPED on post194)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
@@ -13,8 +13,8 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 OAuth login (recipe below; a login code expires in minutes - paste the `localhost:8020`
 URL back at once). A restored checkout comes back on `main` (the staging copy of this
 file): read RESTART AFTER the bootstrap. `git fetch` - `origin/feature/multi-table` =
-post217 + docs; **post218 lives ONLY on `origin/wip/post218-p3`** (one commit on c57fb3f).
-- **staging `codegen-agent-staging` = post216** (`main` = 0b7d306, identical-tree merge,
+post218 + docs (no wip branches).
+- **staging `codegen-agent-staging` = post218** (`main` = 05f9139; post217 = 3fb28aa first, one change per deploy; identical-tree merges,
   2026-11-23; health + smoke green; the proxy's `x-forwarded-email` reaches the App).
   **dev `codegen-agent`:** STOPPED on post194 (starting it bills compute - Soham's call).
 - **The last session (2026-11-23): post216 shipped, post217 pushed, post218 on wip, the
@@ -36,28 +36,12 @@ post217 + docs; **post218 lives ONLY on `origin/wip/post218-p3`** (one commit on
   The note to Nikshit / Raj on feedback triage: sent 2026-11-23; the 11/23 report: drafted.
 
 **Open, in order:**
--7. **post217 (FieldDescription -> DDL column COMMENT, the first tester's request) -
-   PUSHED (c57fb3f), NOT on staging:** staging on Soham's word (`/ship-staging`), then
-   tell her to re-run her file. Her pair (mock): stage + standard 0 -> 60 COMMENTs; the
-   audit columns + the reject table stay without one (by design). Asked her (2026-11-23):
-   a standard COMMENT on the audit columns? - a REQUEST (AGENTS.md triage): only on a yes.
--6. **post218 = the question UX P3 (one card per feed, plain words, "Fills in the IIG") -
-   on `wip/post218-p3` only:** renumbered from post217 (the fix went first, Soham's pick:
-   one change per staging deploy); its diff is the old commit's byte for byte but the
-   number. Suites on the renumbered tree (1ef509d): `.venv-d1` green (2410); `.venv` 2776
-   passed + 1 FLAKE - `test_m93_app_hang::test_the_list_and_the_status_read_one_selection
-   _record` (the selection job 'failed' under load; alone 5 / 5 pass, its module 10 / 10;
-   passed on 22fd73e). Lead, unverified: a `select:STTM_alpha.xlsx` thread of the earlier
-   `test_a_selection_that_raises_in_its_error_handling_frees_the_slot` raising later in
-   the same worker. Re-run the `.venv` suite before landing.
-   To land: (1) Soham OKs the look - screenshots `/tmp/t/p3/p3_{light,dark}_{1366,390}.png`
-   (synthetic questions, real `iig_uses` lines; /tmp may not survive a reset - re-shoot
-   with `/tmp/t/p3/shot.cjs` against `tools/check/serve_local.sh`); (2) fast-forward
-   feature to the branch (rebase + re-run the suites if feature moved); (3) push, delete
-   the wip branch; staging on his word. No 12-pair check: P3 moves no generated output
-   (it adds served fields only). The IIG lines are MEASURED (`tests/test_iig_answer_map.py`,
-   iig_v2 under the ACFC overlay; a field / template not measured shows no line). Then P4
-   (questions per pair x choices per question, before / after, 12 pairs + pairs A / B / C).
+-7. **post217 (FieldDescription -> DDL column COMMENT) ON STAGING (3fb28aa) and post218 (P3:
+   one card per feed, plain words, "Fills in the IIG") ON STAGING (05f9139), 2026-11-23;
+   health + smoke green each.** Ask the first tester to re-run her file (message drafted).
+   Her audit-column COMMENT question = a REQUEST: only on a yes. Next: P4 (questions per
+   pair x choices per question, before / after, 12 pairs + pairs A / B / C). The P3
+   screenshots: Workspace `codegen/p3_screenshots/` (synthetic).
 -5. **The review of the week's fixes (2026-11-23; an independent agent on BUG_FIX_LOG,
    claims verified):** most fixed real problems; Soham's calls: (a) post214's
    MandatoryColumnCheckRule as a default (432 lines, 9 of 12 pairs moved, its error-code

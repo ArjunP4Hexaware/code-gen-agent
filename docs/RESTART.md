@@ -4,14 +4,14 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-23 - staging = post215 (main 092c733); feature = post216 (pushed, NOT on staging); dev STOPPED on post194)
+## Start here (2026-11-23 - staging = post216 (main 0b7d306); feature = post216 + docs; dev STOPPED on post194)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 
 **First check:** after the weekend's reset: `~/bootstrap` (clones `feature/multi-table`),
 then the OAuth login (recipe below). `git fetch` - `origin/feature/multi-table` = post216
-+ docs (landed 2026-11-23, item -5); `wip/post216-p2` is superseded - delete it.
++ docs (landed 2026-11-23, item -5; `wip/post216-p2` deleted).
 - **Reset of 2026-11-23 DONE:** `~/bootstrap` all ok (venvs, Chromium, hooks, switched
   main -> `feature/multi-table`); gh was still logged in. /tmp SURVIVED this reset
   (`/tmp/t`, `/tmp/cgs`, `/tmp/pw`): the P2 screenshots Soham saw are
@@ -19,8 +19,8 @@ then the OAuth login (recipe below). `git fetch` - `origin/feature/multi-table` 
   logged in again (`codegen-oaut`; staging `/api/health` 200 = post215). A login code
   expires in minutes: paste the `localhost:8020` URL back at once. Note: a restored checkout comes back on `main`, so read
   this file AFTER the bootstrap (on `main` it is the post215 copy).
-- **staging `codegen-agent-staging` = post215** (`main` = 092c733, identical-tree merge,
-  2026-11-20; health + smoke green; the proxy's `x-forwarded-email` reaches the App).
+- **staging `codegen-agent-staging` = post216** (`main` = 0b7d306, identical-tree merge,
+  2026-11-23; health + smoke green; the proxy's `x-forwarded-email` reaches the App).
   **dev `codegen-agent`:** STOPPED on post194 (starting it bills compute - Soham's call).
 - **The last session (2026-11-20): post213 pushed, post214 - post216** - what each did:
   CHANGELOG_ACFC; why / decisions / the flake: CLAUDE_HISTORY §[H30]. Every shipped
@@ -38,12 +38,11 @@ then the OAuth login (recipe below). `git fetch` - `origin/feature/multi-table` 
   deck `AI_in_Engineering_ WSR_Nov 20.pptx`; model comparisons = `docs/MODEL_COMPARISON.md`.
 
 **Open, in order:**
--5. **post216 = the question UX P2 (FRD questions offer VALUES) - LANDED on
-   `feature/multi-table` 2026-11-23, NOT on staging:** Soham OK'd the look; cherry-picked
+-5. **post216 = the question UX P2 (FRD questions offer VALUES) - ON STAGING
+   (main 0b7d306, 2026-11-23; health + smoke green):** Soham OK'd the look; cherry-picked
    onto the feature tip (code tree = b8cedf8); both suites green on the landed tree
    (2761 / 2395); 12-pair check vs 23b67f4: outcomes unchanged, no artefact change (the 13
-   report .md "REAL" = the check's own code path - BUG_FIX_LOG post216). Staging on his
-   word (`/ship-staging`). NEXT: P3 (plain words, one card per feed, what each answer sets
+   report .md "REAL" = the check's own code path - BUG_FIX_LOG post216). NEXT: P3 (plain words, one card per feed, what each answer sets
    in the IIG) and P4 (questions per pair x choices per question, before / after, on the
    12 pairs + pairs A / B / C). Show Soham a screenshot before shipping P3. Pre-existing: at
    390 px the Settings card's connection-ID table scrolls sideways.

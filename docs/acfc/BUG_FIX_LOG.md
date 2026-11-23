@@ -53,7 +53,7 @@ number.
 - **Verified:** both suites green on b8cedf8 and again on the landed tree 0563f36
   (2761 / 2395 passed, 2026-11-23); ruff, vitest (293) + tsc clean; the 12-pair check above.
 - **Revert:** drop b8cedf8 (the bug comes back) or the whole branch.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging 0b7d306 2026-11-23.
 
 ## post215 tree (tests only, no version) — the selection flake: a cross-suite twin FRD
 

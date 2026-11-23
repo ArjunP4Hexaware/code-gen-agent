@@ -4,54 +4,76 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-23 - staging = post215 (main 092c733); feature = post216 (pushed, NOT on staging); dev STOPPED on post194)
+## Start here (2026-11-23 evening - staging = post216 (main 0b7d306); feature = post217 + docs (pushed, NOT on staging); post218 (P3) on `wip/post218-p3`; dev STOPPED on post194)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 
-**First check:** after the weekend's reset: `~/bootstrap` (clones `feature/multi-table`),
-then the OAuth login (recipe below). `git fetch` - `origin/feature/multi-table` = post216
-+ docs (landed 2026-11-23, item -5); `wip/post216-p2` is superseded - delete it.
-- **Reset of 2026-11-23 DONE:** `~/bootstrap` all ok (venvs, Chromium, hooks, switched
-  main -> `feature/multi-table`); gh was still logged in. /tmp SURVIVED this reset
-  (`/tmp/t`, `/tmp/cgs`, `/tmp/pw`): the P2 screenshots Soham saw are
-  `/tmp/t/p2/p2_{light,dark}.png` (+ `before/after.html`). The OAuth token was gone -
-  logged in again (`codegen-oaut`; staging `/api/health` 200 = post215). A login code
-  expires in minutes: paste the `localhost:8020` URL back at once. Note: a restored checkout comes back on `main`, so read
-  this file AFTER the bootstrap (on `main` it is the post215 copy).
-- **staging `codegen-agent-staging` = post215** (`main` = 092c733, identical-tree merge,
-  2026-11-20; health + smoke green; the proxy's `x-forwarded-email` reaches the App).
+**First check:** after a reset: `~/bootstrap` (clones `feature/multi-table`), then the
+OAuth login (recipe below; a login code expires in minutes - paste the `localhost:8020`
+URL back at once). A restored checkout comes back on `main` (the staging copy of this
+file): read RESTART AFTER the bootstrap. `git fetch` - `origin/feature/multi-table` =
+post217 + docs; **post218 lives ONLY on `origin/wip/post218-p3`** (one commit on c57fb3f).
+- **staging `codegen-agent-staging` = post216** (`main` = 0b7d306, identical-tree merge,
+  2026-11-23; health + smoke green; the proxy's `x-forwarded-email` reaches the App).
   **dev `codegen-agent`:** STOPPED on post194 (starting it bills compute - Soham's call).
-- **The last session (2026-11-20): post213 pushed, post214 - post216** - what each did:
-  CHANGELOG_ACFC; why / decisions / the flake: CLAUDE_HISTORY §[H30]. Every shipped
-  version: both suites green on the pushed tree, the 12-pair check alone where output can
-  move (outcomes always 5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL).
+- **The last session (2026-11-23): post216 shipped, post217 pushed, post218 on wip, the
+  review of the week's fixes** - what each did: CHANGELOG_ACFC; why / decisions:
+  CLAUDE_HISTORY §[H31]. Every shipped version: both suites green on the pushed tree, the
+  12-pair check alone where output can move (outcomes always 5 PASS_WITH_OPEN_INPUTS,
+  3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL).
 - **Testers' documents** (staging uploads, `/Workspace/Users/<me>/codegen/inputs/
-  codegen-agent-staging/uploads`): pair A / B = the first tester's (two vendors of one
-  program), pair C = the second tester's (a third vendor) - no /tmp copies left (deleted
-  2026-11-20); re-export when needed (mock only, /tmp, delete after). pair_13 (the
-  Accumulators pair) = Workspace `frd_sttm_pairs/pair_13` (`--pairs 13`).
+  codegen-agent-staging/uploads`, 14 STTMs on 2026-11-23): pair A / B = the first
+  tester's (two vendors of one program), pair C = the second tester's; the first tester's
+  template (FieldDescription in the source band) = 6 of the 14. No /tmp copies left
+  (deleted 2026-11-23); re-export when needed (mock only, /tmp, delete after). pair_13
+  (the Accumulators pair) = Workspace `frd_sttm_pairs/pair_13` (`--pairs 13`).
 - **Tracker:** `tools/tracker/` (export script tracked; per-change update scripts quote
   client text - chat + /tmp only). Office Scripts compile stricter than tsc
   (`tools/tracker/README.md`, `check_office_script.py`).
 - **Docs out:** the user manual = Workspace `code-gen-agent-documentation.docx`; the WSR
   deck `AI_in_Engineering_ WSR_Nov 20.pptx`; model comparisons = `docs/MODEL_COMPARISON.md`.
+  The note to Nikshit / Raj on feedback triage: sent 2026-11-23; the 11/23 report: drafted.
 
 **Open, in order:**
--5. **post216 = the question UX P2 (FRD questions offer VALUES) - LANDED on
-   `feature/multi-table` 2026-11-23, NOT on staging:** Soham OK'd the look; cherry-picked
-   onto the feature tip (code tree = b8cedf8); both suites green on the landed tree
-   (2761 / 2395); 12-pair check vs 23b67f4: outcomes unchanged, no artefact change (the 13
-   report .md "REAL" = the check's own code path - BUG_FIX_LOG post216). Staging on his
-   word (`/ship-staging`). NEXT: P3 (plain words, one card per feed, what each answer sets
-   in the IIG) and P4 (questions per pair x choices per question, before / after, on the
-   12 pairs + pairs A / B / C). Show Soham a screenshot before shipping P3. Pre-existing: at
-   390 px the Settings card's connection-ID table scrolls sideways.
--4. **post215 (Feedback on the App) ON STAGING:** no admins yet - the staging state root
-   needs `feedback_admins.txt` (one address per line; Soham to give the addresses).
--3. **The first tester (MandatoryColumnCheckRule, post214, on staging):** the reply and a
-   second message on the Feedback page were sent 2026-11-20. Open: her spelling 'STDdelta'
-   vs our 'STDDelta'; the NullCheckRule overlap she did not answer (left as is).
+-7. **post217 (FieldDescription -> DDL column COMMENT, the first tester's request) -
+   PUSHED (c57fb3f), NOT on staging:** staging on Soham's word (`/ship-staging`), then
+   tell her to re-run her file. Her pair (mock): stage + standard 0 -> 60 COMMENTs; the
+   audit columns + the reject table stay without one (by design). Asked her (2026-11-23):
+   a standard COMMENT on the audit columns? - a REQUEST (AGENTS.md triage): only on a yes.
+-6. **post218 = the question UX P3 (one card per feed, plain words, "Fills in the IIG") -
+   on `wip/post218-p3` only:** renumbered from post217 (the fix went first, Soham's pick:
+   one change per staging deploy); its diff is the old commit's byte for byte but the
+   number. Suites on the renumbered tree (1ef509d): `.venv-d1` green (2410); `.venv` 2776
+   passed + 1 FLAKE - `test_m93_app_hang::test_the_list_and_the_status_read_one_selection
+   _record` (the selection job 'failed' under load; alone 5 / 5 pass, its module 10 / 10;
+   passed on 22fd73e). Lead, unverified: a `select:STTM_alpha.xlsx` thread of the earlier
+   `test_a_selection_that_raises_in_its_error_handling_frees_the_slot` raising later in
+   the same worker. Re-run the `.venv` suite before landing.
+   To land: (1) Soham OKs the look - screenshots `/tmp/t/p3/p3_{light,dark}_{1366,390}.png`
+   (synthetic questions, real `iig_uses` lines; /tmp may not survive a reset - re-shoot
+   with `/tmp/t/p3/shot.cjs` against `tools/check/serve_local.sh`); (2) fast-forward
+   feature to the branch (rebase + re-run the suites if feature moved); (3) push, delete
+   the wip branch; staging on his word. No 12-pair check: P3 moves no generated output
+   (it adds served fields only). The IIG lines are MEASURED (`tests/test_iig_answer_map.py`,
+   iig_v2 under the ACFC overlay; a field / template not measured shows no line). Then P4
+   (questions per pair x choices per question, before / after, 12 pairs + pairs A / B / C).
+-5. **The review of the week's fixes (2026-11-23; an independent agent on BUG_FIX_LOG,
+   claims verified):** most fixed real problems; Soham's calls: (a) post214's
+   MandatoryColumnCheckRule as a default (432 lines, 9 of 12 pairs moved, its error-code
+   reader reaches none; revert = drop `std_mandatory_check` from the overlay's `dq_rules`)
+   and (b) 212 #18's standard reject table in every ACFC DDL (one tracker line is its only
+   source; revert = `standard_reject_table: null`) - both his own decisions, to decide
+   again. Mine, no decision: drop post195's dead `fieldname` synonym (same key as `field
+   name` since post198); fold the two archive label lists (`requirement_archive_labels`,
+   `archive_line_labels`) and post196 / post197's passes into READER_GENERALIZATION Phase 1.
+   The review's own flaw (Soham caught it): "0 of 12 pairs moved" was read as "unneeded" -
+   the rubric fixed in AGENTS.md ("Tester feedback is sorted BEFORE any code").
+-4. **post215 (Feedback on the App) ON STAGING:** no submissions yet (2026-11-23: no
+   `app_feedback/` folder); no admins - the staging state root needs `feedback_admins.txt`
+   (one address per line; Soham to give the addresses).
+-3. **The first tester (MandatoryColumnCheckRule, post214, on staging):** open: her
+   spelling 'STDdelta' vs our 'STDDelta'; the NullCheckRule overlap she did not answer.
 0. **Venu's "run the DDL tests from the App" (Soham + Venu):** options sent - (1) an
    "Open in Databricks" button, no rule change; (2) the App runs them - needs the
    EXPLAIN-only rule widened to read-only test statements, an identity (user

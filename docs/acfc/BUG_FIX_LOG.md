@@ -65,7 +65,7 @@ number.
   per table (the audit columns); both suites green on ffb4c4a (2763 / 2397); the
   12-pair check above.
 - **Revert:** drop `"field description"` from that synonym list.
-- **Deployed:** not yet.
+- **Deployed:** dev not yet (STOPPED); staging 3fb28aa 2026-11-23.
 
 ## 0.5.8.post216 — P2's dedupe dropped the layout model's proposal
 

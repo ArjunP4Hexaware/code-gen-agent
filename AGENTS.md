@@ -179,6 +179,15 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   "patchworking ... isn't sustainable"): before writing another field-specific reader
   pass, check `docs/acfc/READER_GENERALIZATION.md` - prefer a generic grammar or a
   config line over a new pass, and say in the BUG_FIX_LOG entry why a pass was needed.
+- **Tester feedback is sorted BEFORE any code** (Soham, 2026-11-23, after the review of the
+  week's fixes): a wrong value or a crash -> a fix (catch the input early, never loosen a
+  guard); a value a document states that the agent missed -> a general rule or a config
+  synonym, never a new field-specific pass; one document's misspelling / odd layout ->
+  back to the BSA; different or extra output -> a REQUEST, built only on Soham's (or the
+  framework owner's) written yes, as config; "does it do X?" -> an answer, not a ticket.
+  The 12 pairs are the documents we could get, not a representative set: a 0-pair reach
+  proves a change SAFE, never unneeded - judge reach by how many real uploads share the
+  shape (e.g. post217's template: 0 of 12 pairs, 6 of 14 staging STTMs).
 - **Every bug fix gets a `docs/acfc/BUG_FIX_LOG.md` entry before the push** (Soham,
   2026-11-16: a fix that moves the flow is how new bugs are made): root cause, the exact
   change (file :: function / config key), its reach in the 12-pair check (pairs, sheets,

@@ -5460,3 +5460,39 @@ cross-module imports; 4 modules over 2.8k lines; dead code kept by rule.
 - **Teams text may name people** (Soham, 2026-11-20: "this is a TEAMS UPDATE, you can use
   names"): the no-names rule is for the App, artefacts and the shared spreadsheet only
   (auto-memory `teams-updates-may-name-people`).
+
+## §[H31] Session 2026-11-23: the reset, post216 shipped, post217 (FieldDescription), post218 (P3) on wip, the review of the week's fixes
+
+- **The reset:** `~/bootstrap` all ok; gh still logged in; /tmp SURVIVED (unusual); the
+  OAuth token was gone (the first login code expired before it was pasted back - re-run
+  the login). The restored checkout came back on `main`, so RESTART was first read as the
+  post215 copy - "lost" notes were on `feature/multi-table` all along.
+- **post216 landed and shipped:** cherry-picked onto the feature tip (RESTART conflict:
+  kept feature's); suites green on the landed tree; 12-pair check vs 23b67f4 unchanged
+  (the 13 "REAL" report lines = the check's own code path in "Produced by"); staging
+  0b7d306, health + smoke green; `wip/post216-p2` deleted.
+- **P3 (now post218):** before building the IIG line, measured what each FRD answer
+  fills (full path, synthetic CV pair): it depends on the template AND the overlay
+  (LOB: `lob: codes` under ACFC, a deliberate blank under the base config; the FRD file
+  format reaches no iig_v2 cell - SRC_FORMAT = the pattern's extension; FILE_ADLS cells
+  move under the base config only). Hence a measured map, the run's template headers,
+  and no line where nothing was measured. A first claim ("the FRD format is the
+  fallback when the pattern has no extension") was WRONG and the test caught it.
+- **post217 (the first tester's request, Soham: "Go ahead", fix first):** her STTM
+  template's source-band "FieldDescription" was never read (the source `description`
+  role lacked "field description"); reproduced on her uploads (0 description roles on
+  14 sheets; her pair 0 COMMENTs), fixed by one synonym, her pair 0 -> 60 per table;
+  12-pair check: no pair moved. P3 was parked on wip and renumbered post218 (Soham
+  picked the order after a pros / cons: one change per staging deploy).
+- **The review of the week's fixes (Nikshit / Raj: "don't be afraid to tell us if there's
+  too much tester feedback"):** an independent agent applied a rubric to BUG_FIX_LOG;
+  verified claims; RESTART -5 holds the outcome. Soham caught a logical flaw that came
+  from MY rubric: "0 of the 12 pairs moved" proves a change safe, not unneeded - the 12
+  are the documents we could get, not a representative set (her template: 0 of 12, 6 of
+  14 staging STTMs). The triage rule went into AGENTS.md corrected.
+- **Text for Soham:** reports in his format (short; one line per item; in a code block so
+  the line breaks paste as written); the Teams note to Nikshit / Raj was sent, the
+  11/23 report drafted. Cleaned at the end: the testers' copies, the 12-pair copies, the
+  worktrees, the local App's scratch folder.
+- **Also checked:** the coding App's idle-session timeout is OFF (`SESSION_TIMEOUT_SECONDS=0`
+  in its app.yaml and the running gunicorn's environment; the reaper thread never starts).

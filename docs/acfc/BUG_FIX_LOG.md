@@ -29,7 +29,7 @@ number.
 
 ---
 
-## 0.5.8.post216 (on `wip/post216-p2`, NOT merged) — P2's dedupe dropped the layout model's proposal
+## 0.5.8.post216 — P2's dedupe dropped the layout model's proposal
 
 - **Symptom:** the first post216 suites (both venvs) failed
   `tests/test_layout_frd_model_label.py::test_a_model_claim_on_a_label_that_is_not_the_fields_is_not_applied`
@@ -40,13 +40,18 @@ number.
   which P1 always keeps.
 - **Change:** `_value_choices` keeps a proposed candidate with no value text (keyed by
   its place, no `shown`; the dialog shows it the old way, by cell).
-- **Reach:** not measured yet - the 12-pair check runs when post216 lands (RESTART -5).
+- **Reach:** 12-pair check (23b67f4 vs post216 0563f36, mock, framework, 2026-11-23): outcomes
+  unchanged (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL); 295 / 295 files;
+  no workbook, DDL or JSON change. The 13 "REAL" report .md files (7 pairs) differ only in
+  the "Produced by" line's code path (the check's worktree vs this checkout) - an artefact
+  of the check, not of post216 (P2 changes only the App's question dialog).
 - **Side effects:** none known.
 - **Unchanged:** the dedupe / cap of every other candidate; the answer format.
 - **Tests:** `tests/test_frd_value_choices_p2.py::test_a_proposal_with_no_value_text_is_still_offered`
   - fails with only `resolve.py` reverted to 3eb1d95, passes with b8cedf8; the model-label
   test passes.
-- **Verified:** both suites green on b8cedf8 (2761 / 2395 passed); 12-pair check pending.
+- **Verified:** both suites green on b8cedf8 and again on the landed tree 0563f36
+  (2761 / 2395 passed, 2026-11-23); ruff, vitest (293) + tsc clean; the 12-pair check above.
 - **Revert:** drop b8cedf8 (the bug comes back) or the whole branch.
 - **Deployed:** not yet.
 

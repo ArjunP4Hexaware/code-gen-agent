@@ -4,15 +4,14 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-20 night - staging = post215 (main 092c733); feature = post215 + docs; post216 on `wip/post216-p2`; dev STOPPED on post194)
+## Start here (2026-11-23 - staging = post215 (main 092c733); feature = post216 (pushed, NOT on staging); dev STOPPED on post194)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 
 **First check:** after the weekend's reset: `~/bootstrap` (clones `feature/multi-table`),
-then the OAuth login (recipe below). `git fetch` - `origin/feature/multi-table` = post215
-+ docs; **post216 (the question UX P2) lives ONLY on `origin/wip/post216-p2`** (two commits
-on top of a53ec77: 3eb1d95 + b8cedf8) - not merged; suites green, 12-pair check not run (item -5).
+then the OAuth login (recipe below). `git fetch` - `origin/feature/multi-table` = post216
++ docs (landed 2026-11-23, item -5); `wip/post216-p2` is superseded - delete it.
 - **Reset of 2026-11-23 DONE:** `~/bootstrap` all ok (venvs, Chromium, hooks, switched
   main -> `feature/multi-table`); gh was still logged in. /tmp SURVIVED this reset
   (`/tmp/t`, `/tmp/cgs`, `/tmp/pw`): the P2 screenshots Soham saw are
@@ -39,18 +38,15 @@ on top of a53ec77: 3eb1d95 + b8cedf8) - not merged; suites green, 12-pair check 
   deck `AI_in_Engineering_ WSR_Nov 20.pptx`; model comparisons = `docs/MODEL_COMPARISON.md`.
 
 **Open, in order:**
--5. **post216 = the question UX P2 (FRD questions offer VALUES) - on `wip/post216-p2`
-   only.** To land it: (1) Soham OKs the look (before / after screenshots shown
-   2026-11-20, synthetic text); (2) rebase the branch onto `feature/multi-table` (expect a
-   small conflict in this file's item list - keep this version); (3) both suites - the
-   first run failed `test_layout_frd_model_label` (a real P2 bug, fixed in b8cedf8); the
-   re-run on b8cedf8 is GREEN in both venvs (2761 / 2395 passed, 2026-11-20) - re-run
-   only if the rebase changes code; (4) the
-   12-pair check (old side = the feature tip); (5) BUG_FIX_LOG reach line; push; staging
-   on his word. Then P3 (plain words, one card per feed, what each answer sets in the
-   IIG) and P4 (questions per pair x choices per question, before / after, on the 12 pairs
-   + pairs A / B / C). Pre-existing: at 390 px the Settings card's connection-ID table
-   scrolls sideways.
+-5. **post216 = the question UX P2 (FRD questions offer VALUES) - LANDED on
+   `feature/multi-table` 2026-11-23, NOT on staging:** Soham OK'd the look; cherry-picked
+   onto the feature tip (code tree = b8cedf8); both suites green on the landed tree
+   (2761 / 2395); 12-pair check vs 23b67f4: outcomes unchanged, no artefact change (the 13
+   report .md "REAL" = the check's own code path - BUG_FIX_LOG post216). Staging on his
+   word (`/ship-staging`). NEXT: P3 (plain words, one card per feed, what each answer sets
+   in the IIG) and P4 (questions per pair x choices per question, before / after, on the
+   12 pairs + pairs A / B / C). Show Soham a screenshot before shipping P3. Pre-existing: at
+   390 px the Settings card's connection-ID table scrolls sideways.
 -4. **post215 (Feedback on the App) ON STAGING:** no admins yet - the staging state root
    needs `feedback_admins.txt` (one address per line; Soham to give the addresses).
 -3. **The first tester (MandatoryColumnCheckRule, post214, on staging):** the reply and a

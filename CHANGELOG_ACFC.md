@@ -4,6 +4,36 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post218 — 2026-11-23 (the question UX P3: one card per feed, plain words, what each answer fills in the IIG)
+
+P3 of the plan agreed 2026-11-19 (P1 = post210, P2 = post216). The layout dialog only -
+no generated output changes, the answer path is unchanged.
+- `ui/frontend` `LayoutQuestions.questionCards`: the questions are grouped one card per
+  FEED (its FRD fields `feeds[i].…`; each STTM / dictionary sheet its own card; the
+  run's environment first) instead of one block per document. Each question shows its
+  title, hint and the plain pre-selection sentence; the contract key and its reason are
+  folded under "Technical detail". `dist` rebuilt.
+- "Fills in the IIG" (`layout.hints.FRD_FIELD_IIG` / `iig_uses`, served by
+  `ui/backend/demo.with_iig` on the run's template): the sheets and columns an FRD answer
+  fills, plus "the generated names / description text" where it also feeds them -
+  MEASURED on the synthetic CV pair under the ACFC overlay (`tests/test_iig_answer_map.py`:
+  each field changed, the listed cells must be exactly the direct cells that move; a
+  missing or an invented cell fails). Only iig_v2 is measured (any other template: no
+  line); LOB only where the family writes LOB codes (`lob: blank` says "not written");
+  the file format says "not written" (iig_v2's SRC_FORMAT is the file pattern's
+  extension); the feed name, delimiter and recycle rule show no line (the CV pair cannot
+  measure them - its STTM states them).
+- Found while measuring, not changed: an FRD file-format answer reaches no iig_v2 cell
+  (SRC_FORMAT = the pattern's extension, by design); under the ACFC overlay the CV feed's
+  FILE_ADLS_INGESTION_DETAILS DOMAIN / SUBDOMAIN / TGT_ADLS_PATH do not move with the
+  answer (they do under the base config), so that sheet is not named.
+
+Tests: `tests/test_iig_answer_map.py` (14; 13 + 1 skipped in `.venv-d1`),
+`LayoutQuestions.test.tsx` (+5), two wording assertions updated (the reason folded; the
+cards' order). Playwright on a local mock App (both themes, 1366 / 390 px: one h1, no key
+outside the fold, no target under 24 px, no console error; at 390 px the only sideways
+scroll is the pre-existing Settings tables - identical without the dialog).
+
 ## 0.5.8.post217 — 2026-11-23 (the STTM's FieldDescription becomes each DDL column's COMMENT)
 
 A staging tester's request: her STTM template states each field's description in the

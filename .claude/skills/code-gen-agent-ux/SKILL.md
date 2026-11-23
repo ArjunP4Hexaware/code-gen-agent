@@ -507,6 +507,14 @@ tables bordered, code inline chips). "Loading report…" while pending.
 > paced by completed runs' wall-clock; never backwards; "Waiting for your
 > answers" while paused; 100 only when done.
 
+> **post218 (P3): the layout dialog is one card per FEED** (`LayoutQuestions.questionCards`:
+> a feed's FRD fields, each STTM / dictionary sheet, the run's environment first - a
+> `.question-card` inside the run card). A question shows its title, hint and the plain
+> pre-selection sentence; the contract key + reason are folded ("Technical detail").
+> "Fills in the IIG:" lists the measured sheets / columns one line per sheet (+ "and
+> the generated names / description text"), or "IIG: <note>" where the answer fills
+> none; no line where nothing was measured (`layout.hints.iig_uses`).
+
 ONE full-width card. Page head: `h1` "Generate a pipeline", subtitle
 "Choose the documents, pick the output, generate. Every run ends on the
 dashboard with its human review queue." A red error banner above the card

@@ -6,7 +6,9 @@ import { normalizeStatus, type DemoStatus, type LayoutQuestion, type NeedsAnswer
 import {
   answersPayload,
   emptyPicks,
+  iigLine,
   QuestionItem,
+  questionCards,
   questionMode,
   suggestedPicks,
   type AnswerPicks,
@@ -96,7 +98,11 @@ describe("the layout dialog's band-layer question", () => {
     const text = host.textContent ?? "";
     expect(text).toContain("Which layer is band[2] of sheet 'BAND_MAPPING'?");
     expect(text).toContain("the sheet's feed waits for it");
-    expect(text).toContain("Why it is asked: a target-shaped band");
+    // P3: the reason is technical detail, folded with the key
+    const fold = host.querySelector("details");
+    expect(fold?.querySelector("summary")?.textContent).toBe("Technical detail");
+    expect(fold?.textContent).toContain("asked because a target-shaped band");
+    expect(fold?.querySelector("code")?.textContent).toBe(band.key);
     expect(text).toContain("F: Schema");
     const labels = radios().map((r) => r.parentElement?.textContent?.trim());
     expect(labels).toEqual(["source", "stage", "standard", "None of these (leave unanswered)"]);
@@ -514,5 +520,79 @@ describe("P2: an FRD question a person may type offers values (2026-11-20)", () 
     expect(answersPayload([delimiter], latest).frd).toEqual({
       "feeds[0].delimiter": expect.objectContaining({ table: 3, row: 3, col: 0 }),
     });
+  });
+});
+
+
+describe("P3 (post217): one card per feed, plain words, what the answer fills in the IIG", () => {
+  const frd = (key: string, extra: Partial<LayoutQuestion> = {}): LayoutQuestion => ({
+    document: "frd", key, sheet: null, layer: null, role: key, kind: "role",
+    reason: "no label maps to this field", header: [], candidates: [], title: key,
+    ...extra,
+  });
+  const sttm = (sheet: string): LayoutQuestion => ({
+    ...band, key: `${sheet}/band[1]/layer`, sheet, title: `layer of ${sheet}`,
+  });
+  const run: LayoutQuestion = {
+    document: "run", key: "run.environment.storage_account", sheet: null, layer: null,
+    role: "run.environment.storage_account", kind: "text", reason: "required", header: [],
+    candidates: [], title: "storage account",
+  };
+
+  it("groups a feed's FRD fields into one card, a sheet into one card, the run first", () => {
+    const cards = questionCards([
+      frd("feeds[1].frequency"), sttm("MAP_B"), frd("feeds[0].lobs"), run,
+      frd("feeds[0].domain"), sttm("MAP_A"), sttm("MAP_B"),
+    ]);
+    expect(cards.map((c) => [c.id, c.questions.length])).toEqual([
+      ["run", 1], ["feed:0", 2], ["feed:1", 1], ["sttm:MAP_B", 2], ["sttm:MAP_A", 1],
+    ]);
+    expect(cards.map((c) => c.title)).toEqual([
+      "This run (environment)", "Feed 1", "Feed 2", "Sheet \u201cMAP_B\u201d", "Sheet \u201cMAP_A\u201d",
+    ]);
+  });
+
+  it("keeps a document-level question on its document's card", () => {
+    const cards = questionCards([frd("pairing.frd")]);
+    expect(cards.map((c) => [c.id, c.title])).toEqual([["doc:frd", "FRD document"]]);
+  });
+
+  it("names the IIG cells sheet by sheet, and the generated text in words", () => {
+    const q = frd("feeds[0].source_system", { iig: { text: true, note: null, cells: [
+      { sheet: "ADLS_DELTA_INGESTION_DETAILS", column: "SOURCE" },
+      { sheet: "STGDELTA_STDDELTA_INGESTION_DET", column: "SOURCE" },
+    ] } });
+    expect(iigLine(q)).toBe("ADLS_DELTA_INGESTION_DETAILS: SOURCE; STGDELTA_STDDELTA_INGESTION_DET: "
+                            + "SOURCE; and the generated names / description text");
+    render(<QuestionItem q={q} picks={emptyPicks()} onChange={() => {}} />);
+    const items = [...host.querySelectorAll("[data-testid=iig-line] li")].map((li) => li.textContent);
+    expect(items).toEqual(["ADLS_DELTA_INGESTION_DETAILS: SOURCE", "STGDELTA_STDDELTA_INGESTION_DET: SOURCE"]);
+    expect(host.querySelector("[data-testid=iig-line]")?.textContent)
+      .toContain("and the generated names / description text");
+  });
+
+  it("shows the note alone where the answer fills no IIG cell, and no line without data", () => {
+    const note = "not written (SRC_FORMAT is the file pattern's extension)";
+    expect(iigLine(frd("feeds[0].file_format", { iig: { cells: [], text: false, note } })))
+      .toBe(note);
+    expect(iigLine(frd("feeds[0].feed_name"))).toBeNull();
+    render(<QuestionItem q={frd("feeds[0].feed_name")} picks={emptyPicks()} onChange={() => {}} />);
+    expect(host.querySelector("[data-testid=iig-line]")).toBeNull();
+    render(<QuestionItem q={frd("feeds[0].file_format", { iig: { cells: [], text: false, note } })}
+                         picks={emptyPicks()} onChange={() => {}} />);
+    expect(host.querySelector("[data-testid=iig-line]")?.textContent).toBe(`IIG: ${note}`);
+  });
+
+  it("folds the contract key: the title is the only name shown", () => {
+    const q = frd("feeds[0].lobs", { title: "Lines of business" });
+    render(<QuestionItem q={q} picks={emptyPicks()} onChange={() => {}} />);
+    const strong = host.querySelector(".layout-question > div > strong");
+    expect(strong?.textContent).toBe("Lines of business");
+    const fold = host.querySelector("details");
+    expect(fold?.open).toBe(false);
+    expect(fold?.querySelector("code")?.textContent).toBe("feeds[0].lobs");
+    // outside the fold the key never appears
+    fold?.remove();
+    expect(host.textContent).not.toContain("feeds[0]");
   });
 });

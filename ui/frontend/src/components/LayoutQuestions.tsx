@@ -290,6 +290,71 @@ function whyLine(q: LayoutQuestion): string {
   return "No candidate matches the usual labels — pick the one that states it, or proceed without.";
 }
 
+/** P3 (post218): the dialog's cards - one per feed, not one per document. A feed's
+ *  FRD questions (``feeds[i].…``) are one card, each STTM / dictionary sheet's
+ *  questions one card (a sheet maps one feed), the run's environment first; anything
+ *  else (pairing, a document-level question) keeps its document's card. Order: the
+ *  run, the feeds by number, the sheets and the rest as first asked. */
+export interface QuestionCard {
+  id: string;
+  title: string;
+  sub: string;
+  questions: LayoutQuestion[];
+}
+
+const FEED_KEY = /^feeds\[(\d+)\]\./;
+
+export function questionCards(questions: LayoutQuestion[]): QuestionCard[] {
+  const cards = new Map<string, QuestionCard>();
+  const rank = new Map<string, number>();
+  const add = (id: string, title: string, sub: string, order: number, q: LayoutQuestion) => {
+    if (!cards.has(id)) {
+      cards.set(id, { id, title, sub, questions: [] });
+      rank.set(id, order);
+    }
+    cards.get(id)!.questions.push(q);
+  };
+  questions.forEach((q, i) => {
+    const feed = FEED_KEY.exec(q.key);
+    const sheet = q.sheet ?? (q.key.includes("/") ? q.key.split("/")[0] : null);
+    if (q.document === "run") {
+      add("run", "This run (environment)", "Values the run itself needs.", -1, q);
+    } else if (feed) {
+      const n = Number(feed[1]);
+      add(`feed:${n}`, `Feed ${n + 1}`, "From the FRD.", n, q);
+    } else if ((q.document === "sttm" || q.document === "vdd") && sheet) {
+      add(`${q.document}:${sheet}`, `Sheet \u201c${sheet}\u201d`,
+          q.document === "sttm" ? "From the STTM workbook." : "From the vendor data dictionary.",
+          1000 + i, q);
+    } else {
+      const label = q.document === "sttm" ? "STTM workbook"
+        : q.document === "frd" ? "FRD document" : "Vendor data dictionary";
+      add(`doc:${q.document}`, label, "About the document as a whole.", 1000 + i, q);
+    }
+  });
+  return [...cards.values()].sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+}
+
+/** P3: "Fills in the IIG" - the answer's measured cells by SHEET (a data engineer opens
+ *  a sheet, then finds the column), in the order measured. */
+export function iigSheets(q: LayoutQuestion): { sheet: string; columns: string[] }[] {
+  const bySheet = new Map<string, string[]>();
+  for (const { sheet, column } of q.iig?.cells ?? []) {
+    bySheet.set(sheet, [...(bySheet.get(sheet) ?? []), column]);
+  }
+  return [...bySheet.entries()].map(([sheet, columns]) => ({ sheet, columns }));
+}
+
+/** The same as one line of text (tests, the screen reader's summary); the note alone
+ *  where the answer fills no cell; null without data. */
+export function iigLine(q: LayoutQuestion): string | null {
+  const iig = q.iig;
+  if (!iig) return null;
+  if (!iig.cells.length) return iig.note ?? null;
+  return iigSheets(q).map(({ sheet, columns }) => `${sheet}: ${columns.join(", ")}`).join("; ")
+    + (iig.text ? "; and the generated names / description text" : "");
+}
+
 export interface QuestionAdvice {
   index: number | null;
   rationale: string;
@@ -328,21 +393,34 @@ export function QuestionItem({
   return (
     <div className="layout-question" data-key={q.key} style={{ marginTop: 8 }}>
       <div>
-        <strong>{q.title || q.key}</strong> <code style={{ fontSize: 11 }}>{q.key}</code>
+        <strong>{q.title || q.key}</strong>
       </div>
       {q.hint ? <div className="hint" style={{ marginTop: 2 }}>{q.hint}</div> : null}
-      {(q.kind === "text" && !q.candidates.length) || typedOnly(q) ? (
-        // post169: the hint already says where the agent looked and what a blank
-        // answer does; the contract's own reason is technical detail, folded
-        <details className="hint" style={{ marginTop: 2, fontSize: 11 }}>
-          <summary>Technical detail</summary>
-          {q.reason}
-        </details>
-      ) : (
-        <div className="hint" style={{ marginTop: 2, fontSize: 11 }}>
-          Why it is asked: {q.reason}. {whyLine(q)}
-        </div>
+      {(q.kind === "text" && !q.candidates.length) || typedOnly(q) ? null : (
+        <div className="hint" style={{ marginTop: 2, fontSize: 12 }}>{whyLine(q)}</div>
       )}
+      {q.iig && iigLine(q) ? (
+        <div className="hint iig-line" data-testid="iig-line" style={{ marginTop: 2, fontSize: 12 }}>
+          {q.iig.cells.length ? (
+            <>
+              <strong>Fills in the IIG:</strong>
+              <ul className="iig-sheets">
+                {iigSheets(q).map(({ sheet, columns }) => (
+                  <li key={sheet}><span className="iig-sheet">{sheet}</span>: {columns.join(", ")}</li>
+                ))}
+              </ul>
+              {q.iig.text ? <span>and the generated names / description text</span> : null}
+            </>
+          ) : (
+            <><strong>IIG:</strong> {q.iig.note}</>
+          )}
+        </div>
+      ) : null}
+      {/* P3: the contract key and its reason are for whoever debugs the run - folded */}
+      <details className="hint" style={{ marginTop: 2, fontSize: 11 }}>
+        <summary>Technical detail</summary>
+        <code style={{ overflowWrap: "anywhere" }}>{q.key}</code> - asked because {q.reason}
+      </details>
       {advice ? (
         <div className="flag-hitl" style={{ padding: "4px 8px", marginTop: 4, fontSize: 12 }}>
           <strong>Model advice</strong>{" "}

@@ -306,3 +306,88 @@ def _stated(frd_contract: dict, key: str) -> bool:
     for part in match.group(2).split("."):
         value = value.get(part) if isinstance(value, dict) else None
     return bool(value)
+
+
+# -- P3 (post218): what an FRD answer fills in the IIG workbook ------------------- #
+#
+# field -> (the IIG cells the writer fills from it DIRECTLY, whether it also feeds
+# generated text, a condition). Measured, not assumed: tests/test_iig_answer_map.py
+# changes each field on the synthetic CV pair under the ACFC overlay (the App's config:
+# load_config always applies it) and asserts the listed cells are EXACTLY the direct
+# cells the answer moves. Generated text = names / descriptions / email text the
+# writer composes (PIPELINE_DESCRIPTION, APPLICATION_NAME, PROCESS_NAME, TEMPLATE_NAME,
+# SUBJECT, BODY): summarised in one phrase, never listed. A field that is not here (the
+# feed name, the delimiter, the recycle rule: the CV pair cannot measure them) shows
+# no IIG line; NOT_IN_IIG lists the measured fields that fill no IIG cell (the file
+# format: iig_v2's SRC_FORMAT is the file pattern's extension, never the FRD format).
+_ADLS = "ADLS_DELTA_INGESTION_DETAILS"
+_STG = "STGDELTA_STDDELTA_INGESTION_DET"
+_SCHED = "DATA_FACTORY_PIPELINE_SCHEDULE"
+_NB = "DATABRICKS_NOTEBOOK_DETAILS"
+
+IIG_TEXT_COLUMNS = frozenset({"PIPELINE_DESCRIPTION", "APPLICATION_NAME", "PROCESS_NAME",
+                              "TEMPLATE_NAME", "SUBJECT", "BODY"})
+
+FRD_FIELD_IIG: dict[str, tuple[tuple[tuple[str, str], ...], bool, str | None]] = {
+    "source_system": (((_ADLS, "SOURCE"), (_STG, "SOURCE")), True, None),
+    "frequency": (((_ADLS, "FREQUENCY"), (_STG, "FREQUENCY"), (_SCHED, "PIPELINE_FREQUENCY"),
+                   (_SCHED, "DAY_OF_SCHEDULE")), True, None),
+    "lobs": (((_ADLS, "LOB"), (_STG, "LOB")), False, "lob_codes"),
+    "domain": (((_ADLS, "DOMAIN"), (_STG, "DOMAIN")), True, None),
+    "sub_domain": (((_ADLS, "SUBDOMAIN"), (_STG, "SUBDOMAIN")), False, None),
+    "stage_target.load_strategy": (((_ADLS, "TGT_LOAD_OPTION"), (_NB, "TGT_REFRESH_TYPE")),
+                                   False, None),
+    "standard_target.load_strategy": (((_STG, "TGT_LOAD_OPTION"), (_NB, "TGT_REFRESH_TYPE")),
+                                      False, None),
+    "landing_location": (((_ADLS, "SRC_ADLS_PATH"), (_ADLS, "SRC_ADLS_ARCHVL_PATH"),
+                          (_ADLS, "TGT_ADLS_PATH"), (_ADLS, "TGT_RJT_ADLS_PATH"),
+                          (_ADLS, "RECYCL_ADLS_PATH"),
+                          (_STG, "SRC_ADLS_PATH"), (_STG, "SRC_ADLS_ARCHVL_PATH"),
+                          (_STG, "TGT_ADLS_PATH"), (_STG, "TGT_RJT_ADLS_PATH")),
+                         False, None),
+}
+
+# the templates the map was measured on (tests/test_iig_answer_map.py); any other
+# template (iig_v1 builds its rows in metadata_sheet.py, differently) gets no IIG line
+IIG_MEASURED_TEMPLATES = frozenset({"iig_v2"})
+
+# measured fields whose answer fills no IIG cell -> what the dialog says instead
+NOT_IN_IIG: dict[str, str] = {
+    "file_format": "not written (SRC_FORMAT is the file pattern's extension); used for the "
+                   "run's checks and the DDL test text",
+}
+
+
+def iig_uses(key: str, config: Config, template: str | None = None) -> dict | None:
+    """P3: what the answer to FRD question ``key`` (``feeds[i].<field>``) fills in the
+    run's IIG workbook - ``{"cells": [{"sheet", "column"}], "text": bool, "note"}`` -
+    the measured cells of FRD_FIELD_IIG that this template HAS (its tabs' headers),
+    the LOB cells only where the feed family writes LOB codes. None = no IIG line
+    (not a feed field, a field or template not measured, or none of its cells in this
+    template)."""
+    field = re.sub(r"^feeds\[\d+\]\.", "", key or "").replace("#fallback", "")
+    if not (key or "").startswith("feeds["):
+        return None
+    try:
+        name, tpl = config.metadata.resolve(template)
+    except ValueError:
+        return None
+    if name not in IIG_MEASURED_TEMPLATES or tpl is None:
+        return None
+    if field in NOT_IN_IIG:
+        return {"cells": [], "text": False, "note": NOT_IN_IIG[field]}
+    entry = FRD_FIELD_IIG.get(field)
+    if entry is None:
+        return None
+    cells, text, when = entry
+    tabs = tpl.tabs
+    if when == "lob_codes" and tpl.family_conventions.lob != "codes":
+        # the family leaves LOB blank on purpose: say so, list nothing
+        return {"cells": [], "text": False,
+                "note": "not written - LOB is left blank for this feed family (its "
+                        "convention)"}
+    present = [{"sheet": sheet, "column": column} for sheet, column in cells
+               if sheet in tabs and column in tabs[sheet].headers]
+    if not present:
+        return None
+    return {"cells": present, "text": text, "note": None}

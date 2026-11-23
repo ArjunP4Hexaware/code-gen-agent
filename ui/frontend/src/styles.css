@@ -1827,3 +1827,18 @@ details.feeds-fold:not([open]) > summary { margin-bottom: 0; }
 .fb-status.fb-st-done, .fb-status.fb-st-declined { color: var(--muted); }
 .fb-status-set { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
 .fb-status-set .fb-input { width: auto; }
+
+/* P3 (post218): the layout dialog - one card per feed inside the run card */
+.question-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+.question-card-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.iig-line { overflow-wrap: anywhere; }
+.iig-sheets { margin: 2px 0 2px 18px; padding: 0; }
+.iig-sheets li { margin: 0; }
+.iig-sheet { font-family: var(--mono); font-size: 11.5px; }

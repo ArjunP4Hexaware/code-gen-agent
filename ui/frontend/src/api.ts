@@ -240,6 +240,10 @@ export interface LayoutQuestion {
   // post206: an FRD role question whose value may also be TYPED (posted under gaps:)
   // - the backend's answerable FRD fields; a cell pick and a typed value exclude each other
   typed?: boolean;
+  // P3 (post218): what the answer fills in the run's IIG workbook - measured cells
+  // (layout.hints.iig_uses), whether it also feeds generated names / text, or a note
+  // instead (a field the IIG does not take). Absent = nothing measured: no line.
+  iig?: { cells: { sheet: string; column: string }[]; text: boolean; note: string | null };
 }
 
 export type PairRule =

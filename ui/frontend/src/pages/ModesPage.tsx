@@ -13,6 +13,7 @@ import {
   emptyPicks,
   mergePicks,
   QuestionItem,
+  questionCards,
   suggestedPicks,
   type AnswerPicks,
 } from "../components/LayoutQuestions";
@@ -1162,16 +1163,18 @@ export function ModesPage({
                   </ul>
                 </details>
               ) : null}
-              {(["run", "sttm", "frd", "vdd"] as const).map((doc) => {
-                const qs = (status.layout_questions ?? []).filter((q) => q.document === doc);
-                if (!qs.length) return null;
+              {/* P3 (post218): one card per feed (its FRD fields, its STTM sheet) */}
+              {questionCards(status.layout_questions ?? []).map((card) => {
+                const qs = card.questions;
                 return (
-                  <div key={doc} style={{ marginBottom: 10 }}>
-                    <strong>
-                      {doc === "run" ? "This run (environment)"
-                        : doc === "sttm" ? "STTM workbook"
-                        : doc === "frd" ? "FRD document" : "Vendor data dictionary"}
-                    </strong>
+                  <section key={card.id} className="question-card" data-card={card.id}
+                           aria-label={card.title}>
+                    <div className="question-card-head">
+                      <strong>{card.title}</strong>{" "}
+                      <span className="hint">
+                        {card.sub} {qs.length} question{qs.length === 1 ? "" : "s"}.
+                      </span>
+                    </div>
                     {qs.map((q) => (
                       <QuestionItem
                         key={q.key}
@@ -1183,7 +1186,7 @@ export function ModesPage({
                         adviceLabel={status.layout_advice?.usage?.label ?? status.layout_advice?.provider}
                       />
                     ))}
-                  </div>
+                  </section>
                 );
               })}
               <div className="decision-row" style={{ marginTop: 10, flexWrap: "wrap" }}>

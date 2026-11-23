@@ -211,6 +211,19 @@ def typed_frd_question(question: dict, config) -> dict:
                        "leave_blank": leave_blank_choice(key, config)}
 
 
+def with_iig(question: dict, config, template: str | None) -> dict:
+    """P3 (post218): an FRD question carries what its answer fills in the run's IIG
+    workbook (``layout.hints.iig_uses``: measured cells, the generated-text flag, a
+    note) - the dialog's "Fills in the IIG" line. Nothing is added where nothing was
+    measured; the answer path never reads it."""
+    from codegen.layout.hints import iig_uses
+
+    if question.get("document") != "frd":
+        return question
+    uses = iig_uses(str(question.get("key") or ""), config, template)
+    return question if uses is None else question | {"iig": uses}
+
+
 _STANDARD_TYPE_KEY_RE = re.compile(r"^feeds\[\d+\]\.columns\[\d+\]\.standard_type$")
 
 
@@ -2113,7 +2126,9 @@ class DemoRunner:
             # sheets and a re-run is refused — the page hides its controls.
             "needs_answers_stale": bool(self.needs_answers and self._run_inputs is not None
                                         and self._current_inputs() != self._run_inputs),
-            "layout_questions": list(self.layout_questions),
+            # P3 (post218): each FRD question names what its answer fills in the IIG
+            "layout_questions": [with_iig(q, self._store.config, self.iig_template)
+                                 for q in self.layout_questions],
             "layout_report": self.layout_report,
             "layout_advice": self.layout_advice,
             "layout_fills": list(self.layout_fills),

@@ -46,8 +46,12 @@ number.
 - **Change:** `config/config.yaml` `extractor.discovery.roles.source.description` +
   `"field description"` (header keys ignore spaces, post198, so "FieldDescription"
   matches). No code change - the existing path writes the text as the COMMENT.
-- **Reach:** PENDING - the 12-pair check runs before the push.
-- **Side effects:** none known; her pair's IIG / review copy to be read in the check.
+- **Reach:** 12-pair check (post216 1628ab9 vs post217 ffb4c4a, mock, framework,
+  2026-11-23): outcomes unchanged (5 PASS_WITH_OPEN_INPUTS, 3 NEEDS_ANSWERS, 2 GATE_FAIL,
+  2 FAIL); 295 / 295 files; NO real change on any pair - none of the 12 states its
+  description under that source-band header. On staging the template is 6 of the 14
+  uploaded STTMs (several vendors); her pair: see Verified.
+- **Side effects:** none on the 12 pairs (no file moved).
 - **Unchanged:** the reject table's columns still carry no COMMENT (post212); the audit
   columns the agent adds still have none (no STTM row describes them, flagged as before);
   her template's other description-like headers ("Description/Business Logic") are not
@@ -58,7 +62,8 @@ number.
   COMMENT on the column lines). `test_header_key_post198` (no two roles share a key in a
   band) passes.
 - **Verified:** her pair (mock): stage 0 -> 60 COMMENTs, standard 0 -> 60, 65 -> 5 blank
-  per table (the audit columns); suites + 12-pair check: PENDING.
+  per table (the audit columns); both suites green on ffb4c4a (2763 / 2397); the
+  12-pair check above.
 - **Revert:** drop `"field description"` from that synonym list.
 - **Deployed:** not yet.
 

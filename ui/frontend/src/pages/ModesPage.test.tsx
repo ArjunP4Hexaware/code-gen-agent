@@ -233,7 +233,10 @@ describe("the pause before generating (post80)", () => {
     expect(host.textContent).toContain("Paused before generating");
     expect(host.textContent).not.toContain("the layout needs a human decision");
     const text = host.textContent ?? "";
-    expect(text.indexOf("This run (environment)")).toBeLessThan(text.indexOf("FRD document"));
+    // P3: one card per feed - the run's card first, then the feed's
+    expect(text.indexOf("This run (environment)")).toBeLessThan(text.indexOf("Feed 1"));
+    expect([...host.querySelectorAll("section.question-card")].map((c) => c.getAttribute("data-card")))
+      .toEqual(["run", "feed:0"]);
     expect(host.textContent).not.toContain("Re-resolve layout");
     expect(host.textContent).not.toContain("Ask the model for advice");
     expect((button("Continue") as HTMLButtonElement).disabled).toBe(false);

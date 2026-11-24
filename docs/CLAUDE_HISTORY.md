@@ -5516,3 +5516,54 @@ cross-module imports; 4 modules over 2.8k lines; dead code kept by rule.
   - A slip: a `sed` mask over `codegen pair` output (`[^ ]+\.docx`) missed file names
     with SPACES and printed name fragments into the chat (no file, no commit). Rule kept
     in AGENTS.md: mask whole lines, or print counts only.
+
+## §[H32] Session 2026-11-24: post220 (a standard COMMENT for each audit column), shipped to staging
+
+- **The request** (the first tester, relayed by Soham): a standard COMMENT for LOB,
+  SRC_FILE_NAME, record creation time and record update time. Sorted BEFORE any code (the
+  2026-11-23 triage rule): extra output = a REQUEST - nothing built until Soham's yes.
+  Cause of the blank: post131's rule (no document describes the audit columns, and the
+  title-cased-name fallback it removed must not come back).
+- **The wording, by source** (Soham asked for "an analysis of what's plausible"): the
+  repo's SFMC production DDL reference states three of the four ('Source File Name',
+  'Record Created Date', 'Record Updated Date' - transcribed, though "Date" on a TIMESTAMP);
+  no document states LOB's ('Line of Business' = Soham's wording). Rejected: the tester's
+  words as text (they named the columns), the old title-cased agent output in
+  `docs/acfc/sd_*_table_creation (7).txt` (agent output, not a source), a Comments cell
+  (rule text), my own full sentences (no source). Soham: "Let's do this for now. If [the
+  tester] says otherwise later, make it modifiable" -> config only
+  (`acfc_prx.audit_column_comments`); an STTM description still wins; only under
+  `column_comments` (the pair-1 golden unchanged).
+- **post220:** suites green (2782 / 2415); pair check 1-17 vs post219: same outcomes, DDL
+  COMMENTs + the commented-columns test case moved on 9 pairs (the 17 "Produced by"
+  report lines = each side's code path, as in post219). The tester's own post217 run was
+  not stored (staging's runs cleared, no answers saved), so her "5th blank column" could
+  not be named; pair_16 (a staging upload in her template, mock, its one delimiter
+  question answered `(leave blank)`) came out 158 / 158 commented per table, no flag.
+  Staging 13cd550 (post219 with it), health + smoke green; dev still STOPPED (the
+  ship-staging skill's "dev first" step skipped, as for post217-219 - Soham's call to
+  start dev). Soham sent the tester the message.
+- **Process:** a heuristic STTM scan (trailing `NA` rows) found the audit rows in one file
+  of ten - dropped for the agent's own run (the harness); outputs printed through a mask
+  that keeps only words found in the repo's src/ / config (no client word printed).
+- **P4 (the question UX's measure; Soham: "start P4"):** post209 (before P1) vs post218,
+  pairs 1-17, mock, no answers - `docs/acfc/P4_QUESTION_COUNT_2026-11-24.md`. Dialog: 40 ->
+  39 questions, 649 -> 64 choices; pairs 8 / 9 lost their 58- / 67-cell lists (now typed
+  answers), pair 10 the post208 feed-name question; nothing else moved. The run's
+  blocking keys 23 -> 57, all pair_17: post213's per-cell standard-type question (a crash
+  before), 34 cells with ONE identical text - found only now because pair_17 joined the
+  check on 2026-11-23, after post213 was measured. Proposed, not built (Soham's call):
+  one question per identical cell text. BUG_FIX_LOG post213 got the addendum.
+- **Slips caught:** the measuring script failed twice before a number (a dataclass module
+  loaded outside `sys.modules`; the CLI's relative default config from cwd /tmp) - both
+  in the recipe now (RESTART). The "Fills in the IIG" P3 work does not show in a count;
+  P4 measures choices and questions only.
+- **post221 (Soham: "go ahead and group the identical type questions"):** post213's
+  standard-type question grouped per STTM by the cell's text (case / spaces ignored); the
+  first cell's key asks, its answer is used for each (flagged per cell); own answers win.
+  Suites green; pair check: only pair_17 (38 -> 5 open, 34 -> 1). Pushed, not on staging.
+- **A slip (post221's check):** a one-off count printed pair_17's raw answer KEYS - a
+  sheet-role key carries the STTM's sheet name, client text - into the chat (no file, no
+  commit). AGENTS.md already says mask every word or print counts only; the key pattern
+  (`sheets[...]/...` and `<sheet>/<layer>/<role>` keys) is client text too - mask it.
+

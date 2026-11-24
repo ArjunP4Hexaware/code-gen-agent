@@ -4,7 +4,7 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-24 - staging = post218 (main 05f9139); feature = post220 (pushed, NOT on staging); dev STOPPED on post194)
+## Start here (2026-11-24 - staging = post220 (main 13cd550); feature = post221 (pushed, NOT on staging); dev STOPPED on post194)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
@@ -14,12 +14,13 @@ OAuth login (recipe below; a login code expires in minutes - paste the `localhos
 URL back at once). A restored checkout comes back on `main` (the staging copy of this
 file): read RESTART AFTER the bootstrap. `git fetch` - `origin/feature/multi-table` =
 post220 + docs (no wip branches).
-- **staging `codegen-agent-staging` = post218** (`main` = 05f9139; post217 = 3fb28aa first, one change per deploy; identical-tree merges,
+- **staging `codegen-agent-staging` = post220** (`main` = 13cd550, 2026-11-24; before: post218 05f9139; post217 = 3fb28aa first, one change per deploy; identical-tree merges,
   2026-11-23; health + smoke green; the proxy's `x-forwarded-email` reaches the App).
   **dev `codegen-agent`:** STOPPED on post194 (starting it bills compute - Soham's call).
-- **The last session (2026-11-23): post216 / post217 / post218 shipped (one per deploy),
-  post219 pushed, the review of the week's fixes, the tester pairs 14-17 stored** - what
-  each did: CHANGELOG_ACFC; why / decisions: CLAUDE_HISTORY §[H31]. Every shipped version: both suites green on the pushed tree, the
+- **The last session (2026-11-24): post220 (the audit columns' standard COMMENTs) built
+  on Soham's yes and shipped to staging with post219; P4 measured (no code change)** -
+  what it did: CHANGELOG_ACFC, `docs/acfc/P4_QUESTION_COUNT_2026-11-24.md`;
+  why / decisions: CLAUDE_HISTORY §[H32] (the session before: §[H31]). Every shipped version: both suites green on the pushed tree, the
   pair check alone where output can move. SINCE 2026-11-23 it runs pairs 1-17 by default
   (1-12 + the tester pairs 13-17, Workspace `frd_sttm_pairs`): outcomes 7
   PASS_WITH_OPEN_INPUTS, 6 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL (1-12 as always 5 / 3 / 2 / 2;
@@ -40,26 +41,30 @@ post220 + docs (no wip branches).
 
 **Open, in order:**
 -8. **post220 (a standard COMMENT for each audit column; the tester's request, Soham's
-   yes 2026-11-24) - PUSHED, NOT on staging:** acfc_prx `audit_column_comments` (LOB
+   yes 2026-11-24) - ON STAGING (13cd550, health + smoke green; post219 with it):** acfc_prx `audit_column_comments` (LOB
    'Line of Business'; SRC_FILE_NAME / REC_* = the SFMC production DDL's wording).
    Both suites green (2782 / 2415); pair check 1-17 vs post219: same outcomes, DDL
    COMMENTs on 9 pairs (BUG_FIX_LOG post220). If the tester wants other wording: edit
    the config texts only. Her pair's remaining blank column (post217: 5 per table, 4
-   audit) is a non-audit column - not checked on her documents yet. Staging on
-   Soham's word.
+   audit): her own run was not stored; pair_16 (her template) has none left. Her
+   re-run on staging is the check - Soham sent her the message 2026-11-24; waiting on
+   her reply (wording / any column still blank).
 -7. **post217 (FieldDescription -> DDL column COMMENT) ON STAGING (3fb28aa) and post218 (P3:
    one card per feed, plain words, "Fills in the IIG") ON STAGING (05f9139), 2026-11-23;
    health + smoke green each.** The first tester was told to re-run her file (message
    drafted for Soham 2026-11-23). Her audit-column COMMENT question = a REQUEST: only on a
    yes. The P3 screenshots: Workspace `codegen/p3_screenshots/` (synthetic; one card per
    image - a full-page shot is unreadable in the Workspace preview).
-   **NEXT (mine): P4** = questions per pair x choices per question, before (post209, P0) /
-   after (post218), on pairs 1-17 (mock, the harness's QUESTION lines + the App's served
-   questions) - counts only; the numbers go in the next report.
--6. **post219 (the review's dead `fieldname` synonym) - PUSHED, NOT on staging:** both suites
+   **P4 DONE 2026-11-24** (`docs/acfc/P4_QUESTION_COUNT_2026-11-24.md`, pairs 1-17, mock,
+   no answers): dialog 40 -> 39 questions, 649 -> 64 choices (pairs 8 / 9 / 10 move);
+   run's blocking keys 23 -> 57, all of it pair_17's 34 post213 standard-type questions
+   on cells with ONE identical text -> **post221 groups them (Soham's word): pair_17
+   34 -> 1, open 38 -> 5; both suites green (2787 / 2420); pair check: only pair_17
+   moved. PUSHED, NOT on staging (Soham's word).** The numbers go in the next report.
+-6. **post219 (the review's dead `fieldname` synonym) - ON STAGING with post220 (13cd550):** both suites
    green (2777 / 2410); pair check 1-17 vs post218: same outcomes, no artefact change (17
-   report .md lines = the "Produced by" code path). Staging on Soham's word (no hurry:
-   no behaviour change). pairs 14-17 = the 4 staging uploads (of 14) the agent's own
+   report .md lines = the "Produced by" code path). Shipped 2026-11-24 with post220
+   (no behaviour change). pairs 14-17 = the 4 staging uploads (of 14) the agent's own
    content pairing pairs with one FRD (READMEs: shas + rule; NOT necessarily pairs A / B / C,
    which were never recorded); 9 more uploads match several FRDs - pair them only on
    Soham's / the testers' word.
@@ -134,6 +139,15 @@ post220 + docs (no wip branches).
 
 ## Recipes (tracked since 2026-11-10 - `tools/check/`, `/tmp` holds only copies)
 
+- **Question count (P4, 2026-11-24; scripts were /tmp only):** per tree a detached
+  worktree + its own copy of the state dir (`environments overlays leakgate`, NO
+  `answers`); per pair `codegen.cli layout --config <tree>/config/config.yaml
+  --workbook ... --frd ... [--vdd ...] --dry-run --no-cache --json` from cwd /tmp with
+  `PYTHONPATH=<tree>/src` (the CLI's default `config/...` is relative - it fails from
+  /tmp), `discover()` from the tree's `container_harness.py` for the files, the JSON
+  `questions[]` (choices = `candidates`; stdout carries a trailing text line - use
+  `raw_decode`); then the harness on a copy of the pairs WITHOUT their `answers.yaml`
+  for the blocking keys (the run report's "Needed answers", deduped).
 - **12-pair check:** `tools/check/pair_check.sh run [<old-sha>]` (skill `/pair-check`):
   copies the pairs + the state volume's `environments overlays leakgate answers` into
   `$PAIR_CHECK_DIR` (default `/tmp/t/pairs`), a worktree of the old sha, warms + runs the

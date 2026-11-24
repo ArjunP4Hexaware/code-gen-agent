@@ -65,7 +65,10 @@ number.
   2415 / 139); the pair check above.
 - **Revert:** delete `audit_column_comments` from acfc_prx in config.yaml (the code is
   then inert), or revert the commit.
-- **Deployed:** dev not yet (STOPPED); staging not yet (Soham's word).
+- **Deployed:** dev not yet (STOPPED); staging 13cd550 2026-11-24 (health post220, smoke
+  green). Checked before the deploy on pair_16 (a staging upload in the tester's
+  template; mock, its one delimiter question answered `(leave blank)`): stage +
+  standard 158 / 158 columns commented each, no ddl_comment_blank flag.
 
 ## 0.5.8.post217 — a staging tester's request: the STTM's Field Description as each DDL column's COMMENT
 

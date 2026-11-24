@@ -29,6 +29,41 @@ number.
 
 ---
 
+## 0.5.8.post221 — P4: one STTM asked the same standard-type question 34 times
+
+- **Symptom:** pair_17 (a staging upload) is held back on 34 `feeds[i].columns[j].
+  standard_type` questions - one per standard type cell, all 34 cells reading the SAME
+  note; a person types the same answer 34 times.
+- **Reproduced:** P4's harness run (post218, mock, no answers) and the pair check's
+  post220 side: 34 such keys of pair_17's 38 open questions.
+- **Root cause:** `extract/generic.py :: _build_feed` (post213) asks per cell; nothing
+  compared the cells' texts.
+- **Change:** `extract/generic.py :: _build_feed` - `type_groups` (shared by the STTM's
+  feeds, from `build_generic_contract`): the first cell of a text asks; a later cell uses
+  the first valid answer of its group (own valid answer first), else is left out with a
+  note and no question; `_type_text_key` (case / spaces ignored);
+  `_with_shared_type_counts` adds "N other standard type cell(s) of this STTM read the
+  same text - your answer is used for each of them" to the one question's reason.
+  Why a pass: none - post213's own question, grouped.
+- **Reach:** pair check 1-17 (post220 9bea365 vs post221 d49d32f, mock, framework,
+  2026-11-24): outcomes unchanged (7 / 6 / 2 / 2); 394 / 394 files; REAL change on pair_17
+  only (sttm.contract.json, CODEGEN_STAGES.json, the answers template): open questions
+  38 -> 5, standard_type 34 -> 1; the 17 report "Produced by" lines = each side's code
+  path, not output.
+- **Side effects:** none.
+- **Unchanged:** post158's guard; what counts as a type (`_is_data_type`); the question's
+  key, wording and App card; the stage-type question (post74, per cell - no pair asks it
+  twice for one text); grouping is per STTM, never across documents.
+- **Tests:** `tests/test_standard_type_shared_question_post221.py` (5: one question for
+  three spellings; the one answer used + flagged per cell; a cell's own answer wins; a
+  different text asked apart; a non-type answer keeps the one question) - 4 fail with
+  ONLY `generic.py` reverted (the own-answer test passes either way, as it should).
+  `test_standard_type_question_post213.py` (5) unchanged and green.
+- **Verified:** both suites green on d49d32f (.venv 2787 / 62 skipped; .venv-d1 2420 /
+  139); the pair check above.
+- **Revert:** revert the commit (the per-cell questions return).
+- **Deployed:** dev not yet (STOPPED); staging not yet (Soham's word).
+
 ## 0.5.8.post220 — a staging data engineer's request: a standard COMMENT for each audit column
 
 - **Symptom:** after post217 the tester's DDL still left the audit columns (LOB,
@@ -246,8 +281,8 @@ number.
   above was the 12 pairs; pair_17 (a staging upload, in the check since 2026-11-23)
   gets 34 of these questions - 34 standard type cells with ONE identical text, so the
   same question is asked 34 times (at post209 the run would have CRASHED once its
-  earlier questions were answered). Not changed: grouping identical cell texts into
-  one question is proposed, Soham's call.
+  earlier questions were answered). Grouped in post221 (Soham's word,
+  2026-11-24): pair_17 34 -> 1.
 
 ## 0.5.8.post212 — tracker #5: SRC_FILE_NAME not the FRD's file pattern
 

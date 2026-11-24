@@ -57,4 +57,5 @@ cells hold the SAME text: a person answers one question 34 times.
    (649 -> 64 choices; the 58- and 67-cell lists are gone), with no question added.
 2. **Open (Soham's call):** post213's standard-type question is asked per cell; identical
    cell texts could be ONE question (one answer applied to every cell that reads it) -
-   pair_17: 34 -> 1. Not built.
+   pair_17: 34 -> 1. **Built as post221** (Soham: "go ahead and group"): pair_17's
+   open questions 38 -> 5, standard_type 34 -> 1; no other pair moved.

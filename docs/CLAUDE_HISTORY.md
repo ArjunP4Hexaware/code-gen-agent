@@ -5558,4 +5558,12 @@ cross-module imports; 4 modules over 2.8k lines; dead code kept by rule.
   loaded outside `sys.modules`; the CLI's relative default config from cwd /tmp) - both
   in the recipe now (RESTART). The "Fills in the IIG" P3 work does not show in a count;
   P4 measures choices and questions only.
+- **post221 (Soham: "go ahead and group the identical type questions"):** post213's
+  standard-type question grouped per STTM by the cell's text (case / spaces ignored); the
+  first cell's key asks, its answer is used for each (flagged per cell); own answers win.
+  Suites green; pair check: only pair_17 (38 -> 5 open, 34 -> 1). Pushed, not on staging.
+- **A slip (post221's check):** a one-off count printed pair_17's raw answer KEYS - a
+  sheet-role key carries the STTM's sheet name, client text - into the chat (no file, no
+  commit). AGENTS.md already says mask every word or print counts only; the key pattern
+  (`sheets[...]/...` and `<sheet>/<layer>/<role>` keys) is client text too - mask it.
 

@@ -4,7 +4,7 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-24 - staging = post220 (main 13cd550); feature = post220 + docs; dev STOPPED on post194)
+## Start here (2026-11-24 - staging = post220 (main 13cd550); feature = post221 (pushed, NOT on staging); dev STOPPED on post194)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
@@ -58,8 +58,9 @@ post220 + docs (no wip branches).
    **P4 DONE 2026-11-24** (`docs/acfc/P4_QUESTION_COUNT_2026-11-24.md`, pairs 1-17, mock,
    no answers): dialog 40 -> 39 questions, 649 -> 64 choices (pairs 8 / 9 / 10 move);
    run's blocking keys 23 -> 57, all of it pair_17's 34 post213 standard-type questions
-   on cells with ONE identical text. **Soham's call:** group identical cells into one
-   question (pair_17: 34 -> 1) - not built. The numbers go in the next report.
+   on cells with ONE identical text -> **post221 groups them (Soham's word): pair_17
+   34 -> 1, open 38 -> 5; both suites green (2787 / 2420); pair check: only pair_17
+   moved. PUSHED, NOT on staging (Soham's word).** The numbers go in the next report.
 -6. **post219 (the review's dead `fieldname` synonym) - ON STAGING with post220 (13cd550):** both suites
    green (2777 / 2410); pair check 1-17 vs post218: same outcomes, no artefact change (17
    report .md lines = the "Produced by" code path). Shipped 2026-11-24 with post220

@@ -4,6 +4,24 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post221 — 2026-11-24 (identical non-type standard type cells: ONE question)
+
+P4 (`docs/acfc/P4_QUESTION_COUNT_2026-11-24.md`) found pair_17 asking post213's
+standard-type question 34 times - 34 cells reading one note. Soham: "go ahead and group".
+- `extract/generic.py`: the standard type cells of ONE STTM (every feed of it) that read
+  the same text (case / spaces ignored, `_type_text_key`) share the FIRST cell's question
+  (`type_groups`); its reason names how many other cells it covers
+  (`_with_shared_type_counts`). Its answer is used for each cell, flagged per cell
+  (`answered_cell:<key> — ... the answer to <first key> (the same text) is used`); a
+  cell's own valid answer still wins; a different text is its own question; a non-type
+  answer keeps the one question open. The other cells stay out of the contract until it
+  is answered (a note per row).
+- The answer key is unchanged (`feeds[i].columns[j].standard_type`, the first cell's), so
+  the App's question, the answers file and everything after it are unchanged.
+
+Tests: `tests/test_standard_type_shared_question_post221.py` (5). Pair check 1-17 vs
+post220: same outcomes, only pair_17 moves (38 -> 5 open questions; BUG_FIX_LOG post221).
+
 ## 0.5.8.post220 — 2026-11-24 (a standard DDL COMMENT for each audit column)
 
 A staging data engineer's request (Soham: yes, 2026-11-24): LOB, SRC_FILE_NAME,

@@ -19,7 +19,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RP="${PAIR_CHECK_DIR:-/tmp/t/pairs}"
 PY="$REPO/.venv-d1/bin/python"
 TOOLS="$REPO/tools/check"
-PAIRS="${PAIR_CHECK_PAIRS:-1,2,3,4,5,6,7,8,9,10,11,12}"
+PAIRS="${PAIR_CHECK_PAIRS:-1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17}"   # 13-17: tester pairs (2026-11-23)
 MODE="${PAIR_CHECK_MODE:-framework}"           # framework | notebook (one --output-mode)
 PROFILE="${DATABRICKS_PROFILE_ARG:-}"         # e.g. "--profile DEFAULT"; empty = the default
 

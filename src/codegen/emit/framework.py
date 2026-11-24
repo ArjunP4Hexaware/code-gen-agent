@@ -335,6 +335,14 @@ def _column_comment(f, layer: str, profile) -> str | None:
     return profile.column_comment_separator.join(parts) or None
 
 
+def _standard_audit_comment(profile, column: str) -> str | None:
+    """post220: the profile's standard COMMENT for an audit column (by name, upper
+    case), only under ``column_comments``; None = the profile states none."""
+    if profile is None or not getattr(profile, "column_comments", False):
+        return None
+    return (getattr(profile, "audit_column_comments", None) or {}).get(column.upper()) or None
+
+
 def _comment_blank_flag(layer: str, table: str, blank: list[str]) -> str:
     """One flag per table block: the columns (audit ones included) the DDL
     leaves without a COMMENT."""
@@ -450,6 +458,11 @@ def table_definitions(spec: ResolvedFeedSpec, profile, flags: list[str] | None =
             seen.setdefault(a.column, profile.audit_type_casing.get(a.datatype, a.datatype))
             if not audit_descriptions.get(a.column):
                 audit_descriptions[a.column] = a.description
+        # post220: an audit column its STTM rows leave undescribed takes the
+        # profile's standard text (config, cited there)
+        for column, description in audit_descriptions.items():
+            if not description:
+                audit_descriptions[column] = _standard_audit_comment(profile, column)
         audit = tuple((c, _written_type(t, config)) for c, t in seen.items())
         stage_columns = [(c, _written_type(t, config)) for c, t in stage_columns]
         standard_columns = [(c, _written_type(t, config)) for c, t in standard_columns]

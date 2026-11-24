@@ -9,7 +9,8 @@ description: The 12-pair real-pair check for a change that can move generated ou
    `scripts/`). Never edit `src/` while it runs (use a worktree).
 2. Run in the background: `tools/check/pair_check.sh run [<old-sha>]` (old defaults to
    HEAD~1; give the last DEPLOYED version's sha when several commits are unchecked).
-   A side whose code tree ran before is reused from `$PAIR_CHECK_DIR/cache` - the old
+   The default set is pairs 1-17 (12 original + the tester pairs 13-17 since 2026-11-23; the
+   name "12-pair check" stuck). A side whose code tree ran before is reused from `$PAIR_CHECK_DIR/cache` - the old
    side of the next version is usually free. A notebook change: add
    `--output-mode notebook` to the harness line (edit a copy, never the env).
 3. Read the result: outcomes must be unchanged unless the change means them to move;

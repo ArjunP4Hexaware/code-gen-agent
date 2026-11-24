@@ -5496,3 +5496,23 @@ cross-module imports; 4 modules over 2.8k lines; dead code kept by rule.
   worktrees, the local App's scratch folder.
 - **Also checked:** the coding App's idle-session timeout is OFF (`SESSION_TIMEOUT_SECONDS=0`
   in its app.yaml and the running gunicorn's environment; the reaper thread never starts).
+- **Later the same session (2026-11-23, after the hand-off above):**
+  - post218 (P3): Soham's "it seems fine" after per-card screenshots (the full-page ones
+    were unreadable in the Workspace preview); cherry-picked onto the feature tip, both
+    suites green (the selection flake passed), pushed; `wip/post218-p3` deleted.
+  - Staging, one change per deploy (Soham's "go for it"): post217 (3fb28aa) from a
+    worktree at origin's tip while P3's suites ran (`ship.sh` needs `.venv` and
+    `ui/frontend/node_modules` in the worktree - symlinked), then post218 (05f9139);
+    health + smoke green each; the App was idle both times.
+  - post219: post195's dead `fieldname` synonym dropped (the review's REVERT-CANDIDATE);
+    the other one-word duplicates kept (code looks up `columnname` / `tablename` /
+    `datatype` by spelling). Suites green, pair check 1-17: no artefact change.
+  - The tester pairs: pairs A / B / C were never recorded by file (the no-names rule) and
+    the staging run history was empty, so name matching was tried and failed (ties,
+    copies); the agent's own `codegen pair` decided 4 of 14 uploads -> Workspace
+    `frd_sttm_pairs/pair_14-17` (READMEs: shas + rule; round-trip byte-identical) and
+    the pair check now runs 1-17 by default. Baseline: 13 / 15 PASS_WITH_OPEN_INPUTS,
+    14 / 16 / 17 NEEDS_ANSWERS.
+  - A slip: a `sed` mask over `codegen pair` output (`[^ ]+\.docx`) missed file names
+    with SPACES and printed name fragments into the chat (no file, no commit). Rule kept
+    in AGENTS.md: mask whole lines, or print counts only.

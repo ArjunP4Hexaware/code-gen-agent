@@ -119,14 +119,12 @@ STANDARD_TEMPLATE = [
 ]
 
 
-def test_audit_columns_without_a_description_are_flagged_per_table(pair11):
+def test_audit_columns_without_a_description_take_the_profiles_standard_text(pair11):
+    # post220: no STTM row describes them -> acfc_prx's audit_column_comments, no flag
     _spec, ddl, flags = pair11
-    assert "\nSRC_FILE_NAME STRING,\n" in ddl                         # no COMMENT written
-    blank = [f for f in flags if f.startswith("ddl_comment_blank:")]
-    assert [f.split(" — ")[0] for f in blank] == [
-        "ddl_comment_blank:stage:cat_syn.stg_dom_a.vc_disenrollment",
-        "ddl_comment_blank:standard:cat_syn.dom_a.vc_disenrollment"]
-    assert all("for SRC_FILE_NAME, REC_CREATION_TIME, REC_UPDATED_TIME (" in f for f in blank)
+    assert ddl.count("\nSRC_FILE_NAME STRING COMMENT 'Source File Name',\n") == 2
+    assert ddl.count("\nREC_CREATION_TIME TIMESTAMP COMMENT 'Record Created Date',\n") == 2
+    assert [f for f in flags if f.startswith("ddl_comment_blank:")] == []
 
 
 def test_primary_key_cells_are_noted_and_missing_descriptions_flagged(pair4_config,
@@ -237,10 +235,9 @@ def test_audit_columns_are_commented_from_their_own_sttm_rows(shipped, tmp_path,
     ddl = _combined_ddl_text(spec, shipped.conventions.get("acfc_prx"), flags, shipped)
     assert ddl.count("\nSRC_FILE_NAME STRING COMMENT 'Name of the file the row was read "
                      "from',\n") == 2
-    blank = [f for f in flags if f.startswith("ddl_comment_blank:")]
-    assert len(blank) == 2
-    assert all("REC_CREATION_TIME, REC_UPDATED_TIME" in f and "SRC_FILE_NAME" not in f
-               for f in blank)
+    # post220: the other two take the profile's standard text; nothing left blank
+    assert ddl.count("\nREC_UPDATED_TIME TIMESTAMP COMMENT 'Record Updated Date'") == 2
+    assert [f for f in flags if f.startswith("ddl_comment_blank:")] == []
 
 
 def test_a_comments_cell_repeating_the_field_description_keeps_the_column_comment(tmp_path):

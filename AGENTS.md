@@ -81,7 +81,9 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   still follows the client-document process; mock runs need none. Real client documents (and `IIG test cells.xlsx`) are read in place,
   outputs go to a scratch dir, and only SCORES are reported — never copy client names or
   values into the repo, commits or replies. A diagnostic over client files masks WHOLE names
-  (`s/[A-Za-z0-9_]+/w/g`), never prints profile keys or file names raw. `scripts/scrub_check.py` must report zero NEW
+  (`s/[A-Za-z0-9_]+/w/g`), never prints profile keys or file names raw - client file names
+  contain SPACES, so a mask on `[^ ]+\.docx` leaks them (2026-11-23): mask every word of the
+  line, or print counts only. `scripts/scrub_check.py` must report zero NEW
   hits over tracked files (`docs/acfc/LEAK_LEDGER.md` holds the known ones;
   `tests/test_tracked_scrub.py`). Client terms never in the repo — the leak gate
   (`codegen.leakgate`) reads its denylist from the state volume.
@@ -150,7 +152,8 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   tests/` stays clean; generated code must be ruff-clean too. Frontend: `cd ui/frontend
   && npx vitest run` (or `node node_modules/vitest/vitest.mjs run` where `npx` is
   missing).
-- **Check gotchas (2026-11-17):** the 12-pair check runs ALONE (beside the suites it timed
+- **Check gotchas (2026-11-17):** the pair check (pairs 1-17 by default since 2026-11-23:
+  the 12 + the tester pairs 13-17; still called "the 12-pair check") runs ALONE (beside the suites it timed
   a pair out - post195), old side `HEAD~<n>`, never `HEAD~0`. A test of App timing
   waits on an event, never a wall-clock bound (the two `test_m93_chooser` timing tests
   flaked under load until 2026-11-18). The two venvs' suites run at once share the

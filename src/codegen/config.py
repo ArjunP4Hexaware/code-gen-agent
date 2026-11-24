@@ -1518,6 +1518,12 @@ class ConventionsProfileConfig(BaseModel):
     # marks (None = no note); joined to the description by the separator;
     primary_key_note: str | None = None
     column_comment_separator: str = " — "
+    # post220 (a staging data engineer's request, 2026-11-24; Soham: yes): the
+    # COMMENT of an audit column (keyed by its name, upper case) whose own STTM
+    # row states no description - the STTM's text, when stated, still wins.
+    # Under ``column_comments`` only; {} = none (an audit column with no STTM
+    # description stays without a COMMENT and is named in ddl_comment_blank).
+    audit_column_comments: dict[str, str] = Field(default_factory=dict)
     # a table COMMENT naming the layer's FRD Load Strategy, a template over
     # {strategy} (the FRD's words) and {layer} (STG / STD); None = none;
     load_strategy_comment: str | None = None

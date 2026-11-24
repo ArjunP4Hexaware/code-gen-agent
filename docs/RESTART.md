@@ -17,9 +17,9 @@ post220 + docs (no wip branches).
 - **staging `codegen-agent-staging` = post220** (`main` = 13cd550, 2026-11-24; before: post218 05f9139; post217 = 3fb28aa first, one change per deploy; identical-tree merges,
   2026-11-23; health + smoke green; the proxy's `x-forwarded-email` reaches the App).
   **dev `codegen-agent`:** STOPPED on post194 (starting it bills compute - Soham's call).
-- **The last session (2026-11-23): post216 / post217 / post218 shipped (one per deploy),
-  post219 pushed, the review of the week's fixes, the tester pairs 14-17 stored** - what
-  each did: CHANGELOG_ACFC; why / decisions: CLAUDE_HISTORY §[H31]. Every shipped version: both suites green on the pushed tree, the
+- **The last session (2026-11-24): post220 (the audit columns' standard COMMENTs) built
+  on Soham's yes and shipped to staging with post219** - what it did: CHANGELOG_ACFC;
+  why / decisions: CLAUDE_HISTORY §[H32] (the session before: §[H31]). Every shipped version: both suites green on the pushed tree, the
   pair check alone where output can move. SINCE 2026-11-23 it runs pairs 1-17 by default
   (1-12 + the tester pairs 13-17, Workspace `frd_sttm_pairs`): outcomes 7
   PASS_WITH_OPEN_INPUTS, 6 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL (1-12 as always 5 / 3 / 2 / 2;
@@ -46,7 +46,8 @@ post220 + docs (no wip branches).
    COMMENTs on 9 pairs (BUG_FIX_LOG post220). If the tester wants other wording: edit
    the config texts only. Her pair's remaining blank column (post217: 5 per table, 4
    audit): her own run was not stored; pair_16 (her template) has none left. Her
-   re-run on staging is the check; the message to her drafted for Soham.
+   re-run on staging is the check - Soham sent her the message 2026-11-24; waiting on
+   her reply (wording / any column still blank).
 -7. **post217 (FieldDescription -> DDL column COMMENT) ON STAGING (3fb28aa) and post218 (P3:
    one card per feed, plain words, "Fills in the IIG") ON STAGING (05f9139), 2026-11-23;
    health + smoke green each.** The first tester was told to re-run her file (message
@@ -56,10 +57,10 @@ post220 + docs (no wip branches).
    **NEXT (mine): P4** = questions per pair x choices per question, before (post209, P0) /
    after (post218), on pairs 1-17 (mock, the harness's QUESTION lines + the App's served
    questions) - counts only; the numbers go in the next report.
--6. **post219 (the review's dead `fieldname` synonym) - PUSHED, NOT on staging:** both suites
+-6. **post219 (the review's dead `fieldname` synonym) - ON STAGING with post220 (13cd550):** both suites
    green (2777 / 2410); pair check 1-17 vs post218: same outcomes, no artefact change (17
-   report .md lines = the "Produced by" code path). Staging on Soham's word (no hurry:
-   no behaviour change). pairs 14-17 = the 4 staging uploads (of 14) the agent's own
+   report .md lines = the "Produced by" code path). Shipped 2026-11-24 with post220
+   (no behaviour change). pairs 14-17 = the 4 staging uploads (of 14) the agent's own
    content pairing pairs with one FRD (READMEs: shas + rule; NOT necessarily pairs A / B / C,
    which were never recorded); 9 more uploads match several FRDs - pair them only on
    Soham's / the testers' word.

@@ -29,6 +29,44 @@ number.
 
 ---
 
+## 0.5.8.post220 — a staging data engineer's request: a standard COMMENT for each audit column
+
+- **Symptom:** after post217 the tester's DDL still left the audit columns (LOB,
+  SRC_FILE_NAME, REC_CREATION_TIME, REC_UPDATED_TIME) without a COMMENT, named in
+  `ddl_comment_blank:stage` / `:standard`; she asked for a standard comment for each.
+- **Reproduced:** not a defect - post131's rule (a column no document describes gets no
+  COMMENT); her pair's audit columns have no STTM row describing them (post217's
+  "Unchanged"). Sorted as a REQUEST; Soham's yes and the wording 2026-11-24.
+- **Root cause:** n/a (no source of text for an undescribed audit column).
+- **Change:** `src/codegen/config.py` ConventionsProfile `audit_column_comments`
+  (dict, default {}); `emit/framework.py :: table_definitions` - an audit column whose
+  STTM rows give no description takes `_standard_audit_comment(profile, column)` (by
+  name, upper case; None unless `column_comments`); `config/config.yaml` acfc_prx: LOB
+  'Line of Business', SRC_FILE_NAME 'Source File Name', REC_CREATION_TIME 'Record
+  Created Date', REC_UPDATED_TIME 'Record Updated Date' (the last three from the SFMC
+  production DDL reference; LOB = Soham's wording, no document states one).
+- **Reach:** pair check 1-17 (post219 82c3cee vs post220 af40296, mock, framework,
+  2026-11-24): outcomes unchanged (7 PASS_WITH_OPEN_INPUTS, 6 NEEDS_ANSWERS, 2 GATE_FAIL,
+  2 FAIL); 394 / 394 files; REAL changes on 9 pairs (01 02 03 04 05 11 12 13 15): 184 DDL
+  column lines gain a COMMENT, 46 DDL test-case lines (the commented-columns count),
+  the TestCases.xlsx value cells of the same case (46), the `ddl_comment_blank` flags
+  in the reports dropped or shortened to the non-audit columns. The 17 report "Produced
+  by" lines = the code path of each side (as in post219), not output.
+- **Side effects:** none beyond the above.
+- **Unchanged:** an STTM-stated audit description still wins; non-audit columns with no
+  description stay blank + flagged; the reject table (post212) and `edo_sfmc` (no
+  texts) unchanged; the pair-1 golden (column_comments off) unchanged.
+- **Tests:** `tests/test_audit_column_comments.py` (5: shipped texts; both layers, no
+  flag; a reworded text escaped; a removed key -> blank + flagged; nothing without
+  column_comments) - 3 fail with ONLY `emit/framework.py` reverted (the 2 config /
+  comments-off tests pass either way, as they should). `test_ddl_comments`: two tests
+  updated (they pinned the blank audit columns).
+- **Verified:** both suites green on af40296 (.venv 2782 passed / 62 skipped; .venv-d1
+  2415 / 139); the pair check above.
+- **Revert:** delete `audit_column_comments` from acfc_prx in config.yaml (the code is
+  then inert), or revert the commit.
+- **Deployed:** dev not yet (STOPPED); staging not yet (Soham's word).
+
 ## 0.5.8.post217 — a staging tester's request: the STTM's Field Description as each DDL column's COMMENT
 
 - **Symptom:** a tester's STTM template states each field's description, yet the DDL's

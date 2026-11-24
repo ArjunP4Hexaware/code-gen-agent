@@ -4,7 +4,7 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-24 - staging = post218 (main 05f9139); feature = post219 (pushed, NOT on staging); dev STOPPED on post194)
+## Start here (2026-11-24 - staging = post218 (main 05f9139); feature = post220 (pushed, NOT on staging); dev STOPPED on post194)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
@@ -13,7 +13,7 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 OAuth login (recipe below; a login code expires in minutes - paste the `localhost:8020`
 URL back at once). A restored checkout comes back on `main` (the staging copy of this
 file): read RESTART AFTER the bootstrap. `git fetch` - `origin/feature/multi-table` =
-post219 + docs (no wip branches).
+post220 + docs (no wip branches).
 - **staging `codegen-agent-staging` = post218** (`main` = 05f9139; post217 = 3fb28aa first, one change per deploy; identical-tree merges,
   2026-11-23; health + smoke green; the proxy's `x-forwarded-email` reaches the App).
   **dev `codegen-agent`:** STOPPED on post194 (starting it bills compute - Soham's call).
@@ -39,6 +39,14 @@ post219 + docs (no wip branches).
   Text Soham pastes goes in a code block, short, one line per item, no blank lines.
 
 **Open, in order:**
+-8. **post220 (a standard COMMENT for each audit column; the tester's request, Soham's
+   yes 2026-11-24) - PUSHED, NOT on staging:** acfc_prx `audit_column_comments` (LOB
+   'Line of Business'; SRC_FILE_NAME / REC_* = the SFMC production DDL's wording).
+   Both suites green (2782 / 2415); pair check 1-17 vs post219: same outcomes, DDL
+   COMMENTs on 9 pairs (BUG_FIX_LOG post220). If the tester wants other wording: edit
+   the config texts only. Her pair's remaining blank column (post217: 5 per table, 4
+   audit) is a non-audit column - not checked on her documents yet. Staging on
+   Soham's word.
 -7. **post217 (FieldDescription -> DDL column COMMENT) ON STAGING (3fb28aa) and post218 (P3:
    one card per feed, plain words, "Fills in the IIG") ON STAGING (05f9139), 2026-11-23;
    health + smoke green each.** The first tester was told to re-run her file (message

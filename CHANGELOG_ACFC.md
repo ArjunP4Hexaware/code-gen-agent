@@ -4,6 +4,25 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post220 — 2026-11-24 (a standard DDL COMMENT for each audit column)
+
+A staging data engineer's request (Soham: yes, 2026-11-24): LOB, SRC_FILE_NAME,
+REC_CREATION_TIME and REC_UPDATED_TIME carried no COMMENT (no STTM row describes them;
+post131 removed the title-cased name) and were named in `ddl_comment_blank`.
+- `conventions.profiles.acfc_prx.audit_column_comments` (new, config): the COMMENT of an
+  audit column whose own STTM row states no description - `'Line of Business'`,
+  `'Source File Name'`, `'Record Created Date'`, `'Record Updated Date'`. The last three
+  are transcribed from the SFMC production DDL reference (`fixtures/reference/
+  SFMC_*_table_creation.txt`); LOB's is Soham's wording (no document states one).
+- An STTM description still wins; only under `column_comments` (the pair-1 golden, off,
+  unchanged); `edo_sfmc` unchanged (empty). Rewording = a config line (or an overlay);
+  a key removed = that column blank + flagged again.
+- `emit.framework.table_definitions` / `_standard_audit_comment`; the DDL test case
+  counting commented columns expects the new count.
+
+Tests: `tests/test_audit_column_comments.py` (5); `test_ddl_comments` (2 updated to the
+new behaviour). Pair check 1-17 vs post219: same outcomes; BUG_FIX_LOG post220.
+
 ## 0.5.8.post219 — 2026-11-23 (a dead synonym removed)
 
 From the review of the week's fixes: post195's `"fieldname"` in

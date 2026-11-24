@@ -649,6 +649,23 @@ def _skip_marker(row: FieldRow, markers: set[str]) -> tuple[str, str] | None:
     return None
 
 
+def _type_text_key(text: str) -> str:
+    """post221: how two standard type cells "read the same text" - case and spaces
+    ignored (the reader's own comparison of cell values)."""
+    return " ".join(str(text).lower().split())
+
+
+def _with_shared_type_counts(questions: list[PendingAnswer],
+                             type_groups: dict[str, list[str]]) -> list[PendingAnswer]:
+    """post221: the one question of a group of standard type cells that read the same
+    text names how many other cells its answer is used for."""
+    others = {keys[0]: len(keys) - 1 for keys in type_groups.values() if len(keys) > 1}
+    return [q.model_copy(update={"reason": (
+                f"{q.reason}; {others[q.key]} other standard type cell(s) of this STTM read "
+                "the same text - your answer is used for each of them")})
+            if q.key in others else q for q in questions]
+
+
 def _is_data_type(text: str) -> bool:
     """post213: ``text`` is a data type the DDL can write - the DDL's own mapping
     (``emit.context.sql_type``, a parenthesised format allowed); a note ("Derived") is
@@ -1131,6 +1148,7 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
     feeds: list[SttmFeed] = []
     pending: list[PendingAnswer] = []
     questions: list[PendingAnswer] = []
+    type_groups: dict[str, list[str]] = {}
     for sheet in map(_one_standard_table_per_stage,
                      _split_by_table(_split_by_list(ir.sheets), frd)):
         try:
@@ -1140,7 +1158,7 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
             try:
                 feeds.append(_build_feed(sheet, ir, frd, config, disc, notes,
                                          width_answers or {}, audit_answers or {},
-                                         cell_answers or {}, questions))
+                                         cell_answers or {}, questions, type_groups))
             except NeedsAnswers:
                 raise
             except GenericExtractionError as stop:
@@ -1154,6 +1172,8 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
             notes.extend(f"sheet {p.sheet!r}: feed {p.feed_name!r} NEEDS_ANSWERS — answer "
                          f"`{p.key}` under {answers_section(p.key)}: ({p.reason})"
                          for p in held.pending)
+    # post221: a shared standard-type question says how many cells its answer covers
+    questions = _with_shared_type_counts(questions, type_groups)
     # post74: one row's open cell of a feed that WAS built - blocking, asked
     # alongside the held-back feeds' answers
     pending.extend(questions)
@@ -1244,10 +1264,13 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
                 width_answers: dict[int, dict[str, int]] | None = None,
                 audit_answers: dict[int, list[tuple[str, str]]] | None = None,
                 cell_answers: dict[str, str] | None = None,
-                questions: list[PendingAnswer] | None = None) -> SttmFeed:
+                questions: list[PendingAnswer] | None = None,
+                type_groups: dict[str, list[str]] | None = None) -> SttmFeed:
     """``cell_answers`` / ``questions`` (post74): the person's
     ``feeds[i].columns[j].<role>`` answers, and the open ones this feed adds
-    (blocking QUESTIONs; the feed is still built without those rows)."""
+    (blocking QUESTIONs; the feed is still built without those rows).
+    ``type_groups`` (post221, shared by the STTM's feeds): a non-type standard type
+    cell's text -> the ``standard_type`` keys reading it, in order (the first one asked)."""
     from codegen.resolve.resolver import normalize_feed_name
     from codegen.resolve.widths import normalize_field_name
 
@@ -1444,7 +1467,20 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             key = f"{prefix}columns[{row_index[row.row]}].standard_type"
             where = _at(ir, name, row.row, _role_col(sp, "standard.target_type"))
             answer = (cell_answers or {}).get(key)
-            if not answer or not _is_data_type(answer):
+            # post221 (P4: one STTM's 34 cells read ONE note, asked 34 times): the cells of
+            # the STTM that read the same text share ONE question - the first cell's; its
+            # answer is used for each of them (a cell's own valid answer still wins)
+            group = (type_groups if type_groups is not None else {}).setdefault(
+                _type_text_key(standard_type), [])
+            group.append(key)
+            shared = (None if answer and _is_data_type(answer) else
+                      next((a for a in ((cell_answers or {}).get(k) for k in group[:-1])
+                            if a and _is_data_type(a)), None))
+            if shared is None and (not answer or not _is_data_type(answer)):
+                if len(group) > 1:
+                    notes.append(f"sheet {name!r} row {row.row}: left out until `{group[0]}` "
+                                 "is answered (its standard type cell reads the same text)")
+                    continue
                 again = (f"; the answer {answer!r} is no data type either" if answer else "")
                 questions.append(PendingAnswer(
                     feed_name=feed.feed_name, sheet=name, key=key,
@@ -1453,8 +1489,14 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
                            "column's data type (the column is left out of the contract until "
                            f"then){again}"))
                 continue
-            flags.append(f"answered_cell:{key} — {where} reads {standard_type!r} (no data "
-                         f"type); the person answered {answer!r}")
+            if shared is not None:
+                answer = shared
+                flags.append(f"answered_cell:{key} — {where} reads {standard_type!r} (no data "
+                             f"type); the answer to `{group[0]}` (the same text) is used: "
+                             f"{answer!r}")
+            else:
+                flags.append(f"answered_cell:{key} — {where} reads {standard_type!r} (no data "
+                             f"type); the person answered {answer!r}")
             row = _with_value(row, "standard.target_type", answer)
         # A NULLABLE column says "NULL"/"nullable"/"yes" for nullable and
         # "NOT NULL"/"no" for required — the null-ish spellings of no_values

@@ -116,7 +116,8 @@ def test_a_lob_answer_is_not_claimed_where_the_family_leaves_lob_blank(base_conf
     after = _cells(base_config, _set(contract, "lobs", ALT["lobs"]), tmp_path, "lob_alt")
     assert not {c for c in _moved(before, after) if c[1] == "LOB"}
     uses = iig_uses("feeds[0].lobs", base_config, TEMPLATE)
-    assert uses["cells"] == [] and "left blank" in uses["note"] and uses["note"].startswith("not written")
+    assert uses["cells"] == [] and "left blank" in uses["note"]
+    assert uses["note"].startswith("not written")
 
 
 @pytest.mark.parametrize("patterns", [None, ["extract_YYYY_MM"]],

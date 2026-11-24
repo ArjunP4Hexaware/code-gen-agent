@@ -1210,6 +1210,18 @@ conventions:
       # post106 (Soham, 2026-10-26): an em dash, not "; " - a deployment script that
       # splits the DDL on ';' must not cut a COMMENT literal in two.
       column_comment_separator: " — "
+      # post220 (a staging data engineer's request, 2026-11-24; Soham: yes): the
+      # COMMENT of an audit column whose own STTM row states no description (an
+      # STTM description still wins). SRC_FILE_NAME / REC_* are transcribed from
+      # the SFMC production DDL (fixtures/reference/SFMC_standard_table_creation.txt
+      # and SFMC_stage_table_creation.txt); LOB = Soham's wording (no document
+      # states one). Change a text here (or in an overlay) to reword it; remove a
+      # key to leave that column without a COMMENT again (flagged ddl_comment_blank).
+      audit_column_comments:
+        LOB: "Line of Business"
+        SRC_FILE_NAME: "Source File Name"
+        REC_CREATION_TIME: "Record Created Date"
+        REC_UPDATED_TIME: "Record Updated Date"
       # Table COMMENT: the layer's FRD Load Strategy, in the FRD's words.
       load_strategy_comment: "Load strategy: {strategy} (FRD Load Strategy {layer})"
       # post140 (Soham, 2026-10-28): the table COMMENT = the STTM Table Description

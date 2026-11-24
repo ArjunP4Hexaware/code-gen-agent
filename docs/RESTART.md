@@ -4,7 +4,7 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-24 - staging = post220 (main 13cd550); feature = post221 (pushed, NOT on staging); dev STOPPED on post194)
+## Start here (2026-11-24 - staging = post221 (main a3ad97f); feature = post221 + docs; dev STOPPED on post194)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
@@ -14,7 +14,7 @@ OAuth login (recipe below; a login code expires in minutes - paste the `localhos
 URL back at once). A restored checkout comes back on `main` (the staging copy of this
 file): read RESTART AFTER the bootstrap. `git fetch` - `origin/feature/multi-table` =
 post220 + docs (no wip branches).
-- **staging `codegen-agent-staging` = post220** (`main` = 13cd550, 2026-11-24; before: post218 05f9139; post217 = 3fb28aa first, one change per deploy; identical-tree merges,
+- **staging `codegen-agent-staging` = post221** (`main` = a3ad97f, 2026-11-24; before: post220 13cd550, post218 05f9139; post217 = 3fb28aa first, one change per deploy; identical-tree merges,
   2026-11-23; health + smoke green; the proxy's `x-forwarded-email` reaches the App).
   **dev `codegen-agent`:** STOPPED on post194 (starting it bills compute - Soham's call).
 - **The last session (2026-11-24): post220 (the audit columns' standard COMMENTs) built
@@ -60,7 +60,7 @@ post220 + docs (no wip branches).
    run's blocking keys 23 -> 57, all of it pair_17's 34 post213 standard-type questions
    on cells with ONE identical text -> **post221 groups them (Soham's word): pair_17
    34 -> 1, open 38 -> 5; both suites green (2787 / 2420); pair check: only pair_17
-   moved. PUSHED, NOT on staging (Soham's word).** The numbers go in the next report.
+   moved. ON STAGING (a3ad97f, health + smoke green).** The numbers go in the next report.
 -6. **post219 (the review's dead `fieldname` synonym) - ON STAGING with post220 (13cd550):** both suites
    green (2777 / 2410); pair check 1-17 vs post218: same outcomes, no artefact change (17
    report .md lines = the "Produced by" code path). Shipped 2026-11-24 with post220

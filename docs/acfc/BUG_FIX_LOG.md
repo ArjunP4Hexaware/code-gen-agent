@@ -62,7 +62,7 @@ number.
 - **Verified:** both suites green on d49d32f (.venv 2787 / 62 skipped; .venv-d1 2420 /
   139); the pair check above.
 - **Revert:** revert the commit (the per-cell questions return).
-- **Deployed:** dev not yet (STOPPED); staging not yet (Soham's word).
+- **Deployed:** dev not yet (STOPPED); staging a3ad97f 2026-11-24 (health post221, smoke green).
 
 ## 0.5.8.post220 — a staging data engineer's request: a standard COMMENT for each audit column
 

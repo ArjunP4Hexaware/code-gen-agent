@@ -242,6 +242,12 @@ number.
   a file 33/33: a load flake, not in this change) - RE-RUN `.venv` before the push.
 - **Revert:** drop the `standard_type` block in `generic._build_feed` (the crash returns).
 - **Deployed:** dev not yet (STOPPED); staging 4f2f082 2026-11-20 (with post214).
+- **Addendum 2026-11-24 (P4, `docs/acfc/P4_QUESTION_COUNT_2026-11-24.md`):** the reach
+  above was the 12 pairs; pair_17 (a staging upload, in the check since 2026-11-23)
+  gets 34 of these questions - 34 standard type cells with ONE identical text, so the
+  same question is asked 34 times (at post209 the run would have CRASHED once its
+  earlier questions were answered). Not changed: grouping identical cell texts into
+  one question is proposed, Soham's call.
 
 ## 0.5.8.post212 — tracker #5: SRC_FILE_NAME not the FRD's file pattern
 

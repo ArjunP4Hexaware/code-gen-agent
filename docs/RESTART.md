@@ -18,7 +18,8 @@ post220 + docs (no wip branches).
   2026-11-23; health + smoke green; the proxy's `x-forwarded-email` reaches the App).
   **dev `codegen-agent`:** STOPPED on post194 (starting it bills compute - Soham's call).
 - **The last session (2026-11-24): post220 (the audit columns' standard COMMENTs) built
-  on Soham's yes and shipped to staging with post219** - what it did: CHANGELOG_ACFC;
+  on Soham's yes and shipped to staging with post219; P4 measured (no code change)** -
+  what it did: CHANGELOG_ACFC, `docs/acfc/P4_QUESTION_COUNT_2026-11-24.md`;
   why / decisions: CLAUDE_HISTORY §[H32] (the session before: §[H31]). Every shipped version: both suites green on the pushed tree, the
   pair check alone where output can move. SINCE 2026-11-23 it runs pairs 1-17 by default
   (1-12 + the tester pairs 13-17, Workspace `frd_sttm_pairs`): outcomes 7
@@ -137,6 +138,15 @@ post220 + docs (no wip branches).
 
 ## Recipes (tracked since 2026-11-10 - `tools/check/`, `/tmp` holds only copies)
 
+- **Question count (P4, 2026-11-24; scripts were /tmp only):** per tree a detached
+  worktree + its own copy of the state dir (`environments overlays leakgate`, NO
+  `answers`); per pair `codegen.cli layout --config <tree>/config/config.yaml
+  --workbook ... --frd ... [--vdd ...] --dry-run --no-cache --json` from cwd /tmp with
+  `PYTHONPATH=<tree>/src` (the CLI's default `config/...` is relative - it fails from
+  /tmp), `discover()` from the tree's `container_harness.py` for the files, the JSON
+  `questions[]` (choices = `candidates`; stdout carries a trailing text line - use
+  `raw_decode`); then the harness on a copy of the pairs WITHOUT their `answers.yaml`
+  for the blocking keys (the run report's "Needed answers", deduped).
 - **12-pair check:** `tools/check/pair_check.sh run [<old-sha>]` (skill `/pair-check`):
   copies the pairs + the state volume's `environments overlays leakgate answers` into
   `$PAIR_CHECK_DIR` (default `/tmp/t/pairs`), a worktree of the old sha, warms + runs the

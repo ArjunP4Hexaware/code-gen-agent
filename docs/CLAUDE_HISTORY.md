@@ -5546,3 +5546,16 @@ cross-module imports; 4 modules over 2.8k lines; dead code kept by rule.
 - **Process:** a heuristic STTM scan (trailing `NA` rows) found the audit rows in one file
   of ten - dropped for the agent's own run (the harness); outputs printed through a mask
   that keeps only words found in the repo's src/ / config (no client word printed).
+- **P4 (the question UX's measure; Soham: "start P4"):** post209 (before P1) vs post218,
+  pairs 1-17, mock, no answers - `docs/acfc/P4_QUESTION_COUNT_2026-11-24.md`. Dialog: 40 ->
+  39 questions, 649 -> 64 choices; pairs 8 / 9 lost their 58- / 67-cell lists (now typed
+  answers), pair 10 the post208 feed-name question; nothing else moved. The run's
+  blocking keys 23 -> 57, all pair_17: post213's per-cell standard-type question (a crash
+  before), 34 cells with ONE identical text - found only now because pair_17 joined the
+  check on 2026-11-23, after post213 was measured. Proposed, not built (Soham's call):
+  one question per identical cell text. BUG_FIX_LOG post213 got the addendum.
+- **Slips caught:** the measuring script failed twice before a number (a dataclass module
+  loaded outside `sys.modules`; the CLI's relative default config from cwd /tmp) - both
+  in the recipe now (RESTART). The "Fills in the IIG" P3 work does not show in a count;
+  P4 measures choices and questions only.
+

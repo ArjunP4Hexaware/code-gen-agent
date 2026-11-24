@@ -5566,4 +5566,9 @@ cross-module imports; 4 modules over 2.8k lines; dead code kept by rule.
   sheet-role key carries the STTM's sheet name, client text - into the chat (no file, no
   commit). AGENTS.md already says mask every word or print counts only; the key pattern
   (`sheets[...]/...` and `<sheet>/<layer>/<role>` keys) is client text too - mask it.
+- **post221 shipped** (Soham: "ship it to staging"): staging a3ad97f, health post221,
+  smoke green (dev still STOPPED). The testers' note drafted in Soham's voice (one line
+  per item, a code block): one question per repeated type text, the answer used + flagged
+  per row, a row's own answer kept; post220's audit comments as an optional line (the
+  first tester already told). AGENTS.md: an answer key is client text (the slip above).
 

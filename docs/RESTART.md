@@ -61,6 +61,8 @@ post220 + docs (no wip branches).
    on cells with ONE identical text -> **post221 groups them (Soham's word): pair_17
    34 -> 1, open 38 -> 5; both suites green (2787 / 2420); pair check: only pair_17
    moved. ON STAGING (a3ad97f, health + smoke green).** The numbers go in the next report.
+   The testers' note on post221 (+ post220's audit comments) drafted for Soham
+   2026-11-24 - their re-runs are the check; feedback sorted before any code.
 -6. **post219 (the review's dead `fieldname` synonym) - ON STAGING with post220 (13cd550):** both suites
    green (2777 / 2410); pair check 1-17 vs post218: same outcomes, no artefact change (17
    report .md lines = the "Produced by" code path). Shipped 2026-11-24 with post220

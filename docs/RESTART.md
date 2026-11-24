@@ -54,9 +54,11 @@ post220 + docs (no wip branches).
    drafted for Soham 2026-11-23). Her audit-column COMMENT question = a REQUEST: only on a
    yes. The P3 screenshots: Workspace `codegen/p3_screenshots/` (synthetic; one card per
    image - a full-page shot is unreadable in the Workspace preview).
-   **NEXT (mine): P4** = questions per pair x choices per question, before (post209, P0) /
-   after (post218), on pairs 1-17 (mock, the harness's QUESTION lines + the App's served
-   questions) - counts only; the numbers go in the next report.
+   **P4 DONE 2026-11-24** (`docs/acfc/P4_QUESTION_COUNT_2026-11-24.md`, pairs 1-17, mock,
+   no answers): dialog 40 -> 39 questions, 649 -> 64 choices (pairs 8 / 9 / 10 move);
+   run's blocking keys 23 -> 57, all of it pair_17's 34 post213 standard-type questions
+   on cells with ONE identical text. **Soham's call:** group identical cells into one
+   question (pair_17: 34 -> 1) - not built. The numbers go in the next report.
 -6. **post219 (the review's dead `fieldname` synonym) - ON STAGING with post220 (13cd550):** both suites
    green (2777 / 2410); pair check 1-17 vs post218: same outcomes, no artefact change (17
    report .md lines = the "Produced by" code path). Shipped 2026-11-24 with post220

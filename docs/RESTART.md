@@ -38,6 +38,17 @@ post220 + docs (no wip branches).
   deck `AI_in_Engineering_ WSR_Nov 20.pptx`; model comparisons = `docs/MODEL_COMPARISON.md`.
   The note to Nikshit / Raj on feedback triage and the 11/23 report: sent 2026-11-23.
   Text Soham pastes goes in a code block, short, one line per item, no blank lines.
+- **2026-11-25 (no code change; CLAUDE_HISTORY §[H33]):** the Nov 27 WSR deck's CodeGen
+  boxes (slides 4 / 6) updated; the tracker update script given (8 rows: #11 #13 #18 #19
+  #20 Resolved, #3 re-opened - stage / stage-reject TBLPROPERTIES, #5 #7 update lines;
+  confirm Soham ran it); a time-savings deck from the delegation sheet = Workspace
+  `CodeGen_Agent_Time_Savings.pptx` (69 / 49 / 40 h per feed; regenerate when the testers'
+  measured hours arrive - the builder was /tmp only). The efficiency sheet =
+  Workspace `STTM_to_Artefacts_Agent_Delegation (1).xlsx` (still says "BSA review copy" /
+  `metadata_inserts.sql`). Bug scan of post212-221: both suites green, no live bug; kept
+  in mind: the reject table's suffix is set twice (`standard_reject_table.suffix` vs
+  iig_v2 `reject_table_suffix`; iig_v1 = `_errors`) - fold into the #18 re-decision;
+  the stated archive path's environment rewrite raises no mismatch flag (0 of 17 pairs).
 
 **Open, in order:**
 -8. **post220 (a standard COMMENT for each audit column; the tester's request, Soham's

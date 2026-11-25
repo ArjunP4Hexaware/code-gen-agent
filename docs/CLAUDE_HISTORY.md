@@ -5572,3 +5572,24 @@ cross-module imports; 4 modules over 2.8k lines; dead code kept by rule.
   per row, a row's own answer kept; post220's audit comments as an optional line (the
   first tester already told). AGENTS.md: an answer key is client text (the slip above).
 
+
+## §[H33] Session 2026-11-25: container reset, WSR / tracker / time-savings deck, a bug scan (no code change)
+
+- **Reset:** `~/bootstrap` (venvs, Chromium, hooks, switched main -> feature) and the
+  OAuth login (one code expired: the login was restarted - never `pkill -f` a pattern
+  that is in your own command line, it killed the shell).
+- **Docs out:** the Nov 27 WSR slides 4 / 6 (CodeGen boxes only; unchanged-since check
+  before the overwrite; the testers' names removed from a bullet); a Teams ask to a
+  tester for measured before / after hours; `CodeGen_Agent_Time_Savings.pptx` (6 slides
+  from the delegation sheet's numbers, totals recomputed 69 / 49 / 40 h; LibreOffice
+  would not start from /tmp debs - layout checked by font metrics instead).
+- **Tracker:** export pasted (24 incidents; #23 / #24 new since 2026-11-19, both
+  Resolved + "Worked"); update script handed over (/tmp only). Its first version broke
+  in Excel: the terminal's soft wraps became line breaks inside strings - lines kept
+  under 72 characters since (`tools/tracker/README.md`).
+- **Bug scan** (both suites 2787 / 2420, ruff, tsc, vitest 298, scrub clean; a close read
+  of post212-221's diff): no live bug. A claimed one ("STTM questions shown as From the
+  FRD", from `pending_question`'s `document="frd"`) was WRONG - those questions render in
+  `NeedsAnswersPanel` (by feed + sheet), never in `questionCards`; the tag has no visible
+  effect, left as is. Lesson: trace the render path before calling a UI bug confirmed.
+  Latent notes in RESTART (the reject suffix set twice; the archive rewrite unflagged).

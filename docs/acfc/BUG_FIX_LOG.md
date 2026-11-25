@@ -58,7 +58,7 @@ number.
   check above.
 - **Revert:** drop the `_flag_implied_delimiter` call in `_resolve_delimiter` (and the
   function) and the test's expectation.
-- **Deployed:** not yet
+- **Deployed:** staging 00ac166 2026-11-25 (dev STOPPED)
 
 ## 0.5.8.post222 — a type spelled with spaces passed the extractor but not the DDL
 
@@ -87,7 +87,7 @@ number.
 - **Verified:** `.venv` 2807 passed, `.venv-d1` 2440 passed (the committed tree); the pair
   check above.
 - **Revert:** restore `sql_type`'s single lookup and `_is_data_type`'s spelling loop.
-- **Deployed:** not yet
+- **Deployed:** staging 00ac166 2026-11-25 (dev STOPPED)
 
 ## 0.5.8.post221 — P4: one STTM asked the same standard-type question 34 times
 

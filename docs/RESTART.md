@@ -38,7 +38,7 @@ post220 + docs (no wip branches).
   deck `AI_in_Engineering_ WSR_Nov 20.pptx`; model comparisons = `docs/MODEL_COMPARISON.md`.
   The note to Nikshit / Raj on feedback triage and the 11/23 report: sent 2026-11-23.
   Text Soham pastes goes in a code block, short, one line per item, no blank lines.
-- **post222 + post223 PUSHED 2026-11-25, NOT on staging (Soham's word):** post222 = one
+- **post222 + post223 ON STAGING 2026-11-25 (main 00ac166, health + smoke green):** post222 = one
   data-type rule (`sql_type` reads "BIG INT"; `_is_data_type` asks it - pair_09's 8 cells;
   no artefact moved); post223 = a stated delimiter that the format / a file extension
   contradicts gets `delimiter_implied_differs:` (pair_02's `.psv` + "Comma"; one report

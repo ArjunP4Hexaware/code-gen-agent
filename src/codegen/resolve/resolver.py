@@ -405,6 +405,30 @@ def table_source_format(file_format: str | None, config: Config | None) -> bool:
     return norm(file_format) in {norm(f) for f in config.framework.table_source_formats}
 
 
+def _flag_implied_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, stated: str,
+                            config: Config | None, flags: list[str]) -> None:
+    """post223: a STATED delimiter wins (post212's rule), but where the file format or a
+    file pattern's extension implies another one (``extractor.format_delimiters``: a
+    ``.psv`` file with a stated comma) the data engineer is told - a review flag, never a
+    changed value."""
+    if config is None:
+        return
+    from codegen.extract.extractor import _extension_delimiter
+
+    formats = config.extractor.format_delimiters
+    implied = [(f"the FRD file format {frd_feed.file_format!r}",
+                formats.get((frd_feed.file_format or "").strip().lower()))]
+    implied += [(f"the file pattern {pattern!r}", _extension_delimiter(pattern, formats))
+                for pattern in dict.fromkeys((*frd_feed.file_name_patterns,
+                                              sttm_feed.source_file.name_pattern or ""))
+                if pattern]
+    for where, char in implied:
+        if char is not None and char != stated:
+            flags.append(f"delimiter_implied_differs:{stated!r} — the documents state the "
+                         f"delimiter {stated!r}, but {where} implies {char!r}; the stated "
+                         "delimiter is used - confirm it with the source team")
+
+
 def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str],
                        config: Config | None = None, flags: list[str] | None = None,
                        *, answered: bool = False) -> str:
@@ -445,6 +469,7 @@ def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str]
                 f"delimiter disagrees: STTM says {sttm_feed.source_file.delimiter!r}, "
                 f"FRD says {frd_feed.delimiter!r}"
             ))
+        _flag_implied_delimiter(frd_feed, sttm_feed, explicit[0], config, flags)
         return explicit[0]
     formats = config.extractor.format_delimiters if config is not None else {}
     implied = formats.get((frd_feed.file_format or "").strip().lower())

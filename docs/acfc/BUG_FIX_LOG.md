@@ -29,6 +29,34 @@ number.
 
 ---
 
+## 0.5.8.post223 — a stated delimiter the file's extension contradicts went unflagged
+
+- **Symptom:** pair_02: one feed's file pattern is a `.psv` (pipe-separated) file, the IIG's
+  SRC_FILE_DELIMITER is `,` (the STTM states "Comma"); nothing in the report or review
+  copy says the two disagree.
+- **Reproduced:** the reader inventory 2026-11-25 (pairs 1-17, mock, counts only: the
+  ADLS SRC_FORMAT / SRC_FILE_DELIMITER of every IIG).
+- **Root cause:** `resolve/resolver.py :: _resolve_delimiter` consults the format /
+  extension table only when no document states a delimiter; a stated one was returned
+  without comparing it to what the format / extension implies.
+- **Change:** `_flag_implied_delimiter` (new), called before a stated delimiter is
+  returned: a `delimiter_implied_differs:` flag per FRD format / file pattern whose
+  implied character (`extractor.format_delimiters`) differs. Why a pass: none - post204's
+  one table, read once more.
+- **Reach:** (filled before the push)
+- **Side effects:** none expected beyond the flag (gate flags only; a flagged feed is
+  PASS_WITH_FLAGS already).
+- **Unchanged:** the delimiter used (the stated one); answers (post126 returns first);
+  fixed-width and table sources; extensions with no implied delimiter.
+- **Tests:** `tests/test_implied_delimiter_post223.py` (7) - 3 failed with HEAD's
+  `resolver.py` (the other 4 assert no flag); `test_sd_scorecard_rules::
+  test_the_resolver_writes_the_character_and_flags_the_extension` now expects the flag
+  for a stated pipe on a `.csv` pattern.
+- **Verified:** (filled before the push)
+- **Revert:** drop the `_flag_implied_delimiter` call in `_resolve_delimiter` (and the
+  function) and the test's expectation.
+- **Deployed:** not yet
+
 ## 0.5.8.post222 — a type spelled with spaces passed the extractor but not the DDL
 
 - **Symptom:** none seen by a user yet: pair_09's 8 standard type cells spelled with a

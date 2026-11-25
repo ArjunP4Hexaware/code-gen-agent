@@ -4,6 +4,24 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post223 — 2026-11-25 (a stated delimiter the format / extension contradicts is flagged)
+
+From the reader inventory of 2026-11-25: pair_02 writes a `.psv` file's delimiter as `,`
+(its STTM's FILES sheet states "Comma") with no word about the extension's pipe. The
+stated value still wins (post212's rule: a value a document states wins over a
+derivation); the data engineer is now told.
+- `resolve/resolver.py :: _flag_implied_delimiter` (new, from `_resolve_delimiter` when a
+  document states the delimiter): the FRD file format and every file pattern's extension
+  through `extractor.format_delimiters` (post204's one table); one
+  `delimiter_implied_differs:<stated>` flag per place implying another character (a
+  pattern named once). Review only: no cell, no question, no verdict moves.
+- Unchanged: the delimiter chosen; an answer's override (post126); a fixed-width / table
+  source; `.txt` / `.dat` (no implied delimiter).
+
+Tests: `tests/test_implied_delimiter_post223.py` (7; 3 failed with the fix reverted);
+`test_sd_scorecard_rules` (a stated pipe on a `.csv` pattern is now flagged). Pair check
+1-17 vs post222: BUG_FIX_LOG post223.
+
 ## 0.5.8.post222 — 2026-11-25 (one data-type rule for the extractor and the DDL)
 
 From the reader inventory of 2026-11-25 (`docs/acfc/READER_GENERALIZATION.md` §5, one

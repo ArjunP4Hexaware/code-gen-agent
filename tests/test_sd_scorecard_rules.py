@@ -276,7 +276,10 @@ def _delimiter_inputs(stated=None, patterns=("x_YYYY.csv",), fmt="File Data Inge
 def test_the_resolver_writes_the_character_and_flags_the_extension(config):
     errors, flags = [], []
     assert _resolve_delimiter(*_delimiter_inputs("Pipe"), errors, config, flags) == "|"
-    assert flags == [] and errors == []
+    # post223: the stated pipe wins; the .csv extension's comma is named for review
+    assert [f.split(" — ")[0] for f in flags] == ["delimiter_implied_differs:'|'"]
+    assert errors == []
+    flags.clear()
     assert _resolve_delimiter(*_delimiter_inputs(patterns=("a.psv",)), errors, config,
                               flags) == "|"
     assert flags[0].startswith("delimiter_from_extension:a.psv -> '|'")

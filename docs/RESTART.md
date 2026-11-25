@@ -4,7 +4,7 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-24 - staging = post221 (main a3ad97f); feature = post221 + docs; dev STOPPED on post194)
+## Start here (2026-11-25 - staging = post223 (main 00ac166); feature = post223 + docs; dev STOPPED on post194)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
@@ -13,14 +13,19 @@ AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
 OAuth login (recipe below; a login code expires in minutes - paste the `localhost:8020`
 URL back at once). A restored checkout comes back on `main` (the staging copy of this
 file): read RESTART AFTER the bootstrap. `git fetch` - `origin/feature/multi-table` =
-post220 + docs (no wip branches).
-- **staging `codegen-agent-staging` = post221** (`main` = a3ad97f, 2026-11-24; before: post220 13cd550, post218 05f9139; post217 = 3fb28aa first, one change per deploy; identical-tree merges,
+post223 + docs (no wip branches).
+- **staging `codegen-agent-staging` = post223** (`main` = 00ac166, 2026-11-25; before: post221 a3ad97f, post220 13cd550, post218 05f9139; post217 = 3fb28aa first, one change per deploy; identical-tree merges,
   2026-11-23; health + smoke green; the proxy's `x-forwarded-email` reaches the App).
   **dev `codegen-agent`:** STOPPED on post194 (starting it bills compute - Soham's call).
-- **The last session (2026-11-24): post220 (the audit columns' standard COMMENTs) built
-  on Soham's yes and shipped to staging with post219; P4 measured (no code change)** -
-  what it did: CHANGELOG_ACFC, `docs/acfc/P4_QUESTION_COUNT_2026-11-24.md`;
-  why / decisions: CLAUDE_HISTORY §[H32] (the session before: §[H31]). Every shipped version: both suites green on the pushed tree, the
+- **The last session (2026-11-25): post222 + post223 (the reader inventory) built and
+  shipped to staging; WSR / tracker / time-savings deck; a bug scan (no live bug)** -
+  what it did: CHANGELOG_ACFC + the two bullets below; why / decisions: CLAUDE_HISTORY
+  §[H33] (the sessions before: §[H32], §[H31]). **Thanksgiving (Soham's call, open):**
+  advice given - stop the coding App; keep staging up Thu-Fri (ACFC's global staff; no
+  tester upload was ever on a Sat / Sun, 2026-11-10..24), a weekend stop saves ~$20; after
+  a restart check health = post223 + the smoke.
+  **Waiting on:** the testers' re-runs of post217-223; the first tester's measured hours
+  (asked 2026-11-25) -> the delegation sheet + the time-savings deck. Every shipped version: both suites green on the pushed tree, the
   pair check alone where output can move. SINCE 2026-11-23 it runs pairs 1-17 by default
   (1-12 + the tester pairs 13-17, Workspace `frd_sttm_pairs`): outcomes 7
   PASS_WITH_OPEN_INPUTS, 6 NEEDS_ANSWERS, 2 GATE_FAIL, 2 FAIL (1-12 as always 5 / 3 / 2 / 2;
@@ -35,7 +40,7 @@ post220 + docs (no wip branches).
   client text - chat + /tmp only). Office Scripts compile stricter than tsc
   (`tools/tracker/README.md`, `check_office_script.py`).
 - **Docs out:** the user manual = Workspace `code-gen-agent-documentation.docx`; the WSR
-  deck `AI_in_Engineering_ WSR_Nov 20.pptx`; model comparisons = `docs/MODEL_COMPARISON.md`.
+  deck `AI_in_Engineering_ WSR_Nov 27.pptx` (slides 4 / 6 updated 2026-11-25); model comparisons = `docs/MODEL_COMPARISON.md`.
   The note to Nikshit / Raj on feedback triage and the 11/23 report: sent 2026-11-23.
   Text Soham pastes goes in a code block, short, one line per item, no blank lines.
 - **post222 + post223 ON STAGING 2026-11-25 (main 00ac166, health + smoke green):** post222 = one

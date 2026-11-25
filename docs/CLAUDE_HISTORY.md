@@ -5573,7 +5573,7 @@ cross-module imports; 4 modules over 2.8k lines; dead code kept by rule.
   first tester already told). AGENTS.md: an answer key is client text (the slip above).
 
 
-## §[H33] Session 2026-11-25: container reset, WSR / tracker / time-savings deck, a bug scan (no code change)
+## §[H33] Session 2026-11-25: container reset, WSR / tracker / time-savings deck, a bug scan, post222 + post223 (staging)
 
 - **Reset:** `~/bootstrap` (venvs, Chromium, hooks, switched main -> feature) and the
   OAuth login (one code expired: the login was restarted - never `pkill -f` a pattern
@@ -5593,3 +5593,24 @@ cross-module imports; 4 modules over 2.8k lines; dead code kept by rule.
   `NeedsAnswersPanel` (by feed + sheet), never in `questionCards`; the tag has no visible
   effect, left as is. Lesson: trace the render path before calling a UI bug confirmed.
   Latent notes in RESTART (the reject suffix set twice; the archive rewrite unflagged).
+- **The tracker script ran** (Soham, 2026-11-25): #11 #13 #18 #19 #20 Resolved, #3
+  re-opened, #5 #7 update lines.
+- **The reader inventory** (READER_GENERALIZATION §5 "value normalisers: file format,
+  decimal"; measured on pairs 1-17 BEFORE building, counts only, words masked to the
+  config vocabulary): the decimal normaliser would reach nothing (no non-Spark decimal in
+  the stage / standard layers; source types go only to the VDD check) - NOT built. The
+  four fixed-width deciders (two token lists; `_notebook_kind` ignores a blank delimiter)
+  agree on every pair; the no-delimiter difference is tracker #9 / #10's - left. Two real
+  findings, each its own version:
+  - **post222:** `sql_type` refused "BIG INT" that post213's `_is_data_type` accepted (the
+    DDL would write `BIG INT`, unmapped) - the rule moved into `sql_type`, the extractor
+    asks it. No artefact moved (pair_09 FAILs before the DDL).
+  - **post223:** a stated delimiter the FRD format / a file extension contradicts was never
+    named (pair_02: `.psv` + the STTM's "Comma") - `delimiter_implied_differs:` flag; the
+    stated value still wins. Reach: one report line on pair_02.
+  - Both: tests failing with only the fix reverted (10 / 3), both suites green on the
+    committed tree (2807 / 2440; 2814 / 2447), the pair check alone each, CI green;
+    shipped together to staging (`main` 00ac166, health + smoke green) on Soham's word.
+- **Asked:** Thanksgiving - advised stopping the coding App and keeping staging up Thu-Fri
+  (no weekend upload ever; ACFC's global staff work Thu / Fri; ~$0.40 / h per Medium App).
+  Soham's call, not recorded as decided.

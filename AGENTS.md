@@ -177,7 +177,11 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   check in notebook mode (`PAIR_CHECK_MODE=notebook tools/check/pair_check.sh run`).
   Reproduce a tester's bug on THEIR documents first (mock, /tmp); a pair worth keeping
   for re-tests goes to the Workspace `frd_sttm_pairs/pair_<n>` with a README (pair_13 =
-  2026-11-16), never the repo.
+  2026-11-16), never the repo. A UI bug found by reading code is confirmed only after
+  tracing which component renders that item (2026-11-25: a "From the FRD" label claimed
+  from `questionCards` - those questions render in `NeedsAnswersPanel`). A generic reader
+  (a normaliser) is built only after measuring what it would reach on the pairs (counts,
+  words masked) - 2026-11-25's decimal normaliser reached nothing and was not built.
 - **Never loosen a guard to make a run pass** (2026-11-19: a "no crash" change let a
   non-type cell past post158's pentest guard; the suite caught it): catch the input
   earlier - a question for that cell - and leave the guard and its tests as they are.

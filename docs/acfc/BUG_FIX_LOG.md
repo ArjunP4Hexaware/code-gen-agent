@@ -43,7 +43,9 @@ number.
   returned: a `delimiter_implied_differs:` flag per FRD format / file pattern whose
   implied character (`extractor.format_delimiters`) differs. Why a pass: none - post204's
   one table, read once more.
-- **Reach:** (filled before the push)
+- **Reach:** pair check 1-17 vs post222 (framework, mock): outcomes unchanged (7 / 6 / 2 /
+  2); ONE report line on pair_02 (the `.psv` feed's flag); no other pair flagged; no IIG,
+  DDL or test-case file moved.
 - **Side effects:** none expected beyond the flag (gate flags only; a flagged feed is
   PASS_WITH_FLAGS already).
 - **Unchanged:** the delimiter used (the stated one); answers (post126 returns first);
@@ -52,7 +54,8 @@ number.
   `resolver.py` (the other 4 assert no flag); `test_sd_scorecard_rules::
   test_the_resolver_writes_the_character_and_flags_the_extension` now expects the flag
   for a stated pipe on a `.csv` pattern.
-- **Verified:** (filled before the push)
+- **Verified:** `.venv` 2814 passed, `.venv-d1` 2447 passed (the committed tree); the pair
+  check above.
 - **Revert:** drop the `_flag_implied_delimiter` call in `_resolve_delimiter` (and the
   function) and the test's expectation.
 - **Deployed:** not yet

@@ -38,10 +38,19 @@ post220 + docs (no wip branches).
   deck `AI_in_Engineering_ WSR_Nov 20.pptx`; model comparisons = `docs/MODEL_COMPARISON.md`.
   The note to Nikshit / Raj on feedback triage and the 11/23 report: sent 2026-11-23.
   Text Soham pastes goes in a code block, short, one line per item, no blank lines.
+- **post222 + post223 PUSHED 2026-11-25, NOT on staging (Soham's word):** post222 = one
+  data-type rule (`sql_type` reads "BIG INT"; `_is_data_type` asks it - pair_09's 8 cells;
+  no artefact moved); post223 = a stated delimiter that the format / a file extension
+  contradicts gets `delimiter_implied_differs:` (pair_02's `.psv` + "Comma"; one report
+  line, nothing else). Both suites green on each (2807 / 2440; 2814 / 2447), pair check
+  1-17 alone each. The decimal normaliser was NOT built: measured, no pair states a
+  non-Spark decimal in the stage / standard layers (source types go only to the VDD check).
+  The fixed-width readers (4 copies, two token lists) agree on every pair; their
+  no-delimiter difference is tracker #9 / #10's question - left for that decision.
 - **2026-11-25 (no code change; CLAUDE_HISTORY §[H33]):** the Nov 27 WSR deck's CodeGen
   boxes (slides 4 / 6) updated; the tracker update script given (8 rows: #11 #13 #18 #19
   #20 Resolved, #3 re-opened - stage / stage-reject TBLPROPERTIES, #5 #7 update lines;
-  confirm Soham ran it); a time-savings deck from the delegation sheet = Workspace
+  Soham ran it 2026-11-25); a time-savings deck from the delegation sheet = Workspace
   `CodeGen_Agent_Time_Savings.pptx` (69 / 49 / 40 h per feed; regenerate when the testers'
   measured hours arrive - the builder was /tmp only). The efficiency sheet =
   Workspace `STTM_to_Artefacts_Agent_Delegation (1).xlsx` (still says "BSA review copy" /

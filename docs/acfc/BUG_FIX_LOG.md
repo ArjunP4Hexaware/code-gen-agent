@@ -43,8 +43,9 @@ number.
 - **Change:** `emit/context.py :: sql_type` maps a keyword whose spaces removed is in
   `_SQL_TYPES`; `extract/generic.py :: _is_data_type` = one `sql_type` call. Why a pass:
   none - the rule moved to the one reader.
-- **Reach:** pair check 1-17 vs post221: see "Verified" (expected: none - pair_09 does not
-  reach the DDL).
+- **Reach:** pair check 1-17 vs post221 (framework, mock): outcomes unchanged (7 / 6 / 2 /
+  2), no artefact change - pair_09 does not reach the DDL; the 17 report "Produced by"
+  lines = each side's code path.
 - **Side effects:** the notebook path (`context.sql_type` for stage / audit / standard
   types) reads the same spellings.
 - **Unchanged:** post158's type-spelling guard; a note ("Derived") is still a question; a
@@ -52,7 +53,8 @@ number.
   refused; `_SQL_TYPES` (no new type, no alias).
 - **Tests:** `tests/test_spaced_type_post222.py` (20) - 10 failed with HEAD's
   `context.py` + `generic.py`.
-- **Verified:** (filled before the push)
+- **Verified:** `.venv` 2807 passed, `.venv-d1` 2440 passed (the committed tree); the pair
+  check above.
 - **Revert:** restore `sql_type`'s single lookup and `_is_data_type`'s spelling loop.
 - **Deployed:** not yet
 

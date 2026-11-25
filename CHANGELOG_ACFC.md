@@ -4,6 +4,25 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post222 — 2026-11-25 (one data-type rule for the extractor and the DDL)
+
+From the reader inventory of 2026-11-25 (`docs/acfc/READER_GENERALIZATION.md` §5, one
+value reader per type): post213 accepted a standard type spelled with spaces ("BIG INT",
+pair_09's 8 cells) as a type, but the DDL's own reader `emit.context.sql_type` refused it -
+the standard column was written as stated (`BIG INT`, no Databricks type) and flagged
+`standard_type_unmapped`.
+- `emit.context.sql_type`: a keyword that maps once its spaces are removed is that type
+  (`BIG INT` -> BIGINT, `time stamp` -> TIMESTAMP); a note, `date time` or `double
+  precision` still maps to nothing.
+- `extract.generic._is_data_type` asks `sql_type` once (its own space retry is gone), so
+  the extractor and the DDL can never disagree on a spelling.
+- Measured on pairs 1-17: every other stage / standard type cell already read; no pair
+  states `Numeric(...)` / `Number(...)` / `Decimal(p)` in those layers, so no decimal
+  normaliser is built (a source type is read only by the VDD check).
+
+Tests: `tests/test_spaced_type_post222.py` (20; 10 failed with the fix reverted). Pair
+check 1-17 vs post221: BUG_FIX_LOG post222.
+
 ## 0.5.8.post221 — 2026-11-24 (identical non-type standard type cells: ONE question)
 
 P4 (`docs/acfc/P4_QUESTION_COUNT_2026-11-24.md`) found pair_17 asking post213's

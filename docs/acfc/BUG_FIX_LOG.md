@@ -29,6 +29,33 @@ number.
 
 ---
 
+## 0.5.8.post222 — a type spelled with spaces passed the extractor but not the DDL
+
+- **Symptom:** none seen by a user yet: pair_09's 8 standard type cells spelled with a
+  space ("BIG INT") pass the extractor (post213) but `sql_type` refuses them; a feed that
+  reached the DDL would get the column written as stated (`BIG INT`, not a Databricks
+  type) + `standard_type_unmapped`, and a notebook render would stop at `sql_type`
+  (BUG_FIX_LOG post213: "Known, not new"). pair_09 FAILs before the DDL today.
+- **Reproduced:** the reader inventory 2026-11-25 (pairs 1-17, mock, counts only): 8 of
+  the 4,654 standard type cells refused by `sql_type`, all this spelling.
+- **Root cause:** two rules for one question - `extract/generic.py :: _is_data_type`
+  retried the text without spaces, `emit/context.py :: sql_type` did not.
+- **Change:** `emit/context.py :: sql_type` maps a keyword whose spaces removed is in
+  `_SQL_TYPES`; `extract/generic.py :: _is_data_type` = one `sql_type` call. Why a pass:
+  none - the rule moved to the one reader.
+- **Reach:** pair check 1-17 vs post221: see "Verified" (expected: none - pair_09 does not
+  reach the DDL).
+- **Side effects:** the notebook path (`context.sql_type` for stage / audit / standard
+  types) reads the same spellings.
+- **Unchanged:** post158's type-spelling guard; a note ("Derived") is still a question; a
+  spelling that collapses to no known type ("date time", "double precision") is still
+  refused; `_SQL_TYPES` (no new type, no alias).
+- **Tests:** `tests/test_spaced_type_post222.py` (20) - 10 failed with HEAD's
+  `context.py` + `generic.py`.
+- **Verified:** (filled before the push)
+- **Revert:** restore `sql_type`'s single lookup and `_is_data_type`'s spelling loop.
+- **Deployed:** not yet
+
 ## 0.5.8.post221 — P4: one STTM asked the same standard-type question 34 times
 
 - **Symptom:** pair_17 (a staging upload) is held back on 34 `feeds[i].columns[j].

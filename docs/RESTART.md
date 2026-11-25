@@ -4,7 +4,7 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 `AGENTS.md`, the rules file - `CLAUDE.md` until 2026-11-03). What each version did: `CHANGELOG_ACFC.md`.
 
-## Start here (2026-11-24 - staging = post220 (main 13cd550); feature = post221 (pushed, NOT on staging); dev STOPPED on post194)
+## Start here (2026-11-24 - staging = post221 (main a3ad97f); feature = post221 + docs; dev STOPPED on post194)
 
 **Who uses the agent: a data engineer, not a BSA** (the CodeGen Data Engineer Agent;
 AGENTS.md "Purpose") - write App text, review notes and manuals for that reader.
@@ -14,7 +14,7 @@ OAuth login (recipe below; a login code expires in minutes - paste the `localhos
 URL back at once). A restored checkout comes back on `main` (the staging copy of this
 file): read RESTART AFTER the bootstrap. `git fetch` - `origin/feature/multi-table` =
 post220 + docs (no wip branches).
-- **staging `codegen-agent-staging` = post220** (`main` = 13cd550, 2026-11-24; before: post218 05f9139; post217 = 3fb28aa first, one change per deploy; identical-tree merges,
+- **staging `codegen-agent-staging` = post221** (`main` = a3ad97f, 2026-11-24; before: post220 13cd550, post218 05f9139; post217 = 3fb28aa first, one change per deploy; identical-tree merges,
   2026-11-23; health + smoke green; the proxy's `x-forwarded-email` reaches the App).
   **dev `codegen-agent`:** STOPPED on post194 (starting it bills compute - Soham's call).
 - **The last session (2026-11-24): post220 (the audit columns' standard COMMENTs) built
@@ -38,6 +38,26 @@ post220 + docs (no wip branches).
   deck `AI_in_Engineering_ WSR_Nov 20.pptx`; model comparisons = `docs/MODEL_COMPARISON.md`.
   The note to Nikshit / Raj on feedback triage and the 11/23 report: sent 2026-11-23.
   Text Soham pastes goes in a code block, short, one line per item, no blank lines.
+- **post222 + post223 PUSHED 2026-11-25, NOT on staging (Soham's word):** post222 = one
+  data-type rule (`sql_type` reads "BIG INT"; `_is_data_type` asks it - pair_09's 8 cells;
+  no artefact moved); post223 = a stated delimiter that the format / a file extension
+  contradicts gets `delimiter_implied_differs:` (pair_02's `.psv` + "Comma"; one report
+  line, nothing else). Both suites green on each (2807 / 2440; 2814 / 2447), pair check
+  1-17 alone each. The decimal normaliser was NOT built: measured, no pair states a
+  non-Spark decimal in the stage / standard layers (source types go only to the VDD check).
+  The fixed-width readers (4 copies, two token lists) agree on every pair; their
+  no-delimiter difference is tracker #9 / #10's question - left for that decision.
+- **2026-11-25 (no code change; CLAUDE_HISTORY §[H33]):** the Nov 27 WSR deck's CodeGen
+  boxes (slides 4 / 6) updated; the tracker update script given (8 rows: #11 #13 #18 #19
+  #20 Resolved, #3 re-opened - stage / stage-reject TBLPROPERTIES, #5 #7 update lines;
+  Soham ran it 2026-11-25); a time-savings deck from the delegation sheet = Workspace
+  `CodeGen_Agent_Time_Savings.pptx` (69 / 49 / 40 h per feed; regenerate when the testers'
+  measured hours arrive - the builder was /tmp only). The efficiency sheet =
+  Workspace `STTM_to_Artefacts_Agent_Delegation (1).xlsx` (still says "BSA review copy" /
+  `metadata_inserts.sql`). Bug scan of post212-221: both suites green, no live bug; kept
+  in mind: the reject table's suffix is set twice (`standard_reject_table.suffix` vs
+  iig_v2 `reject_table_suffix`; iig_v1 = `_errors`) - fold into the #18 re-decision;
+  the stated archive path's environment rewrite raises no mismatch flag (0 of 17 pairs).
 
 **Open, in order:**
 -8. **post220 (a standard COMMENT for each audit column; the tester's request, Soham's
@@ -60,7 +80,9 @@ post220 + docs (no wip branches).
    run's blocking keys 23 -> 57, all of it pair_17's 34 post213 standard-type questions
    on cells with ONE identical text -> **post221 groups them (Soham's word): pair_17
    34 -> 1, open 38 -> 5; both suites green (2787 / 2420); pair check: only pair_17
-   moved. PUSHED, NOT on staging (Soham's word).** The numbers go in the next report.
+   moved. ON STAGING (a3ad97f, health + smoke green).** The numbers go in the next report.
+   The testers' note on post221 (+ post220's audit comments) drafted for Soham
+   2026-11-24 - their re-runs are the check; feedback sorted before any code.
 -6. **post219 (the review's dead `fieldname` synonym) - ON STAGING with post220 (13cd550):** both suites
    green (2777 / 2410); pair check 1-17 vs post218: same outcomes, no artefact change (17
    report .md lines = the "Produced by" code path). Shipped 2026-11-24 with post220

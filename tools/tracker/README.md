@@ -27,6 +27,11 @@ in array method callbacks", line 35 / line 55 - a named function passed to `filt
   `some`, `every`, `find`, `findIndex`, `forEach`, `reduce`, `sort`.
 - **No `function (x) {...}` expressions as callbacks** - arrows only.
 - **No `any`** (explicit or implied) - give every parameter a type.
+- **Keep every line under ~72 characters** (2026-11-25: "Unterminated string literal" on
+  every long string). Not a compiler rule: copying a script out of the terminal turns
+  its soft wraps into real line breaks, which split string literals. Build long text
+  from short pieces (`parts: [...]` joined with `" "`); check with
+  `awk 'length > 72' <script>.ts`.
 
 **Before handing a script over, run both checks:**
 

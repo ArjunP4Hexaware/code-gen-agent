@@ -185,7 +185,10 @@ def sql_type(contract_datatype: str) -> str:
     decimal = _DECIMAL_RE.match(normalized)
     if decimal:
         return f"DECIMAL({decimal.group(1)},{decimal.group(2)})"
-    mapped = _SQL_TYPES.get(normalized.lower())
+    # post222: a type spelled with spaces inside it ("BIG INT", pair_09's) is that type -
+    # the ONE rule; the extractor's "is this a data type?" (post213) asks this function
+    mapped = (_SQL_TYPES.get(normalized.lower())
+              or _SQL_TYPES.get(re.sub(r"\s+", "", normalized).lower()))
     if mapped is None:
         # quotes the STTM datatype cell; the caller's coordinates stand
         raise located(TemplateGapError(

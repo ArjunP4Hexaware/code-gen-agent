@@ -29,6 +29,66 @@ number.
 
 ---
 
+## 0.5.8.post223 — a stated delimiter the file's extension contradicts went unflagged
+
+- **Symptom:** pair_02: one feed's file pattern is a `.psv` (pipe-separated) file, the IIG's
+  SRC_FILE_DELIMITER is `,` (the STTM states "Comma"); nothing in the report or review
+  copy says the two disagree.
+- **Reproduced:** the reader inventory 2026-11-25 (pairs 1-17, mock, counts only: the
+  ADLS SRC_FORMAT / SRC_FILE_DELIMITER of every IIG).
+- **Root cause:** `resolve/resolver.py :: _resolve_delimiter` consults the format /
+  extension table only when no document states a delimiter; a stated one was returned
+  without comparing it to what the format / extension implies.
+- **Change:** `_flag_implied_delimiter` (new), called before a stated delimiter is
+  returned: a `delimiter_implied_differs:` flag per FRD format / file pattern whose
+  implied character (`extractor.format_delimiters`) differs. Why a pass: none - post204's
+  one table, read once more.
+- **Reach:** pair check 1-17 vs post222 (framework, mock): outcomes unchanged (7 / 6 / 2 /
+  2); ONE report line on pair_02 (the `.psv` feed's flag); no other pair flagged; no IIG,
+  DDL or test-case file moved.
+- **Side effects:** none expected beyond the flag (gate flags only; a flagged feed is
+  PASS_WITH_FLAGS already).
+- **Unchanged:** the delimiter used (the stated one); answers (post126 returns first);
+  fixed-width and table sources; extensions with no implied delimiter.
+- **Tests:** `tests/test_implied_delimiter_post223.py` (7) - 3 failed with HEAD's
+  `resolver.py` (the other 4 assert no flag); `test_sd_scorecard_rules::
+  test_the_resolver_writes_the_character_and_flags_the_extension` now expects the flag
+  for a stated pipe on a `.csv` pattern.
+- **Verified:** `.venv` 2814 passed, `.venv-d1` 2447 passed (the committed tree); the pair
+  check above.
+- **Revert:** drop the `_flag_implied_delimiter` call in `_resolve_delimiter` (and the
+  function) and the test's expectation.
+- **Deployed:** not yet
+
+## 0.5.8.post222 — a type spelled with spaces passed the extractor but not the DDL
+
+- **Symptom:** none seen by a user yet: pair_09's 8 standard type cells spelled with a
+  space ("BIG INT") pass the extractor (post213) but `sql_type` refuses them; a feed that
+  reached the DDL would get the column written as stated (`BIG INT`, not a Databricks
+  type) + `standard_type_unmapped`, and a notebook render would stop at `sql_type`
+  (BUG_FIX_LOG post213: "Known, not new"). pair_09 FAILs before the DDL today.
+- **Reproduced:** the reader inventory 2026-11-25 (pairs 1-17, mock, counts only): 8 of
+  the 4,654 standard type cells refused by `sql_type`, all this spelling.
+- **Root cause:** two rules for one question - `extract/generic.py :: _is_data_type`
+  retried the text without spaces, `emit/context.py :: sql_type` did not.
+- **Change:** `emit/context.py :: sql_type` maps a keyword whose spaces removed is in
+  `_SQL_TYPES`; `extract/generic.py :: _is_data_type` = one `sql_type` call. Why a pass:
+  none - the rule moved to the one reader.
+- **Reach:** pair check 1-17 vs post221 (framework, mock): outcomes unchanged (7 / 6 / 2 /
+  2), no artefact change - pair_09 does not reach the DDL; the 17 report "Produced by"
+  lines = each side's code path.
+- **Side effects:** the notebook path (`context.sql_type` for stage / audit / standard
+  types) reads the same spellings.
+- **Unchanged:** post158's type-spelling guard; a note ("Derived") is still a question; a
+  spelling that collapses to no known type ("date time", "double precision") is still
+  refused; `_SQL_TYPES` (no new type, no alias).
+- **Tests:** `tests/test_spaced_type_post222.py` (20) - 10 failed with HEAD's
+  `context.py` + `generic.py`.
+- **Verified:** `.venv` 2807 passed, `.venv-d1` 2440 passed (the committed tree); the pair
+  check above.
+- **Revert:** restore `sql_type`'s single lookup and `_is_data_type`'s spelling loop.
+- **Deployed:** not yet
+
 ## 0.5.8.post221 — P4: one STTM asked the same standard-type question 34 times
 
 - **Symptom:** pair_17 (a staging upload) is held back on 34 `feeds[i].columns[j].
@@ -62,7 +122,7 @@ number.
 - **Verified:** both suites green on d49d32f (.venv 2787 / 62 skipped; .venv-d1 2420 /
   139); the pair check above.
 - **Revert:** revert the commit (the per-cell questions return).
-- **Deployed:** dev not yet (STOPPED); staging not yet (Soham's word).
+- **Deployed:** dev not yet (STOPPED); staging a3ad97f 2026-11-24 (health post221, smoke green).
 
 ## 0.5.8.post220 — a staging data engineer's request: a standard COMMENT for each audit column
 

@@ -84,7 +84,9 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   (`s/[A-Za-z0-9_]+/w/g`), never prints profile keys or file names raw - client file names
   contain SPACES, so a mask on `[^ ]+\.docx` leaks them (2026-11-23): mask every word of the
   line (or every word not found in the repo's own `src/` / `config/` - those are
-  already public; 2026-11-24), or print counts only. `scripts/scrub_check.py` must report zero NEW
+  already public; 2026-11-24), or print counts only. An answer KEY is client text too
+  (`<sheet>/<layer>/<role>` and `sheets[...]` keys carry the STTM's sheet name): print
+  its pattern (`[n]` for indices, the sheet masked), never the key raw (2026-11-24). `scripts/scrub_check.py` must report zero NEW
   hits over tracked files (`docs/acfc/LEAK_LEDGER.md` holds the known ones;
   `tests/test_tracked_scrub.py`). Client terms never in the repo — the leak gate
   (`codegen.leakgate`) reads its denylist from the state volume.
